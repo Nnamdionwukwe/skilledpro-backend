@@ -15,7 +15,7 @@ import reviewRoutes from "./routes/review.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const app = express();
 

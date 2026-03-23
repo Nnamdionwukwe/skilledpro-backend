@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config({ override: true });
 import app from "./src/app.js";
 import { createServer } from "http";
 import { initSocket } from "./src/socket/index.js";

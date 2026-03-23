@@ -4,8 +4,10 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+const connectionString = "postgresql://postgres:fEWRzooUrCKKwRPHStLWAoJFCMtfRhyF@centerbeam.proxy.rlwy.net:17141/railway";
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
   ssl: false,
 });
 
