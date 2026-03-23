@@ -1,5 +1,7 @@
-generator client {
+python3 << 'PYEOF'
+schema = '''generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -39,46 +41,46 @@ enum VerificationStatus {
 }
 
 model User {
-  id                String             @id @default(uuid())
-  email             String             @unique
-  phone             String?            @unique
-  password          String
-  role              Role
-  firstName         String
-  lastName          String
-  avatar            String?
-  bio               String?
-  country           String?
-  city              String?
-  state             String?
-  address           String?
-  latitude          Float?
-  longitude         Float?
-  currency          String             @default("USD")
-  language          String             @default("en")
-  isEmailVerified   Boolean            @default(false)
-  isPhoneVerified   Boolean            @default(false)
-  isActive          Boolean            @default(true)
-  isBanned          Boolean            @default(false)
-  emailVerifyToken  String?
-  passwordResetToken String?
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  phone               String?            @unique
+  password            String
+  role                Role
+  firstName           String
+  lastName            String
+  avatar              String?
+  bio                 String?
+  country             String?
+  city                String?
+  state               String?
+  address             String?
+  latitude            Float?
+  longitude           Float?
+  currency            String             @default("USD")
+  language            String             @default("en")
+  isEmailVerified     Boolean            @default(false)
+  isPhoneVerified     Boolean            @default(false)
+  isActive            Boolean            @default(true)
+  isBanned            Boolean            @default(false)
+  emailVerifyToken    String?
+  passwordResetToken  String?
   passwordResetExpiry DateTime?
-  refreshToken      String?
-  lastSeen          DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  refreshToken        String?
+  lastSeen            DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  workerProfile     WorkerProfile?
-  hirerProfile      HirerProfile?
-  bookingsAsHirer   Booking[]          @relation("HirerBookings")
-  bookingsAsWorker  Booking[]          @relation("WorkerBookings")
-  reviewsGiven      Review[]           @relation("ReviewsGiven")
-  reviewsReceived   Review[]           @relation("ReviewsReceived")
-  sentMessages      Message[]          @relation("SentMessages")
-  receivedMessages  Message[]          @relation("ReceivedMessages")
-  conversations     ConversationUser[]
-  notifications     Notification[]
-  payments          Payment[]
+  workerProfile    WorkerProfile?
+  hirerProfile     HirerProfile?
+  bookingsAsHirer  Booking[]          @relation("HirerBookings")
+  bookingsAsWorker Booking[]          @relation("WorkerBookings")
+  reviewsGiven     Review[]           @relation("ReviewsGiven")
+  reviewsReceived  Review[]           @relation("ReviewsReceived")
+  sentMessages     Message[]          @relation("SentMessages")
+  receivedMessages Message[]          @relation("ReceivedMessages")
+  conversations    ConversationUser[]
+  notifications    Notification[]
+  payments         Payment[]
 }
 
 model WorkerProfile {
@@ -103,24 +105,24 @@ model WorkerProfile {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  categories         WorkerCategory[]
-  portfolio          Portfolio[]
-  certifications     Certification[]
-  availability       Availability[]
+  categories     WorkerCategory[]
+  portfolio      Portfolio[]
+  certifications Certification[]
+  availability   Availability[]
 }
 
 model HirerProfile {
-  id           String   @id @default(uuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  companyName  String?
-  companySize  String?
-  website      String?
-  totalSpent   Float    @default(0)
-  totalHires   Int      @default(0)
-  avgRating    Float    @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String?
+  companySize String?
+  website     String?
+  totalSpent  Float    @default(0)
+  totalHires  Int      @default(0)
+  avgRating   Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Category {
@@ -182,53 +184,53 @@ model Availability {
 }
 
 model Booking {
-  id            String        @id @default(uuid())
-  hirerId       String
-  hirer         User          @relation("HirerBookings", fields: [hirerId], references: [id])
-  workerId      String
-  worker        User          @relation("WorkerBookings", fields: [workerId], references: [id])
-  categoryId    String
-  category      Category      @relation(fields: [categoryId], references: [id])
-  title         String
-  description   String
-  address       String
-  latitude      Float?
-  longitude     Float?
-  scheduledAt   DateTime
+  id             String        @id @default(uuid())
+  hirerId        String
+  hirer          User          @relation("HirerBookings", fields: [hirerId], references: [id])
+  workerId       String
+  worker         User          @relation("WorkerBookings", fields: [workerId], references: [id])
+  categoryId     String
+  category       Category      @relation(fields: [categoryId], references: [id])
+  title          String
+  description    String
+  address        String
+  latitude       Float?
+  longitude      Float?
+  scheduledAt    DateTime
   estimatedHours Float?
-  agreedRate    Float
-  currency      String
-  status        BookingStatus @default(PENDING)
-  notes         String?
-  checkInAt     DateTime?
-  checkOutAt    DateTime?
-  completedAt   DateTime?
-  cancelReason  String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  agreedRate     Float
+  currency       String
+  status         BookingStatus @default(PENDING)
+  notes          String?
+  checkInAt      DateTime?
+  checkOutAt     DateTime?
+  completedAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  payment       Payment?
-  review        Review?
-  conversation  Conversation?
+  payment      Payment?
+  review       Review?
+  conversation Conversation?
 }
 
 model Payment {
-  id              String        @id @default(uuid())
-  bookingId       String        @unique
-  booking         Booking       @relation(fields: [bookingId], references: [id])
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  amount          Float
-  currency        String
-  platformFee     Float
-  workerPayout    Float
-  status          PaymentStatus @default(PENDING)
-  provider        String
-  providerRef     String?
+  id               String        @id @default(uuid())
+  bookingId        String        @unique
+  booking          Booking       @relation(fields: [bookingId], references: [id])
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  amount           Float
+  currency         String
+  platformFee      Float
+  workerPayout     Float
+  status           PaymentStatus @default(PENDING)
+  provider         String
+  providerRef      String?
   escrowReleasedAt DateTime?
-  refundedAt      DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  refundedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 model Review {
@@ -251,8 +253,8 @@ model Conversation {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
-  users     ConversationUser[]
-  messages  Message[]
+  users    ConversationUser[]
+  messages Message[]
 }
 
 model ConversationUser {
@@ -289,4 +291,11 @@ model Notification {
   data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-}
+}'''
+
+with open('prisma/schema.prisma', 'w') as f:
+    f.write(schema)
+
+print("✅ Schema written successfully!")
+print(f"Lines: {len(schema.splitlines())}")
+PYEOF

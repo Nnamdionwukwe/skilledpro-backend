@@ -1,13 +1,292 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  HIRER
+  WORKER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model User {
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  phone               String?            @unique
+  password            String
+  role                Role
+  firstName           String
+  lastName            String
+  avatar              String?
+  bio                 String?
+  country             String?
+  city                String?
+  state               String?
+  address             String?
+  latitude            Float?
+  longitude           Float?
+  currency            String             @default("USD")
+  language            String             @default("en")
+  isEmailVerified     Boolean            @default(false)
+  isPhoneVerified     Boolean            @default(false)
+  isActive            Boolean            @default(true)
+  isBanned            Boolean            @default(false)
+  emailVerifyToken    String?
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
+  refreshToken        String?
+  lastSeen            DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  workerProfile    WorkerProfile?
+  hirerProfile     HirerProfile?
+  bookingsAsHirer  Booking[]          @relation("HirerBookings")
+  bookingsAsWorker Booking[]          @relation("WorkerBookings")
+  reviewsGiven     Review[]           @relation("ReviewsGiven")
+  reviewsReceived  Review[]           @relation("ReviewsReceived")
+  sentMessages     Message[]          @relation("SentMessages")
+  receivedMessages Message[]          @relation("ReceivedMessages")
+  conversations    ConversationUser[]
+  notifications    Notification[]
+  payments         Payment[]
+}
+
+model WorkerProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  hourlyRate         Float
+  currency           String             @default("USD")
+  yearsExperience    Int                @default(0)
+  serviceRadius      Int                @default(25)
+  isAvailable        Boolean            @default(true)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  idDocument         String?
+  backgroundCheck    Boolean            @default(false)
+  totalEarnings      Float              @default(0)
+  completedJobs      Int                @default(0)
+  responseRate       Float              @default(0)
+  avgRating          Float              @default(0)
+  totalReviews       Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  categories     WorkerCategory[]
+  portfolio      Portfolio[]
+  certifications Certification[]
+  availability   Availability[]
+}
+
+model HirerProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String?
+  companySize String?
+  website     String?
+  totalSpent  Float    @default(0)
+  totalHires  Int      @default(0)
+  avgRating   Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Category {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  slug        String           @unique
+  description String?
+  icon        String?
+  parentId    String?
+  parent      Category?        @relation("SubCategories", fields: [parentId], references: [id])
+  children    Category[]       @relation("SubCategories")
+  workers     WorkerCategory[]
+  bookings    Booking[]
+  createdAt   DateTime         @default(now())
+}
+
+model WorkerCategory {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id])
+  isPrimary       Boolean       @default(false)
+
+  @@unique([workerProfileId, categoryId])
+}
+
+model Portfolio {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  imageUrl        String
+  createdAt       DateTime      @default(now())
+}
+
+model Certification {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  name            String
+  issuedBy        String
+  issueDate       DateTime?
+  expiryDate      DateTime?
+  documentUrl     String?
+  verified        Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+}
+
+model Availability {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  dayOfWeek       Int
+  startTime       String
+  endTime         String
+  isAvailable     Boolean       @default(true)
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  hirerId        String
+  hirer          User          @relation("HirerBookings", fields: [hirerId], references: [id])
+  workerId       String
+  worker         User          @relation("WorkerBookings", fields: [workerId], references: [id])
+  categoryId     String
+  category       Category      @relation(fields: [categoryId], references: [id])
+  title          String
+  description    String
+  address        String
+  latitude       Float?
+  longitude      Float?
+  scheduledAt    DateTime
+  estimatedHours Float?
+  agreedRate     Float
+  currency       String
+  status         BookingStatus @default(PENDING)
+  notes          String?
+  checkInAt      DateTime?
+  checkOutAt     DateTime?
+  completedAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  payment      Payment?
+  review       Review?
+  conversation Conversation?
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  bookingId        String        @unique
+  booking          Booking       @relation(fields: [bookingId], references: [id])
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  amount           Float
+  currency         String
+  platformFee      Float
+  workerPayout     Float
+  status           PaymentStatus @default(PENDING)
+  provider         String
+  providerRef      String?
+  escrowReleasedAt DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  bookingId  String   @unique
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  giverId    String
+  giver      User     @relation("ReviewsGiven", fields: [giverId], references: [id])
+  receiverId String
+  receiver   User     @relation("ReviewsReceived", fields: [receiverId], references: [id])
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+}
+
+model Conversation {
+  id        String             @id @default(uuid())
+  bookingId String?            @unique
+  booking   Booking?           @relation(fields: [bookingId], references: [id])
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  users    ConversationUser[]
+  messages Message[]
+}
+
+model ConversationUser {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId     String
+  receiver       User         @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  content        String
+  fileUrl        String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
