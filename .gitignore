@@ -1,4 +1,11 @@
 
 /src/generated/prisma
-.env
 node_modules
+.env
+.env.local
+.env.production
+.env*.local
+node_modules/
+# Avatar uploads
+uploads/
+uploads/avatars/
