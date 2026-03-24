@@ -4,14 +4,22 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const connectionString = "postgresql://postgres:fEWRzooUrCKKwRPHStLWAoJFCMtfRhyF@centerbeam.proxy.rlwy.net:17141/railway";
+let prisma;
 
-const pool = new Pool({
-  connectionString,
-  ssl: false,
+function getPrisma() {
+  if (!prisma) {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: false,
+    });
+    const adapter = new PrismaPg(pool);
+    prisma = new PrismaClient({ adapter });
+  }
+  return prisma;
+}
+
+export default new Proxy({}, {
+  get(_, prop) {
+    return getPrisma()[prop];
+  }
 });
-
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
-
-export default prisma;

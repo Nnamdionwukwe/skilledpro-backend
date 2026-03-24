@@ -1,8 +1,6 @@
 import { Router } from "express";
+import { getCategories, getCategory } from "../controllers/category.controller.js";
 const router = Router();
-
-router.get("/test", (req, res) =>
-  res.json({ message: "Category routes working" }),
-);
-
+router.get("/", getCategories);
+router.get("/:slug", getCategory);
 export default router;

@@ -1,8 +1,14 @@
 import { Router } from "express";
+import { searchWorkers, getWorkerProfile, updateWorkerProfile, addPortfolio, deletePortfolio, addCertification, updateAvailability, addCategory } from "../controllers/worker.controller.js";
+import { protect, requireRole } from "../middleware/auth.middleware.js";
+import { uploadSingle } from "../middleware/upload.middleware.js";
 const router = Router();
-
-router.get("/test", (req, res) =>
-  res.json({ message: "Worker routes working" }),
-);
-
+router.get("/search", searchWorkers);
+router.get("/:userId", getWorkerProfile);
+router.put("/profile", protect, requireRole("WORKER"), updateWorkerProfile);
+router.post("/portfolio", protect, requireRole("WORKER"), uploadSingle, addPortfolio);
+router.delete("/portfolio/:id", protect, requireRole("WORKER"), deletePortfolio);
+router.post("/certifications", protect, requireRole("WORKER"), uploadSingle, addCertification);
+router.put("/availability", protect, requireRole("WORKER"), updateAvailability);
+router.post("/categories", protect, requireRole("WORKER"), addCategory);
 export default router;

@@ -1,6 +1,10 @@
 import { Router } from "express";
+import { getProfile, updateProfile, updateAvatar, deleteAccount } from "../controllers/user.controller.js";
+import { protect } from "../middleware/auth.middleware.js";
+import { uploadSingle } from "../middleware/upload.middleware.js";
 const router = Router();
-
-router.get("/test", (req, res) => res.json({ message: "User routes working" }));
-
+router.get("/:id", getProfile);
+router.put("/me", protect, updateProfile);
+router.put("/me/avatar", protect, uploadSingle, updateAvatar);
+router.delete("/me", protect, deleteAccount);
 export default router;
