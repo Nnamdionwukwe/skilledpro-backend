@@ -2,29 +2,25 @@
 import nodemailer from "nodemailer";
 
 // ── Transporter ───────────────────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_PORT === "465",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+let transporter;
 
-// const transporter = nodemailer.createTransport({
-//   host: process.env.MAIL_HOST,
-//   port: 587,
-//   secure: false,
-//   requireTLS: true,
-//   auth: {
-//     user: process.env.MAIL_USER,
-//     pass: process.env.MAIL_PASS,
-//   },
-// });
+function getTransporter() {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      secure: process.env.SMTP_PORT === "465",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+  return transporter;
+}
 
 // Verify connection on startup
-transporter.verify((error) => {
+getTransporter().verify((error) => {
   if (error) {
     console.error("❌ Email transporter error:", error.message);
   } else {
@@ -97,7 +93,7 @@ function baseTemplate({ title, preheader, body }) {
 // ── Core send function ────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, html }) {
   try {
-    const info = await transporter.sendMail({
+    const info = await getTransporter().sendMail({
       from: `"SkilledPro" <${process.env.EMAIL_FROM}>`,
       to,
       subject,
