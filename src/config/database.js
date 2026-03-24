@@ -18,8 +18,11 @@ function getPrisma() {
   return prisma;
 }
 
-export default new Proxy({}, {
-  get(_, prop) {
-    return getPrisma()[prop];
-  }
-});
+export default new Proxy(
+  {},
+  {
+    get(_, prop) {
+      return getPrisma()[prop];
+    },
+  },
+);
