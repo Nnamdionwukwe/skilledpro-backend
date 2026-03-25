@@ -48,6 +48,7 @@ app.use(
         console.warn(`CORS blocked: ${origin}`);
         callback(new Error(`CORS: origin ${origin} not allowed`));
       }
+      console.log("Incoming origin:", origin); // ← add this
     },
     credentials: true,
   }),

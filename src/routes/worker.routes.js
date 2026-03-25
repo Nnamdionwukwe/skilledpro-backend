@@ -25,12 +25,12 @@ const router = Router();
 // PUBLIC ROUTES
 // ─────────────────────────────────────────────
 router.get("/search", searchWorkers);
+router.get("/dashboard", protect, requireRole("WORKER"), getWorkerDashboard);
 router.get("/:userId", getWorkerProfile);
 
 // ─────────────────────────────────────────────
 // WORKER DASHBOARD  (protected — WORKER only)
 // ─────────────────────────────────────────────
-router.get("/dashboard", protect, requireRole("WORKER"), getWorkerDashboard);
 
 router.get(
   "/dashboard/notifications",
