@@ -22,15 +22,16 @@ import { uploadSingle } from "../middleware/upload.middleware.js";
 const router = Router();
 
 // ─────────────────────────────────────────────
-// PUBLIC ROUTES
+// PUBLIC ROUTES (static — must come first)
 // ─────────────────────────────────────────────
 router.get("/search", searchWorkers);
-router.get("/dashboard", protect, requireRole("WORKER"), getWorkerDashboard);
-router.get("/:userId", getWorkerProfile);
 
 // ─────────────────────────────────────────────
-// WORKER DASHBOARD  (protected — WORKER only)
+// WORKER DASHBOARD (protected — WORKER only)
+// NOTE: all /dashboard/* routes must be defined
+// before /:userId to prevent wildcard shadowing
 // ─────────────────────────────────────────────
+router.get("/dashboard", protect, requireRole("WORKER"), getWorkerDashboard);
 
 router.get(
   "/dashboard/notifications",
@@ -91,5 +92,10 @@ router.post(
 router.put("/availability", protect, requireRole("WORKER"), updateAvailability);
 
 router.post("/categories", protect, requireRole("WORKER"), addCategory);
+
+// ─────────────────────────────────────────────
+// PUBLIC DYNAMIC ROUTE (wildcard — always last)
+// ─────────────────────────────────────────────
+router.get("/:userId", getWorkerProfile);
 
 export default router;
