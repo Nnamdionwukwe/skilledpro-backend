@@ -1,32 +1,39 @@
 // src/services/email.service.js
 import nodemailer from "nodemailer";
-
 // ── Transporter ───────────────────────────────────────────────────────────────
 let transporter;
 
 function getTransporter() {
-  if (!transporter) {
+  // Read env fresh every call until transporter is built with valid creds.
+  // This avoids the dotenv timing bug where this file is imported before
+  // dotenv has populated process.env.
+  const user = (process.env.SMTP_USER || "").trim();
+  const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+
+  if (!transporter || !user || !pass) {
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: process.env.SMTP_PORT === "465",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // STARTTLS on port 587
+      family: 4, // Force IPv4 — prevents ENETUNREACH
+      auth: { user, pass },
+      tls: { rejectUnauthorized: false },
     });
   }
   return transporter;
 }
 
-// Verify connection on startup
-getTransporter().verify((error) => {
-  if (error) {
-    console.error("❌ Email transporter error:", error.message);
-  } else {
-    console.log("✅ Email transporter ready");
-  }
-});
+// Call this from server.js AFTER dotenv has loaded env vars
+export function verifyEmailTransporter() {
+  transporter = null; // force rebuild with now-loaded env vars
+  getTransporter().verify((error) => {
+    if (error) {
+      console.error("Email transporter error:", error.message);
+    } else {
+      console.log("Email transporter ready");
+    }
+  });
+}
 
 // ── Base template wrapper ─────────────────────────────────────────────────────
 function baseTemplate({ title, preheader, body }) {
@@ -93,7 +100,7 @@ function baseTemplate({ title, preheader, body }) {
 // ── Core send function ────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, html }) {
   try {
-    const info = await getTransporter().sendMail({
+    const info = await transporter.sendMail({
       from: `"SkilledPro" <${process.env.EMAIL_FROM}>`,
       to,
       subject,
