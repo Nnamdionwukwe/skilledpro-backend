@@ -100,7 +100,7 @@ function baseTemplate({ title, preheader, body }) {
 // ── Core send function ────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, html }) {
   try {
-    const info = await transporter.sendMail({
+    const info = await getTransporter().sendMail({
       from: `"SkilledPro" <${process.env.EMAIL_FROM}>`,
       to,
       subject,
