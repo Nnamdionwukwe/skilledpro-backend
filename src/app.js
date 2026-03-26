@@ -38,7 +38,6 @@ app.use(
         "http://localhost:3000",
         "http://localhost:5173", // Vite default dev port
         "http://localhost:4173", // Vite preview port
-        "https://www.skilledproz.com",
         "https://skilledproz.com",
       ].filter(Boolean);
 
