@@ -240,7 +240,6 @@ export const addCategory = async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/workers/dashboard
-// Returns full dashboard summary for the logged-in worker
 // ─────────────────────────────────────────────
 export const getWorkerDashboard = async (req, res) => {
   try {
@@ -271,7 +270,6 @@ export const getWorkerDashboard = async (req, res) => {
 
     if (!worker) return sendError(res, "Worker profile not found", 404);
 
-    // ── Bookings overview ──────────────────────────────
     const [
       totalBookings,
       pendingBookings,
@@ -294,7 +292,6 @@ export const getWorkerDashboard = async (req, res) => {
       prisma.booking.count({ where: { workerId: userId, status: "DISPUTED" } }),
     ]);
 
-    // ── Recent bookings (last 10) ──────────────────────
     const recentBookings = await prisma.booking.findMany({
       where: { workerId: userId },
       orderBy: { createdAt: "desc" },
@@ -315,7 +312,6 @@ export const getWorkerDashboard = async (req, res) => {
       },
     });
 
-    // ── Upcoming scheduled bookings ────────────────────
     const upcomingBookings = await prisma.booking.findMany({
       where: {
         workerId: userId,
@@ -332,7 +328,6 @@ export const getWorkerDashboard = async (req, res) => {
       },
     });
 
-    // ── Earnings summary ───────────────────────────────
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -367,16 +362,11 @@ export const getWorkerDashboard = async (req, res) => {
         }),
       ]);
 
-    // ── Pending payouts (escrow held) ──────────────────
     const pendingPayouts = await prisma.payment.aggregate({
-      where: {
-        booking: { workerId: userId },
-        status: "HELD",
-      },
+      where: { booking: { workerId: userId }, status: "HELD" },
       _sum: { workerPayout: true },
     });
 
-    // ── Monthly earnings trend (last 6 months) ─────────
     const monthlyTrend = await Promise.all(
       Array.from({ length: 6 }, (_, i) => {
         const d = new Date();
@@ -402,7 +392,6 @@ export const getWorkerDashboard = async (req, res) => {
       }),
     );
 
-    // ── Recent reviews ─────────────────────────────────
     const recentReviews = await prisma.review.findMany({
       where: { receiverId: userId },
       orderBy: { createdAt: "desc" },
@@ -417,17 +406,14 @@ export const getWorkerDashboard = async (req, res) => {
       },
     });
 
-    // ── Unread messages count ──────────────────────────
     const unreadMessages = await prisma.message.count({
       where: { receiverId: userId, isRead: false },
     });
 
-    // ── Unread notifications count ─────────────────────
     const unreadNotifications = await prisma.notification.count({
       where: { userId, isRead: false },
     });
 
-    // ── Profile completion score ───────────────────────
     const profileFields = [
       !!worker.user.avatar,
       !!worker.user.phone,
@@ -443,13 +429,9 @@ export const getWorkerDashboard = async (req, res) => {
       (profileFields.filter(Boolean).length / profileFields.length) * 100,
     );
 
-    // ── Compose and return ─────────────────────────────
     return sendResponse(res, {
       data: {
-        profile: {
-          ...worker,
-          profileCompletion,
-        },
+        profile: { ...worker, profileCompletion },
         stats: {
           bookings: {
             total: totalBookings,
@@ -479,7 +461,7 @@ export const getWorkerDashboard = async (req, res) => {
         recentBookings,
         upcomingBookings,
         recentReviews,
-        monthlyTrend: monthlyTrend.reverse(), // oldest → newest
+        monthlyTrend: monthlyTrend.reverse(),
       },
     });
   } catch (err) {
@@ -490,7 +472,6 @@ export const getWorkerDashboard = async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/workers/dashboard/notifications
-// Paginated notifications for the worker
 // ─────────────────────────────────────────────
 export const getWorkerNotifications = async (req, res) => {
   try {
@@ -526,7 +507,6 @@ export const getWorkerNotifications = async (req, res) => {
 
 // ─────────────────────────────────────────────
 // PATCH /api/workers/dashboard/notifications/read-all
-// Mark all notifications as read
 // ─────────────────────────────────────────────
 export const markAllNotificationsRead = async (req, res) => {
   try {
@@ -542,7 +522,6 @@ export const markAllNotificationsRead = async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/workers/dashboard/earnings
-// Detailed earnings breakdown with filters
 // ─────────────────────────────────────────────
 export const getWorkerEarnings = async (req, res) => {
   try {
@@ -605,9 +584,11 @@ export const getWorkerEarnings = async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/workers/dashboard/reviews
-// Paginated reviews received by the worker
+// Protected — returns reviews for the logged-in worker
+// RENAMED from getWorkerReviews → getMyReviews to avoid
+// collision with the same-named public function in review.controller.js
 // ─────────────────────────────────────────────
-export const getWorkerReviews = async (req, res) => {
+export const getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -630,7 +611,6 @@ export const getWorkerReviews = async (req, res) => {
       prisma.review.count({ where: { receiverId: req.user.id } }),
     ]);
 
-    // Rating distribution
     const distribution = await prisma.review.groupBy({
       by: ["rating"],
       where: { receiverId: req.user.id },
