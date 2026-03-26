@@ -12,6 +12,10 @@ import paymentRoutes from "./routes/payment.routes.js";
 import reviewRoutes from "./routes/review.routes.js";
 import messageRoutes from "./routes/message.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
+import searchRoutes from "./routes/search.routes.js";
+import disputeRoutes from "./routes/dispute.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
 // Calling dotenv.config() here runs at import time, before server.js sets it up.
@@ -70,6 +74,10 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/disputes", disputeRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);
