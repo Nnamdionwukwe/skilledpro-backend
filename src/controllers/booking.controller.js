@@ -180,6 +180,7 @@ export const getBooking = async (req, res) => {
 
     return sendResponse(res, { data: { booking } });
   } catch (err) {
+    console.error("getBooking error:", err.message, err.code);
     return sendError(res, "Failed to fetch booking");
   }
 };
