@@ -210,7 +210,7 @@ model Booking {
   updatedAt      DateTime      @updatedAt
 
   payment      Payment?
-  review       Review?
+  reviews      Review[]
   conversation Conversation?
 }
 
@@ -235,7 +235,7 @@ model Payment {
 
 model Review {
   id         String   @id @default(uuid())
-  bookingId  String   @unique
+  bookingId  String
   booking    Booking  @relation(fields: [bookingId], references: [id])
   giverId    String
   giver      User     @relation("ReviewsGiven", fields: [giverId], references: [id])
@@ -244,6 +244,8 @@ model Review {
   rating     Int
   comment    String?
   createdAt  DateTime @default(now())
+
+  @@unique([bookingId, giverId])
 }
 
 model Conversation {
