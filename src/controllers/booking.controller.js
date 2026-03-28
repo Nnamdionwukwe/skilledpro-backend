@@ -128,9 +128,6 @@ export const getMyBookings = async (req, res) => {
 // ── Get single booking ────────────────────────────────────────────────────────
 export const getBooking = async (req, res) => {
   try {
-    console.log("getBooking called, id:", req.params.id); // ← add this
-    console.log("user:", req.user?.id, req.user?.role); // ← and this
-
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
       include: {
@@ -169,9 +166,6 @@ export const getBooking = async (req, res) => {
         },
       },
     });
-
-    console.log("booking found:", !!booking); // ← and this
-    console.log("hirerId:", booking?.hirerId, "workerId:", booking?.workerId);
 
     if (!booking) return sendError(res, "Booking not found", 404);
     if (booking.hirerId !== req.user.id && booking.workerId !== req.user.id) {
