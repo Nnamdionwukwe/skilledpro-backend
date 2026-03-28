@@ -1,16 +1,15 @@
+import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
 // ── POST /api/reviews ─────────────────────────────────────────────────────────
-// Both hirers and workers can leave a review after a completed booking
 export const createReview = async (req, res) => {
   try {
     const { bookingId, rating, comment } = req.body;
 
     if (!bookingId) return sendError(res, "Booking ID is required", 400);
-    if (!rating || rating < 1 || rating > 5) {
+    if (!rating || rating < 1 || rating > 5)
       return sendError(res, "Rating must be between 1 and 5", 400);
-    }
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -21,16 +20,14 @@ export const createReview = async (req, res) => {
     });
 
     if (!booking) return sendError(res, "Booking not found", 404);
-    if (booking.status !== "COMPLETED") {
+    if (booking.status !== "COMPLETED")
       return sendError(res, "You can only review completed bookings", 400);
-    }
 
     const isHirer = booking.hirerId === req.user.id;
     const isWorker = booking.workerId === req.user.id;
 
-    if (!isHirer && !isWorker) {
+    if (!isHirer && !isWorker)
       return sendError(res, "You are not part of this booking", 403);
-    }
 
     // Check if this user already reviewed this booking
     const existing = await prisma.review.findFirst({
@@ -39,17 +36,26 @@ export const createReview = async (req, res) => {
     if (existing)
       return sendError(res, "You have already reviewed this booking", 409);
 
-    // Receiver is the other party
     const receiverId = isHirer ? booking.workerId : booking.hirerId;
+    const id = randomUUID();
 
-    const review = await prisma.review.create({
-      data: {
-        bookingId,
-        giverId: req.user.id,
-        receiverId,
-        rating: parseInt(rating),
-        comment: comment || null,
-      },
+    // ── Use raw SQL to bypass Prisma adapter's incorrect unique constraint
+    // enforcement. The DB has @@unique([bookingId, giverId]) which allows
+    // both hirer and worker to review, but the adapter misreports violations.
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO "Review" ("id", "bookingId", "giverId", "receiverId", "rating", "comment", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      id,
+      bookingId,
+      req.user.id,
+      receiverId,
+      parseInt(rating),
+      comment || null,
+    );
+
+    // Fetch the created review with relations
+    const review = await prisma.review.findUnique({
+      where: { id },
       include: {
         giver: {
           select: {
@@ -75,9 +81,8 @@ export const createReview = async (req, res) => {
       },
     });
 
-    // Update worker avg rating whenever a worker receives a review
+    // Update worker avg rating when hirer reviews worker
     if (isHirer) {
-      // Hirer reviewed worker — update worker stats
       const stats = await prisma.review.aggregate({
         where: { receiverId: booking.workerId },
         _avg: { rating: true },
@@ -92,7 +97,7 @@ export const createReview = async (req, res) => {
       });
     }
 
-    // Update hirer avg rating
+    // Update hirer avg rating when worker reviews hirer
     if (isWorker) {
       const hirerStats = await prisma.review.aggregate({
         where: { receiverId: booking.hirerId },
@@ -113,19 +118,18 @@ export const createReview = async (req, res) => {
       data: { review },
     });
   } catch (err) {
-    console.error(err);
+    console.error("createReview error:", err);
     return sendError(res, "Failed to submit review");
   }
 };
 
 // ── GET /api/reviews/worker/:userId ───────────────────────────────────────────
-// Public — reviews received by a worker (shown on public worker profile)
 export const getWorkerReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [reviews, total, stats] = await Promise.all([
+    const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.params.userId },
         skip,
@@ -159,15 +163,13 @@ export const getWorkerReviews = async (req, res) => {
         _avg: { rating: true },
         _count: { id: true },
       }),
+      prisma.review.groupBy({
+        by: ["rating"],
+        where: { receiverId: req.params.userId },
+        _count: { rating: true },
+        orderBy: { rating: "desc" },
+      }),
     ]);
-
-    // Rating distribution (how many 5★, 4★, etc.)
-    const distribution = await prisma.review.groupBy({
-      by: ["rating"],
-      where: { receiverId: req.params.userId },
-      _count: { rating: true },
-      orderBy: { rating: "desc" },
-    });
 
     return sendResponse(res, {
       data: {
@@ -188,13 +190,12 @@ export const getWorkerReviews = async (req, res) => {
 };
 
 // ── GET /api/reviews/hirer/:userId ────────────────────────────────────────────
-// Public — reviews received by a hirer (shown on public hirer profile)
 export const getHirerReviewsPublic = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [reviews, total, stats] = await Promise.all([
+    const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.params.userId },
         skip,
@@ -228,14 +229,13 @@ export const getHirerReviewsPublic = async (req, res) => {
         _avg: { rating: true },
         _count: { id: true },
       }),
+      prisma.review.groupBy({
+        by: ["rating"],
+        where: { receiverId: req.params.userId },
+        _count: { rating: true },
+        orderBy: { rating: "desc" },
+      }),
     ]);
-
-    const distribution = await prisma.review.groupBy({
-      by: ["rating"],
-      where: { receiverId: req.params.userId },
-      _count: { rating: true },
-      orderBy: { rating: "desc" },
-    });
 
     return sendResponse(res, {
       data: {
@@ -256,7 +256,6 @@ export const getHirerReviewsPublic = async (req, res) => {
 };
 
 // ── GET /api/reviews/my/given ─────────────────────────────────────────────────
-// Protected — reviews the logged-in user has GIVEN (both hirers and workers)
 export const getMyGivenReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
@@ -305,13 +304,12 @@ export const getMyGivenReviews = async (req, res) => {
 };
 
 // ── GET /api/reviews/my/received ──────────────────────────────────────────────
-// Protected — reviews the logged-in user has RECEIVED (both hirers and workers)
 export const getMyReceivedReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [reviews, total, stats] = await Promise.all([
+    const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.user.id },
         skip,
@@ -345,14 +343,13 @@ export const getMyReceivedReviews = async (req, res) => {
         _avg: { rating: true },
         _count: { id: true },
       }),
+      prisma.review.groupBy({
+        by: ["rating"],
+        where: { receiverId: req.user.id },
+        _count: { rating: true },
+        orderBy: { rating: "desc" },
+      }),
     ]);
-
-    const distribution = await prisma.review.groupBy({
-      by: ["rating"],
-      where: { receiverId: req.user.id },
-      _count: { rating: true },
-      orderBy: { rating: "desc" },
-    });
 
     return sendResponse(res, {
       data: {
@@ -374,7 +371,6 @@ export const getMyReceivedReviews = async (req, res) => {
 };
 
 // ── GET /api/reviews/check/:bookingId ─────────────────────────────────────────
-// Protected — check if logged-in user already reviewed a booking
 export const checkReviewStatus = async (req, res) => {
   try {
     const review = await prisma.review.findFirst({
@@ -389,7 +385,6 @@ export const checkReviewStatus = async (req, res) => {
 };
 
 // ── DELETE /api/reviews/:reviewId ─────────────────────────────────────────────
-// Admin only — delete a review
 export const deleteReview = async (req, res) => {
   try {
     await prisma.review.delete({ where: { id: req.params.reviewId } });
