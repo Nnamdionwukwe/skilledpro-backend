@@ -208,7 +208,7 @@ model Booking {
   updatedAt      DateTime      @updatedAt
 
   payment      Payment?
-  review       Review?
+  reviews      Review[]
   conversation Conversation?
 }
 
