@@ -588,12 +588,14 @@ export const getWorkerEarnings = async (req, res) => {
 // RENAMED from getWorkerReviews → getMyReviews to avoid
 // collision with the same-named public function in review.controller.js
 // ─────────────────────────────────────────────
+// GET /api/workers/dashboard/reviews
+// Worker sees reviews they RECEIVED in their dashboard
 export const getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [reviews, total] = await Promise.all([
+    const [reviews, total, stats] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.user.id },
         orderBy: { createdAt: "desc" },
@@ -601,20 +603,39 @@ export const getMyReviews = async (req, res) => {
         take: parseInt(limit),
         include: {
           giver: {
-            select: { id: true, firstName: true, lastName: true, avatar: true },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true,
+              country: true,
+              city: true,
+            },
           },
           booking: {
-            select: { title: true, category: { select: { name: true } } },
+            select: {
+              id: true,
+              title: true,
+              scheduledAt: true,
+              category: { select: { name: true, icon: true } },
+            },
           },
         },
       }),
       prisma.review.count({ where: { receiverId: req.user.id } }),
+      prisma.review.aggregate({
+        where: { receiverId: req.user.id },
+        _avg: { rating: true },
+        _count: { id: true },
+      }),
     ]);
 
     const distribution = await prisma.review.groupBy({
       by: ["rating"],
       where: { receiverId: req.user.id },
       _count: { rating: true },
+      orderBy: { rating: "desc" },
     });
 
     return sendResponse(res, {
@@ -623,6 +644,8 @@ export const getMyReviews = async (req, res) => {
         total,
         page: parseInt(page),
         pages: Math.ceil(total / parseInt(limit)),
+        avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
+        totalReviews: stats._count.id,
         distribution: distribution.reduce((acc, r) => {
           acc[r.rating] = r._count.rating;
           return acc;

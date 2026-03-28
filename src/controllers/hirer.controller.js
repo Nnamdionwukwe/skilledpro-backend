@@ -319,21 +319,72 @@ export const postJob = async (req, res) => {
   }
 };
 
+// GET /api/hirers/me/reviews
+// Hirer sees reviews they RECEIVED in their dashboard
 export const getHirerReviews = async (req, res) => {
   try {
-    const reviews = await prisma.review.findMany({
-      where: { giverId: req.user.id },
-      include: {
-        receiver: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [reviews, total, stats] = await Promise.all([
+      prisma.review.findMany({
+        where: { receiverId: req.user.id },
+        skip,
+        take: parseInt(limit),
+        include: {
+          giver: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true,
+              country: true,
+              city: true,
+            },
+          },
+          booking: {
+            select: {
+              id: true,
+              title: true,
+              scheduledAt: true,
+              category: { select: { name: true, icon: true } },
+            },
+          },
         },
-        booking: { select: { id: true, title: true, scheduledAt: true } },
-      },
-      orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.review.count({ where: { receiverId: req.user.id } }),
+      prisma.review.aggregate({
+        where: { receiverId: req.user.id },
+        _avg: { rating: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const distribution = await prisma.review.groupBy({
+      by: ["rating"],
+      where: { receiverId: req.user.id },
+      _count: { rating: true },
+      orderBy: { rating: "desc" },
     });
-    return sendResponse(res, { data: { reviews } });
+
+    return sendResponse(res, {
+      data: {
+        reviews,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
+        totalReviews: stats._count.id,
+        distribution: distribution.reduce((acc, r) => {
+          acc[r.rating] = r._count.rating;
+          return acc;
+        }, {}),
+      },
+    });
   } catch (err) {
-    return sendError(res, "Failed to fetch reviews");
+    return sendError(res, "Failed to fetch hirer reviews");
   }
 };
 
