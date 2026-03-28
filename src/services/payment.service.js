@@ -114,7 +114,7 @@ export async function initializePaystackPayment({
           },
         ],
       },
-      callback_url: `${process.env.CLIENT_URL}/payment/verify`,
+      callback_url: `${process.env.CLIENT_URL}/payments/verify/paystack`,
     },
     {
       headers: {
