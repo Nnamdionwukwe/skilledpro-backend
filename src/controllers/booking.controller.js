@@ -154,7 +154,7 @@ export const getBooking = async (req, res) => {
         },
         category: true,
         payment: true,
-        review: {
+        reviews: {
           include: {
             giver: {
               select: {
