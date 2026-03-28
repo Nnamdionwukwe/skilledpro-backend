@@ -98,7 +98,19 @@ export const getHirerBookings = async (req, res) => {
           },
           category: true,
           payment: true,
-          review: true,
+          reviews: {
+            include: {
+              giver: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  role: true,
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),

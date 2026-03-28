@@ -12,6 +12,7 @@ import {
   markNotificationsRead,
 } from "../controllers/hirer.controller.js";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
+import { getMyGivenReviews } from "../controllers/review.controller.js";
 
 const router = Router();
 
@@ -21,7 +22,18 @@ router.put("/me/profile", protect, requireRole("HIRER"), updateHirerProfile);
 router.get("/me/dashboard", protect, requireRole("HIRER"), getHirerDashboard);
 router.get("/me/bookings", protect, requireRole("HIRER"), getHirerBookings);
 router.get("/me/saved-workers", protect, requireRole("HIRER"), getSavedWorkers);
-router.get("/me/reviews", protect, requireRole("HIRER"), getHirerReviews);
+router.get(
+  "/me/reviews/received",
+  protect,
+  requireRole("HIRER"),
+  getHirerReviews,
+);
+router.get(
+  "/me/reviews/given",
+  protect,
+  requireRole("HIRER"),
+  getMyGivenReviews,
+);
 router.post("/me/post-job", protect, requireRole("HIRER"), postJob);
 router.get("/me/notifications", protect, getNotifications);
 router.patch("/me/notifications/read", protect, markNotificationsRead);
