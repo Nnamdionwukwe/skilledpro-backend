@@ -28,6 +28,7 @@ app.use(
   "/api/payments/webhook/stripe",
   express.raw({ type: "application/json" }),
 );
+app.options("/{*path}", cors());
 
 // ── Security & logging ────────────────────────────────────────────────────────
 app.use(helmet());
