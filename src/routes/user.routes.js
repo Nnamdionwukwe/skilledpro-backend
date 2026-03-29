@@ -8,8 +8,11 @@ import {
 import { protect } from "../middleware/auth.middleware.js";
 import { uploadSingle } from "../middleware/upload.middleware.js";
 const router = Router();
-router.get("/:id", getProfile);
+// ✅ /me routes MUST come before /:id
 router.put("/me", protect, updateProfile);
 router.put("/me/avatar", protect, uploadSingle, updateAvatar);
 router.delete("/me", protect, deleteAccount);
+
+// /:id MUST come last
+router.get("/:id", getProfile);
 export default router;
