@@ -1,4 +1,3 @@
-python3 << 'PYEOF'
 schema = '''generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -37,6 +36,18 @@ enum VerificationStatus {
   UNVERIFIED
   PENDING
   VERIFIED
+  REJECTED
+}
+
+enum JobPostStatus {
+  OPEN
+  FILLED
+  CANCELLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
   REJECTED
 }
 
@@ -81,6 +92,8 @@ model User {
   conversations    ConversationUser[]
   notifications    Notification[]
   payments         Payment[]
+  jobPosts         JobPost[]          @relation("HirerJobPosts")
+  jobApplications  JobApplication[]   @relation("WorkerJobApplications")
 }
 
 model WorkerProfile {
@@ -136,6 +149,7 @@ model Category {
   children    Category[]       @relation("SubCategories")
   workers     WorkerCategory[]
   bookings    Booking[]
+  jobPosts    JobPost[]
   createdAt   DateTime         @default(now())
 }
 
@@ -293,11 +307,49 @@ model Notification {
   data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-}'''
+}
+
+model JobPost {
+  id             String        @id @default(uuid())
+  hirerId        String
+  categoryId     String
+  title          String
+  description    String
+  address        String
+  latitude       Float?
+  longitude      Float?
+  scheduledAt    DateTime
+  estimatedHours Float?
+  budget         Float
+  currency       String        @default("NGN")
+  notes          String?
+  status         JobPostStatus @default(OPEN)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  hirer          User           @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
+  category       Category       @relation(fields: [categoryId], references: [id])
+  applications   JobApplication[]
+}
+
+model JobApplication {
+  id        String            @id @default(uuid())
+  jobPostId String
+  workerId  String
+  message   String?
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  jobPost   JobPost @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  worker    User    @relation("WorkerJobApplications", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobPostId, workerId])
+}
+'''
 
 with open('prisma/schema.prisma', 'w') as f:
     f.write(schema)
 
-print("✅ Schema written successfully!")
+print("Schema written successfully!")
 print(f"Lines: {len(schema.splitlines())}")
-PYEOF

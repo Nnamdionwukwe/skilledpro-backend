@@ -196,7 +196,8 @@ export const getJobPost = async (req, res) => {
 
     return sendResponse(res, { data: { jobPost, hasApplied } });
   } catch (err) {
-    return sendError(res, "Failed to fetch job post");
+    console.error("JOBS ERROR:", err);
+    return sendError(res, "Failed to fetch job posts");
   }
 };
 
