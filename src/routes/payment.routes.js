@@ -10,43 +10,50 @@ import {
   getPayment,
   getAllPayments,
   getWorkerEarnings,
+  getHirerPayments,
 } from "../controllers/payment.controller.js";
 
 const router = express.Router();
 
-// ── Public (webhook — no auth, Stripe signs it) ───────────────────────────────
+// ── Public — Stripe webhook (no auth, Stripe signs it) ────────────────────────
 router.post(
   "/webhook/stripe",
-  express.raw({ type: "application/json" }), // raw body needed for Stripe sig verification
+  express.raw({ type: "application/json" }),
   stripeWebhook,
 );
 
-// ── Public (Paystack redirect) ────────────────────────────────────────────────
+// ── Public — Paystack redirect callback ───────────────────────────────────────
 router.get("/verify/paystack", verifyPaystack);
 
-// ── Protected ────────────────────────────────────────────────────────────────
+// ── All routes below require authentication ───────────────────────────────────
 router.use(protect);
 
-// Hirer initiates payment for an accepted booking
+// Hirer: initiate payment for an accepted booking
 router.post(
   "/initiate/:bookingId",
   requireRole("HIRER"),
   initiateBookingPayment,
 );
 
-// Hirer releases escrow after job completion
+// Hirer: release escrow after job completion
 router.post("/release/:bookingId", requireRole("HIRER"), releasePayment);
 
-// Hirer or Admin issues a refund
+// Hirer or Admin: issue a refund
 router.post("/refund/:bookingId", refundPayment);
 
-// Worker views their earnings
+// Worker: earnings summary
 router.get("/earnings", requireRole("WORKER"), getWorkerEarnings);
 
-// Hirer or worker views payment for a specific booking
-router.get("/:bookingId", getPayment);
+// Hirer: full payment history with receipts and summary totals
+// ⚠️  Must be defined BEFORE /:bookingId — otherwise Express matches
+//     the literal string "hirer" as a bookingId param and returns 404
+router.get("/hirer", requireRole("HIRER"), getHirerPayments);
 
-// Admin views all payments
+// Admin: all payments
 router.get("/", requireRole("ADMIN"), getAllPayments);
+
+// Hirer or Worker: single booking payment detail
+// ⚠️  Wildcard — always last
+router.get("/:bookingId", getPayment);
 
 export default router;
