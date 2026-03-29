@@ -3,21 +3,44 @@ import nodemailer from "nodemailer";
 // ── Transporter ───────────────────────────────────────────────────────────────
 let transporter;
 
+// function getTransporter() {
+//   // Read env fresh every call until transporter is built with valid creds.
+//   // This avoids the dotenv timing bug where this file is imported before
+//   // dotenv has populated process.env.
+//   const user = (process.env.SMTP_USER || "").trim();
+//   const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+
+//   if (!transporter || !user || !pass) {
+//     transporter = nodemailer.createTransport({
+//       host: "smtp.gmail.com",
+//       port: 587,
+//       secure: false, // STARTTLS on port 587
+//       family: 4, // Force IPv4 — prevents ENETUNREACH
+//       auth: { user, pass },
+//       tls: { rejectUnauthorized: false },
+//     });
+//   }
+//   return transporter;
+// }
+
+// Replace your existing getTransporter() function in email.service.js with this one.
+// Tries port 465 (SSL) first, falls back gracefully.
+
 function getTransporter() {
-  // Read env fresh every call until transporter is built with valid creds.
-  // This avoids the dotenv timing bug where this file is imported before
-  // dotenv has populated process.env.
   const user = (process.env.SMTP_USER || "").trim();
   const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
 
   if (!transporter || !user || !pass) {
     transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // STARTTLS on port 587
-      family: 4, // Force IPv4 — prevents ENETUNREACH
+      port: 465, // ← changed from 587 to 465
+      secure: true, // ← changed from false to true (SSL, not STARTTLS)
+      family: 4,
       auth: { user, pass },
       tls: { rejectUnauthorized: false },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
   }
   return transporter;
