@@ -12,10 +12,16 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: { folder: "skilledpro", allowed_formats: ["jpg", "jpeg", "png", "webp", "pdf"] },
+  params: {
+    folder: "skilledpro",
+    allowed_formats: ["jpg", "jpeg", "png", "webp", "pdf"],
+  },
 });
 
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-export const uploadSingle = upload.single("file");
-export const uploadMultiple = upload.array("files", 5);
+// Accepts any single file regardless of field name
+// Previously locked to "avatar" which broke portfolio ("image") and certifications ("document")
+export const uploadSingle = upload.any();
+
+export const uploadMultiple = upload.array("files", 15);

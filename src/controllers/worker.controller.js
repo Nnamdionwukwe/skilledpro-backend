@@ -126,32 +126,6 @@ export const updateWorkerProfile = async (req, res) => {
   }
 };
 
-export const addPortfolio = async (req, res) => {
-  try {
-    const { title, description } = req.body;
-    if (!req.file) return sendError(res, "Image required", 400);
-    const worker = await prisma.workerProfile.findUnique({
-      where: { userId: req.user.id },
-    });
-    if (!worker) return sendError(res, "Worker profile not found", 404);
-    const item = await prisma.portfolio.create({
-      data: {
-        workerProfileId: worker.id,
-        title,
-        description,
-        imageUrl: req.file.path,
-      },
-    });
-    return sendResponse(res, {
-      status: 201,
-      message: "Portfolio item added",
-      data: { item },
-    });
-  } catch (err) {
-    return sendError(res, "Failed to add portfolio");
-  }
-};
-
 export const deletePortfolio = async (req, res) => {
   try {
     const worker = await prisma.workerProfile.findUnique({
@@ -166,12 +140,45 @@ export const deletePortfolio = async (req, res) => {
   }
 };
 
-export const addCertification = async (req, res) => {
+// In worker.controller.js, update addPortfolio and addCertification
+// to handle req.files[0] instead of req.file (because upload.any() uses req.files)
+
+export const addPortfolio = async (req, res) => {
   try {
-    const { name, issuedBy, issueDate, expiryDate } = req.body;
+    const { title, description } = req.body;
+    const file = req.files?.[0] || req.file; // handle both upload.any() and upload.single()
+    if (!file) return sendError(res, "Image required", 400);
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
     });
+    if (!worker) return sendError(res, "Worker profile not found", 404);
+    const item = await prisma.portfolio.create({
+      data: {
+        workerProfileId: worker.id,
+        title,
+        description,
+        imageUrl: file.path,
+      },
+    });
+    return sendResponse(res, {
+      status: 201,
+      message: "Portfolio item added",
+      data: { item },
+    });
+  } catch (err) {
+    console.error(err);
+    return sendError(res, "Failed to add portfolio");
+  }
+};
+
+export const addCertification = async (req, res) => {
+  try {
+    const { name, issuedBy, issueDate, expiryDate } = req.body;
+    const file = req.files?.[0] || req.file; // handle both upload.any() and upload.single()
+    const worker = await prisma.workerProfile.findUnique({
+      where: { userId: req.user.id },
+    });
+    if (!worker) return sendError(res, "Worker profile not found", 404);
     const cert = await prisma.certification.create({
       data: {
         workerProfileId: worker.id,
@@ -179,13 +186,26 @@ export const addCertification = async (req, res) => {
         issuedBy,
         issueDate: issueDate ? new Date(issueDate) : null,
         expiryDate: expiryDate ? new Date(expiryDate) : null,
-        documentUrl: req.file?.path,
+        documentUrl: file?.path || null,
       },
     });
     return sendResponse(res, { status: 201, data: { cert } });
   } catch (err) {
+    console.error(err);
     return sendError(res, "Failed to add certification");
   }
+};
+
+// Replace the updateAvailability function in worker.controller.js
+
+const DAY_MAP = {
+  SUNDAY: 0,
+  MONDAY: 1,
+  TUESDAY: 2,
+  WEDNESDAY: 3,
+  THURSDAY: 4,
+  FRIDAY: 5,
+  SATURDAY: 6,
 };
 
 export const updateAvailability = async (req, res) => {
@@ -194,23 +214,32 @@ export const updateAvailability = async (req, res) => {
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
     });
+    if (!worker) return sendError(res, "Worker profile not found", 404);
+
     await prisma.availability.deleteMany({
       where: { workerProfileId: worker.id },
     });
+
     const created = await prisma.availability.createMany({
       data: availability.map((a) => ({
         workerProfileId: worker.id,
-        dayOfWeek: a.dayOfWeek,
+        // Accept both numeric (0-6) and string ("MONDAY") dayOfWeek
+        dayOfWeek:
+          typeof a.dayOfWeek === "string"
+            ? (DAY_MAP[a.dayOfWeek.toUpperCase()] ?? 0)
+            : parseInt(a.dayOfWeek),
         startTime: a.startTime,
         endTime: a.endTime,
         isAvailable: a.isAvailable ?? true,
       })),
     });
+
     return sendResponse(res, {
       message: "Availability updated",
       data: { created },
     });
   } catch (err) {
+    console.error(err);
     return sendError(res, "Update failed");
   }
 };

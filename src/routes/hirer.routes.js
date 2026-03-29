@@ -14,6 +14,7 @@ import {
 import { getMyGivenReviews } from "../controllers/review.controller.js";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import { getHirerPayments } from "../controllers/payment.controller.js";
+import { getHirerPublicProfile } from "../controllers/job.controller.js";
 
 const router = Router();
 
@@ -47,5 +48,6 @@ router.get("/me/reviews", protect, requireRole("HIRER"), getHirerReviews);
 
 // ── Public — MUST come last ───────────────────────────────────────────────────
 router.get("/:userId", getHirerProfile);
+router.get("/:userId/profile", getHirerPublicProfile);
 
 export default router;
