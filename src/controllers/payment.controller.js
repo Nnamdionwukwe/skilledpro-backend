@@ -326,6 +326,89 @@ export const getAllPayments = asyncHandler(async (req, res) => {
   });
 });
 
+// GET /api/payments/hirer
+// Returns all payments made by the logged-in hirer, with summary totals.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getHirerPayments = asyncHandler(async (req, res) => {
+  const hirerId = req.user.id;
+  const { status, page = 1, limit = 10 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const where = {
+    booking: { hirerId },
+    ...(status && status !== "ALL" ? { status } : {}),
+  };
+
+  const [payments, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: Number(limit),
+      include: {
+        booking: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            scheduledAt: true,
+            completedAt: true,
+            category: { select: { name: true } },
+            worker: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                avatar: true,
+              },
+            },
+            hirer: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.payment.count({ where }),
+  ]);
+
+  // ── Summary totals (all time, not just this page) ──────────────────────────
+  const [totalSpentAgg, inEscrowAgg, refundedAgg] = await Promise.all([
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "RELEASED" },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "HELD" },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "REFUNDED" },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      payments,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+      summary: {
+        totalSpent: totalSpentAgg._sum.amount ?? 0,
+        inEscrow: inEscrowAgg._sum.amount ?? 0,
+        totalRefunds: refundedAgg._sum.amount ?? 0,
+      },
+    },
+  });
+});
+
 // ── Worker earnings summary ───────────────────────────────────────────────────
 // GET /api/payments/earnings
 export const getWorkerEarnings = asyncHandler(async (req, res) => {

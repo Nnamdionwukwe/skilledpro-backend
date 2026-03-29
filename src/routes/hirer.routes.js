@@ -13,6 +13,7 @@ import {
 } from "../controllers/hirer.controller.js";
 import { getMyGivenReviews } from "../controllers/review.controller.js";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
+import { getHirerPayments } from "../controllers/payment.controller.js";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ const router = Router();
 router.get("/me/profile", protect, requireRole("HIRER"), getMyHirerProfile);
 router.put("/me/profile", protect, requireRole("HIRER"), updateHirerProfile);
 router.get("/me/dashboard", protect, requireRole("HIRER"), getHirerDashboard);
+router.get("/hirer", requireRole("HIRER"), getHirerPayments);
 router.get("/me/bookings", protect, requireRole("HIRER"), getHirerBookings);
 router.get("/me/saved-workers", protect, requireRole("HIRER"), getSavedWorkers);
 router.post("/me/post-job", protect, requireRole("HIRER"), postJob);
