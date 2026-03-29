@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-// import { sendJobApplicationEmail } from "../services/email.service.js";
+import { sendJobApplicationEmail } from "../services/email.service.js";
 
 // ── POST /api/jobs ─────────────────────────────────────────────────────────────
 // Hirer creates a public job post

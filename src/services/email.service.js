@@ -538,3 +538,69 @@ export async function sendReviewRequestEmail({
     html,
   });
 }
+
+// ── 11. Job application notification (hirer notified) ────────────────────────
+// Add this to the bottom of src/services/email.service.js
+export async function sendJobApplicationEmail({
+  to,
+  hirerName,
+  workerName,
+  workerTitle,
+  workerRating,
+  jobTitle,
+  jobId,
+  applicationId,
+  message,
+}) {
+  const html = baseTemplate({
+    title: "New job application — SkilledPro",
+    preheader: `${workerName} has applied for your job: ${jobTitle}`,
+    body: `
+      <p class="greeting">Hi ${hirerName},</p>
+      <p>You have a new application for your job posting.</p>
+
+      <div class="card">
+        <div class="card-row">
+          <span class="card-label">Job</span>
+          <span class="card-value">${jobTitle}</span>
+        </div>
+        <div class="card-row">
+          <span class="card-label">Applicant</span>
+          <span class="card-value">${workerName}</span>
+        </div>
+        <div class="card-row">
+          <span class="card-label">Trade / Title</span>
+          <span class="card-value">${workerTitle || "—"}</span>
+        </div>
+        <div class="card-row">
+          <span class="card-label">Rating</span>
+          <span class="card-value">${workerRating > 0 ? `★ ${Number(workerRating).toFixed(1)}` : "New worker"}</span>
+        </div>
+        ${
+          message
+            ? `<div class="card-row">
+          <span class="card-label">Message</span>
+          <span class="card-value" style="font-style:italic;">"${message}"</span>
+        </div>`
+            : ""
+        }
+      </div>
+
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/jobs/${jobId}/applications/${applicationId}" class="btn">
+          Review Application
+        </a>
+      </div>
+
+      <div class="warning">
+        Respond promptly — workers are more likely to take jobs where hirers engage quickly.
+      </div>
+    `,
+  });
+
+  return sendEmail({
+    to,
+    subject: `New application for "${jobTitle}" from ${workerName}`,
+    html,
+  });
+}
