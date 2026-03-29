@@ -12,7 +12,6 @@ import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ── Initiate payment for a booking ───────────────────────────────────────────
-// POST /api/payments/initiate/:bookingId
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
@@ -22,68 +21,55 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     include: { payment: true },
   });
 
-  if (!booking) {
+  if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  }
-
-  if (booking.hirerId !== hirerId) {
+  if (booking.hirerId !== hirerId)
     return res
       .status(403)
       .json({ success: false, message: "Not your booking" });
-  }
-
-  if (booking.payment) {
+  if (booking.payment)
     return res
       .status(400)
       .json({ success: false, message: "Payment already initiated" });
-  }
-
-  if (booking.status !== "ACCEPTED") {
-    return res.status(400).json({
-      success: false,
-      message: "Booking must be accepted before payment",
-    });
-  }
+  if (booking.status !== "ACCEPTED")
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Booking must be accepted before payment",
+      });
 
   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
-
   const result = await initiatePayment({ booking, hirer });
 
-  res.status(200).json({
-    success: true,
-    message: "Payment initiated",
-    data: result,
-  });
+  res
+    .status(200)
+    .json({ success: true, message: "Payment initiated", data: result });
 });
 
-// ── Verify Paystack payment (redirect callback) ───────────────────────────────
-// GET /api/payments/verify/paystack?reference=xxx
+// ── Verify Paystack payment ───────────────────────────────────────────────────
 export const verifyPaystack = asyncHandler(async (req, res) => {
   const { reference } = req.query;
 
-  if (!reference) {
+  if (!reference)
     return res
       .status(400)
       .json({ success: false, message: "Reference required" });
-  }
 
   const transaction = await verifyPaystackPayment(reference);
 
-  if (transaction.status !== "success") {
+  if (transaction.status !== "success")
     return res
       .status(400)
       .json({ success: false, message: "Payment not successful" });
-  }
 
-  // Update payment status to HELD (in escrow)
   const payment = await prisma.payment.update({
     where: { providerRef: reference },
     data: { status: "HELD" },
   });
 
-  // Update booking status
   await prisma.booking.update({
     where: { id: payment.bookingId },
     data: { status: "IN_PROGRESS" },
@@ -96,8 +82,7 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
   });
 });
 
-// ── Stripe webhook (payment confirmation) ─────────────────────────────────────
-// POST /api/payments/webhook/stripe
+// ── Stripe webhook ────────────────────────────────────────────────────────────
 export const stripeWebhook = asyncHandler(async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
@@ -116,18 +101,15 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
 
   switch (event.type) {
     case "payment_intent.amount_capturable_updated": {
-      // Payment authorised — move to HELD (escrow)
       const pi = event.data.object;
       const payment = await prisma.payment.findFirst({
         where: { providerRef: pi.id },
       });
-
       if (payment) {
         await prisma.payment.update({
           where: { id: payment.id },
           data: { status: "HELD" },
         });
-
         await prisma.booking.update({
           where: { id: payment.bookingId },
           data: { status: "IN_PROGRESS" },
@@ -135,21 +117,18 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
       }
       break;
     }
-
     case "payment_intent.payment_failed": {
       const pi = event.data.object;
       const payment = await prisma.payment.findFirst({
         where: { providerRef: pi.id },
       });
-      if (payment) {
+      if (payment)
         await prisma.payment.update({
           where: { id: payment.id },
           data: { status: "FAILED" },
         });
-      }
       break;
     }
-
     default:
       break;
   }
@@ -157,8 +136,7 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
   res.status(200).json({ received: true });
 });
 
-// ── Release escrow (hirer confirms job complete) ──────────────────────────────
-// POST /api/payments/release/:bookingId
+// ── Release escrow ────────────────────────────────────────────────────────────
 export const releasePayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
@@ -168,74 +146,63 @@ export const releasePayment = asyncHandler(async (req, res) => {
     include: { payment: true },
   });
 
-  if (!booking) {
+  if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  }
-
-  if (booking.hirerId !== hirerId) {
+  if (booking.hirerId !== hirerId)
     return res
       .status(403)
       .json({ success: false, message: "Not your booking" });
-  }
+  if (!booking.payment || booking.payment.status !== "HELD")
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "No payment in escrow for this booking",
+      });
 
-  if (!booking.payment || booking.payment.status !== "HELD") {
-    return res.status(400).json({
-      success: false,
-      message: "No payment in escrow for this booking",
-    });
-  }
-
-  // Mark booking complete
   await prisma.booking.update({
     where: { id: bookingId },
     data: { status: "COMPLETED", completedAt: new Date() },
   });
 
-  // Release escrow
   const payment = await releaseEscrow(bookingId);
 
-  // Increment worker's completed jobs
   await prisma.workerProfile.update({
     where: { userId: booking.workerId },
     data: { completedJobs: { increment: 1 } },
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Payment released to worker",
-    data: payment,
-  });
+  res
+    .status(200)
+    .json({
+      success: true,
+      message: "Payment released to worker",
+      data: payment,
+    });
 });
 
-// ── Refund payment (dispute / cancellation) ───────────────────────────────────
-// POST /api/payments/refund/:bookingId
+// ── Refund payment ────────────────────────────────────────────────────────────
 export const refundPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { amount } = req.body; // optional partial refund amount
+  const { amount } = req.body;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { payment: true },
   });
 
-  if (!booking) {
+  if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  }
-
-  // Only admin or the hirer can issue a refund
-  if (req.user.role !== "ADMIN" && booking.hirerId !== req.user.id) {
+  if (req.user.role !== "ADMIN" && booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Not authorised" });
-  }
-
-  if (!booking.payment) {
+  if (!booking.payment)
     return res
       .status(400)
       .json({ success: false, message: "No payment found" });
-  }
 
   const payment = await processRefund(bookingId, amount);
 
@@ -244,15 +211,12 @@ export const refundPayment = asyncHandler(async (req, res) => {
     data: { status: "CANCELLED" },
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Refund processed",
-    data: payment,
-  });
+  res
+    .status(200)
+    .json({ success: true, message: "Refund processed", data: payment });
 });
 
-// ── Get payment details for a booking ────────────────────────────────────────
-// GET /api/payments/:bookingId
+// ── Get payment for a specific booking ───────────────────────────────────────
 export const getPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const userId = req.user.id;
@@ -262,29 +226,21 @@ export const getPayment = asyncHandler(async (req, res) => {
     include: { payment: true },
   });
 
-  if (!booking) {
+  if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  }
-
-  // Only hirer, worker, or admin can view
   if (
     booking.hirerId !== userId &&
     booking.workerId !== userId &&
     req.user.role !== "ADMIN"
-  ) {
+  )
     return res.status(403).json({ success: false, message: "Not authorised" });
-  }
 
-  res.status(200).json({
-    success: true,
-    data: booking.payment,
-  });
+  res.status(200).json({ success: true, data: booking.payment });
 });
 
 // ── Get all payments (admin) ──────────────────────────────────────────────────
-// GET /api/payments
 export const getAllPayments = asyncHandler(async (req, res) => {
   const { status, provider, page = 1, limit = 20 } = req.query;
   const skip = (page - 1) * limit;
@@ -326,10 +282,35 @@ export const getAllPayments = asyncHandler(async (req, res) => {
   });
 });
 
-// GET /api/payments/hirer
-// Returns all payments made by the logged-in hirer, with summary totals.
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Worker earnings summary ───────────────────────────────────────────────────
+export const getWorkerEarnings = asyncHandler(async (req, res) => {
+  const workerId = req.user.id;
 
+  const payments = await prisma.payment.findMany({
+    where: { booking: { workerId }, status: { in: ["HELD", "RELEASED"] } },
+    include: {
+      booking: {
+        select: { title: true, scheduledAt: true, completedAt: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const totalEarned = payments
+    .filter((p) => p.status === "RELEASED")
+    .reduce((sum, p) => sum + p.workerPayout, 0);
+
+  const pendingEscrow = payments
+    .filter((p) => p.status === "HELD")
+    .reduce((sum, p) => sum + p.workerPayout, 0);
+
+  res
+    .status(200)
+    .json({ success: true, data: { totalEarned, pendingEscrow, payments } });
+});
+
+// ── NEW: Get all hirer payments with summary ──────────────────────────────────
+// GET /api/payments/hirer
 export const getHirerPayments = asyncHandler(async (req, res) => {
   const hirerId = req.user.id;
   const { status, page = 1, limit = 10 } = req.query;
@@ -377,7 +358,7 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
     prisma.payment.count({ where }),
   ]);
 
-  // ── Summary totals (all time, not just this page) ──────────────────────────
+  // Summary totals — all time, not just current page
   const [totalSpentAgg, inEscrowAgg, refundedAgg] = await Promise.all([
     prisma.payment.aggregate({
       where: { booking: { hirerId }, status: "RELEASED" },
@@ -393,7 +374,7 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  return res.status(200).json({
+  res.status(200).json({
     success: true,
     data: {
       payments,
@@ -405,42 +386,6 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
         inEscrow: inEscrowAgg._sum.amount ?? 0,
         totalRefunds: refundedAgg._sum.amount ?? 0,
       },
-    },
-  });
-});
-
-// ── Worker earnings summary ───────────────────────────────────────────────────
-// GET /api/payments/earnings
-export const getWorkerEarnings = asyncHandler(async (req, res) => {
-  const workerId = req.user.id;
-
-  const payments = await prisma.payment.findMany({
-    where: {
-      booking: { workerId },
-      status: { in: ["HELD", "RELEASED"] },
-    },
-    include: {
-      booking: {
-        select: { title: true, scheduledAt: true, completedAt: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const totalEarned = payments
-    .filter((p) => p.status === "RELEASED")
-    .reduce((sum, p) => sum + p.workerPayout, 0);
-
-  const pendingEscrow = payments
-    .filter((p) => p.status === "HELD")
-    .reduce((sum, p) => sum + p.workerPayout, 0);
-
-  res.status(200).json({
-    success: true,
-    data: {
-      totalEarned,
-      pendingEscrow,
-      payments,
     },
   });
 });
