@@ -23,6 +23,8 @@ function getTransporter() {
   return transporter;
 }
 
+// Add `sendJobApplicationEmail` to your `email.service.js` — it's called in `applyToJob`.
+
 // Call this from server.js AFTER dotenv has loaded env vars
 export function verifyEmailTransporter() {
   transporter = null; // force rebuild with now-loaded env vars
