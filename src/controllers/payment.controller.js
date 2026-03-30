@@ -56,6 +56,37 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 });
 
 // ── Verify Paystack payment ───────────────────────────────────────────────────
+// export const verifyPaystack = asyncHandler(async (req, res) => {
+//   const { reference } = req.query;
+
+//   if (!reference)
+//     return res
+//       .status(400)
+//       .json({ success: false, message: "Reference required" });
+
+//   const transaction = await verifyPaystackPayment(reference);
+
+//   if (transaction.status !== "success")
+//     return res
+//       .status(400)
+//       .json({ success: false, message: "Payment not successful" });
+
+//   const payment = await prisma.payment.update({
+//     where: { providerRef: reference },
+//     data: { status: "HELD" },
+//   });
+
+//   await prisma.booking.update({
+//     where: { id: payment.bookingId },
+//     data: { status: "IN_PROGRESS" },
+//   });
+
+//   res.status(200).json({
+//     success: true,
+//     message: "Payment verified and held in escrow",
+//     data: { bookingId: payment.bookingId, status: "HELD" },
+//   });
+// });
 export const verifyPaystack = asyncHandler(async (req, res) => {
   const { reference } = req.query;
 
@@ -71,8 +102,18 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment not successful" });
 
-  const payment = await prisma.payment.update({
+  // ✅ Fix: findFirst by providerRef, then update by id
+  const existingPayment = await prisma.payment.findFirst({
     where: { providerRef: reference },
+  });
+
+  if (!existingPayment)
+    return res
+      .status(404)
+      .json({ success: false, message: "Payment record not found" });
+
+  const payment = await prisma.payment.update({
+    where: { id: existingPayment.id }, // ✅ use id, not providerRef
     data: { status: "HELD" },
   });
 
@@ -106,14 +147,44 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
   }
 
   switch (event.type) {
+    // case "payment_intent.amount_capturable_updated": {
+    //   const pi = event.data.object;
+    //   const payment = await prisma.payment.findFirst({
+    //     where: { providerRef: pi.id },
+    //   });
+    //   if (payment) {
+    //     await prisma.payment.update({
+    //       where: { id: payment.id },
+    //       data: { status: "HELD" },
+    //     });
+    //     await prisma.booking.update({
+    //       where: { id: payment.bookingId },
+    //       data: { status: "IN_PROGRESS" },
+    //     });
+    //   }
+    //   break;
+    // }
+    // case "payment_intent.payment_failed": {
+    //   const pi = event.data.object;
+    //   const payment = await prisma.payment.findFirst({
+    //     where: { providerRef: pi.id },
+    //   });
+    //   if (payment)
+    //     await prisma.payment.update({
+    //       where: { id: payment.id },
+    //       data: { status: "FAILED" },
+    //     });
+    //   break;
+    // }
     case "payment_intent.amount_capturable_updated": {
       const pi = event.data.object;
+      // ✅ Fix: findFirst then update by id
       const payment = await prisma.payment.findFirst({
         where: { providerRef: pi.id },
       });
       if (payment) {
         await prisma.payment.update({
-          where: { id: payment.id },
+          where: { id: payment.id }, // ✅ not providerRef
           data: { status: "HELD" },
         });
         await prisma.booking.update({
@@ -123,16 +194,18 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
       }
       break;
     }
+
     case "payment_intent.payment_failed": {
       const pi = event.data.object;
       const payment = await prisma.payment.findFirst({
         where: { providerRef: pi.id },
       });
-      if (payment)
+      if (payment) {
         await prisma.payment.update({
-          where: { id: payment.id },
+          where: { id: payment.id }, // ✅ not providerRef
           data: { status: "FAILED" },
         });
+      }
       break;
     }
     default:
