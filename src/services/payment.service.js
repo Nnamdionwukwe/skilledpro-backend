@@ -17,7 +17,7 @@ function calcFees(amount) {
 }
 
 // African currencies that route to Paystack
-const PAYSTACK_CURRENCIES = ["NGN", "GHS", "ZAR", "KES", "USD"];
+const PAYSTACK_CURRENCIES = ["NGN", "GHS", "ZAR", "KES", "TZS", "UGX"];
 
 function getProvider(currency) {
   return PAYSTACK_CURRENCIES.includes(currency.toUpperCase())
@@ -89,64 +89,70 @@ export async function initializePaystackPayment({
   bookingId,
   hirerId,
 }) {
-  const { platformFee, workerPayout } = calcFees(amount);
+  try {
+    const { platformFee, workerPayout } = calcFees(amount);
 
-  // Paystack uses kobo for NGN (multiply by 100)
-  const amountInSmallestUnit = Math.round(amount * 100);
+    // Paystack uses kobo for NGN (multiply by 100)
+    const amountInSmallestUnit = Math.round(amount * 100);
 
-  const response = await axios.post(
-    `${PAYSTACK_BASE}/transaction/initialize`,
-    {
-      email,
-      amount: amountInSmallestUnit,
-      currency: currency.toUpperCase(),
-      reference: `SPR-${bookingId}-${Date.now()}`,
-      metadata: {
+    const response = await axios.post(
+      `${PAYSTACK_BASE}/transaction/initialize`,
+      {
+        email,
+        amount: amountInSmallestUnit,
+        currency: currency.toUpperCase(),
+        reference: `SPR-${bookingId}-${Date.now()}`,
+        metadata: {
+          bookingId,
+          hirerId,
+          platformFee,
+          workerPayout,
+          custom_fields: [
+            {
+              display_name: "Booking ID",
+              variable_name: "booking_id",
+              value: bookingId,
+            },
+          ],
+        },
+        callback_url: `${process.env.CLIENT_URL}/payments/verify/paystack`,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    const { data } = response.data;
+
+    // Store payment record in DB
+    await prisma.payment.create({
+      data: {
         bookingId,
-        hirerId,
+        userId: hirerId,
+        amount,
+        currency,
         platformFee,
         workerPayout,
-        custom_fields: [
-          {
-            display_name: "Booking ID",
-            variable_name: "booking_id",
-            value: bookingId,
-          },
-        ],
+        status: "PENDING",
+        provider: "paystack",
+        providerRef: data.reference,
       },
-      callback_url: `${process.env.CLIENT_URL}/payments/verify/paystack`,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET}`,
-        "Content-Type": "application/json",
-      },
-    },
-  );
+    });
 
-  const { data } = response.data;
-
-  // Store payment record in DB
-  await prisma.payment.create({
-    data: {
-      bookingId,
-      userId: hirerId,
-      amount,
-      currency,
+    return {
+      authorizationUrl: data.authorization_url,
+      reference: data.reference,
       platformFee,
       workerPayout,
-      status: "PENDING",
-      provider: "paystack",
-      providerRef: data.reference,
-    },
-  });
-
-  return {
-    authorizationUrl: data.authorization_url,
-    reference: data.reference,
-    platformFee,
-    workerPayout,
-  };
+    };
+  } catch (err) {
+    // Surface the actual Paystack error message
+    const msg = err.response?.data?.message || err.message;
+    throw new Error(`Paystack error: ${msg}`);
+  }
 }
 
 export async function verifyPaystackPayment(reference) {

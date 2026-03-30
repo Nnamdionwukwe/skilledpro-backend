@@ -15,11 +15,19 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
+  console.log("=== PAYMENT DEBUG ===");
+  console.log("hirerId from token:", hirerId);
+  console.log("bookingId:", bookingId);
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { payment: true },
   });
+
+  console.log("booking.hirerId:", booking?.hirerId);
+  console.log("booking.status:", booking?.status);
+  console.log("IDs match:", booking?.hirerId === hirerId);
+  console.log("===================");
 
   if (!booking)
     return res
@@ -34,12 +42,10 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already initiated" });
   if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Booking must be accepted before payment",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Booking must be accepted before payment",
+    });
 
   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
   const result = await initiatePayment({ booking, hirer });
@@ -155,12 +161,10 @@ export const releasePayment = asyncHandler(async (req, res) => {
       .status(403)
       .json({ success: false, message: "Not your booking" });
   if (!booking.payment || booking.payment.status !== "HELD")
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "No payment in escrow for this booking",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "No payment in escrow for this booking",
+    });
 
   await prisma.booking.update({
     where: { id: bookingId },
@@ -174,13 +178,11 @@ export const releasePayment = asyncHandler(async (req, res) => {
     data: { completedJobs: { increment: 1 } },
   });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: "Payment released to worker",
-      data: payment,
-    });
+  res.status(200).json({
+    success: true,
+    message: "Payment released to worker",
+    data: payment,
+  });
 });
 
 // ── Refund payment ────────────────────────────────────────────────────────────
