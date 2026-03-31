@@ -103,6 +103,7 @@ router.post(
   protect,
   requireRole("HIRER"),
   uploadSingle,
+  normaliseFile,
   submitHirerVerification,
 );
 
