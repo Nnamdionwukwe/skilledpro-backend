@@ -25,3 +25,11 @@ const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 export const uploadSingle = upload.any();
 
 export const uploadMultiple = upload.array("files", 15);
+
+// Normalise req.files → req.file for controllers that use req.file
+export const normaliseFile = (req, res, next) => {
+  if (!req.file && req.files && req.files.length > 0) {
+    req.file = req.files[0];
+  }
+  next();
+};

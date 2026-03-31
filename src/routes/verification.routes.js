@@ -17,7 +17,10 @@ import {
   reviewHirerVerification,
 } from "../controllers/verification.controller.js";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
-import { uploadSingle } from "../middleware/upload.middleware.js";
+import {
+  uploadSingle,
+  normaliseFile,
+} from "../middleware/upload.middleware.js";
 
 const router = Router();
 
@@ -29,6 +32,7 @@ router.post(
   protect,
   requireRole("WORKER"),
   uploadSingle,
+  normaliseFile,
   submitIdVerification,
 );
 
@@ -37,6 +41,7 @@ router.post(
   protect,
   requireRole("WORKER"),
   uploadSingle,
+  normaliseFile,
   submitCertification,
 );
 
