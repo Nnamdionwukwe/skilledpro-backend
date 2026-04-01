@@ -1,5 +1,7 @@
+// src/controllers/worker.controller.js
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { notifyProfileViewed } from "../services/notification.service.js";
 
 export const searchWorkers = async (req, res) => {
   try {
@@ -88,7 +90,27 @@ export const getWorkerProfile = async (req, res) => {
         availability: true,
       },
     });
+
     if (!worker) return sendError(res, "Worker not found", 404);
+
+    // ── Notify worker their profile was viewed (only by other logged-in users) ──
+    if (
+      req.user &&
+      req.user.id !== req.params.userId // don't notify on own profile view
+    ) {
+      const viewer = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { firstName: true, lastName: true, role: true },
+      });
+      if (viewer) {
+        notifyProfileViewed(
+          req.params.userId,
+          `${viewer.firstName} ${viewer.lastName}`,
+          viewer.role,
+        ).catch(() => {}); // fire-and-forget, don't block the response
+      }
+    }
+
     return sendResponse(res, { data: { worker } });
   } catch (err) {
     return sendError(res, "Failed to fetch worker");
@@ -140,13 +162,10 @@ export const deletePortfolio = async (req, res) => {
   }
 };
 
-// In worker.controller.js, update addPortfolio and addCertification
-// to handle req.files[0] instead of req.file (because upload.any() uses req.files)
-
 export const addPortfolio = async (req, res) => {
   try {
     const { title, description } = req.body;
-    const file = req.files?.[0] || req.file; // handle both upload.any() and upload.single()
+    const file = req.files?.[0] || req.file;
     if (!file) return sendError(res, "Image required", 400);
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
@@ -174,7 +193,7 @@ export const addPortfolio = async (req, res) => {
 export const addCertification = async (req, res) => {
   try {
     const { name, issuedBy, issueDate, expiryDate } = req.body;
-    const file = req.files?.[0] || req.file; // handle both upload.any() and upload.single()
+    const file = req.files?.[0] || req.file;
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
     });
@@ -195,8 +214,6 @@ export const addCertification = async (req, res) => {
     return sendError(res, "Failed to add certification");
   }
 };
-
-// Replace the updateAvailability function in worker.controller.js
 
 const DAY_MAP = {
   SUNDAY: 0,
@@ -223,7 +240,6 @@ export const updateAvailability = async (req, res) => {
     const created = await prisma.availability.createMany({
       data: availability.map((a) => ({
         workerProfileId: worker.id,
-        // Accept both numeric (0-6) and string ("MONDAY") dayOfWeek
         dayOfWeek:
           typeof a.dayOfWeek === "string"
             ? (DAY_MAP[a.dayOfWeek.toUpperCase()] ?? 0)
@@ -267,9 +283,6 @@ export const addCategory = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// GET /api/workers/dashboard
-// ─────────────────────────────────────────────
 export const getWorkerDashboard = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -438,7 +451,6 @@ export const getWorkerDashboard = async (req, res) => {
     const unreadMessages = await prisma.message.count({
       where: { receiverId: userId, isRead: false },
     });
-
     const unreadNotifications = await prisma.notification.count({
       where: { userId, isRead: false },
     });
@@ -499,9 +511,6 @@ export const getWorkerDashboard = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// GET /api/workers/dashboard/notifications
-// ─────────────────────────────────────────────
 export const getWorkerNotifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
@@ -534,9 +543,6 @@ export const getWorkerNotifications = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// PATCH /api/workers/dashboard/notifications/read-all
-// ─────────────────────────────────────────────
 export const markAllNotificationsRead = async (req, res) => {
   try {
     await prisma.notification.updateMany({
@@ -549,9 +555,6 @@ export const markAllNotificationsRead = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// GET /api/workers/dashboard/earnings
-// ─────────────────────────────────────────────
 export const getWorkerEarnings = async (req, res) => {
   try {
     const { from, to, page = 1, limit = 20 } = req.query;
@@ -611,14 +614,6 @@ export const getWorkerEarnings = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// GET /api/workers/dashboard/reviews
-// Protected — returns reviews for the logged-in worker
-// RENAMED from getWorkerReviews → getMyReviews to avoid
-// collision with the same-named public function in review.controller.js
-// ─────────────────────────────────────────────
-// GET /api/workers/dashboard/reviews
-// Worker sees reviews they RECEIVED in their dashboard
 export const getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;

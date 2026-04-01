@@ -1,95 +1,286 @@
-import prisma from "../config/database.js";
+// src/services/notification.service.js
+// Complete in-app notification service — handles all event types
+// Call these from controllers after the relevant DB operation
 
-export const createNotification = async ({
+import prisma from "../config/database.js";
+import { getIO } from "../socket/index.js";
+
+// ── Core create + emit ─────────────────────────────────────────────────────────
+export async function createNotification({
   userId,
   title,
   body,
   type,
   data = {},
-}) => {
+}) {
   try {
     const notification = await prisma.notification.create({
       data: { userId, title, body, type, data },
     });
+
+    // Emit real-time via Socket.IO if available
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(`user:${userId}`).emit("notification", {
+          id: notification.id,
+          title,
+          body,
+          type,
+          data,
+          isRead: false,
+          createdAt: notification.createdAt,
+        });
+      }
+    } catch (_) {}
+
     return notification;
   } catch (err) {
-    console.error("createNotification error:", err);
+    console.error("[Notification] Failed to create:", err.message);
   }
-};
+}
 
-export const NOTIFICATION_TYPES = {
+// ── Notification type constants ────────────────────────────────────────────────
+export const N = {
+  // Bookings
   BOOKING_REQUEST: "BOOKING_REQUEST",
   BOOKING_ACCEPTED: "BOOKING_ACCEPTED",
   BOOKING_REJECTED: "BOOKING_REJECTED",
-  BOOKING_COMPLETED: "BOOKING_COMPLETED",
   BOOKING_CANCELLED: "BOOKING_CANCELLED",
+  BOOKING_IN_PROGRESS: "BOOKING_IN_PROGRESS",
+  BOOKING_COMPLETED: "BOOKING_COMPLETED",
+  // Payments
   PAYMENT_RECEIVED: "PAYMENT_RECEIVED",
   PAYMENT_RELEASED: "PAYMENT_RELEASED",
-  NEW_MESSAGE: "NEW_MESSAGE",
+  PAYMENT_REFUNDED: "PAYMENT_REFUNDED",
+  // Reviews
   NEW_REVIEW: "NEW_REVIEW",
+  REVIEW_REQUEST: "REVIEW_REQUEST",
+  // Jobs
+  JOB_APPLICATION: "JOB_APPLICATION",
+  APPLICATION_STATUS: "APPLICATION_STATUS",
+  // Messages
+  NEW_MESSAGE: "NEW_MESSAGE",
+  // Profile
+  PROFILE_VIEWED: "PROFILE_VIEWED",
+  // Account
   ACCOUNT_VERIFIED: "ACCOUNT_VERIFIED",
+  LOGIN_ALERT: "LOGIN_ALERT",
 };
 
-export const notifyBookingRequest = (workerId, hirerName, jobTitle) =>
+// ══════════════════════════════════════════════════════════════════════════════
+// BOOKING NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Worker receives when hirer books them
+export const notifyBookingRequest = (workerId, hirerName, booking) =>
   createNotification({
     userId: workerId,
-    title: "New booking request",
-    body: `${hirerName} wants to book you for: ${jobTitle}`,
-    type: NOTIFICATION_TYPES.BOOKING_REQUEST,
+    title: "New booking request 📅",
+    body: `${hirerName} wants to book you for "${booking.title}"`,
+    type: N.BOOKING_REQUEST,
+    data: { bookingId: booking.id },
   });
 
-export const notifyBookingAccepted = (hirerId, workerName, jobTitle) =>
+// Hirer receives when worker accepts
+export const notifyBookingAccepted = (hirerId, workerName, booking) =>
   createNotification({
     userId: hirerId,
-    title: "Booking accepted",
-    body: `${workerName} accepted your booking: ${jobTitle}`,
-    type: NOTIFICATION_TYPES.BOOKING_ACCEPTED,
+    title: "Booking accepted ✅",
+    body: `${workerName} accepted your booking "${booking.title}". Please pay to confirm.`,
+    type: N.BOOKING_ACCEPTED,
+    data: { bookingId: booking.id },
   });
 
-export const notifyBookingRejected = (hirerId, workerName, jobTitle) =>
+// Hirer receives when worker rejects
+export const notifyBookingRejected = (hirerId, workerName, booking) =>
   createNotification({
     userId: hirerId,
     title: "Booking declined",
-    body: `${workerName} declined your booking: ${jobTitle}`,
-    type: NOTIFICATION_TYPES.BOOKING_REJECTED,
+    body: `${workerName} was unable to take "${booking.title}".`,
+    type: N.BOOKING_REJECTED,
+    data: { bookingId: booking.id },
   });
 
-export const notifyBookingCompleted = (hirerId, workerName) =>
+// Both parties receive when booking is cancelled
+export const notifyBookingCancelled = (userId, name, booking, reason) =>
+  createNotification({
+    userId,
+    title: "Booking cancelled",
+    body: `The booking "${booking.title}" has been cancelled.${reason ? ` Reason: ${reason}` : ""}`,
+    type: N.BOOKING_CANCELLED,
+    data: { bookingId: booking.id },
+  });
+
+// Hirer receives when worker checks in
+export const notifyBookingInProgress = (hirerId, workerName, booking) =>
   createNotification({
     userId: hirerId,
-    title: "Job completed",
-    body: `${workerName} has marked the job as complete. Please leave a review.`,
-    type: NOTIFICATION_TYPES.BOOKING_COMPLETED,
+    title: "Job started 🔨",
+    body: `${workerName} has checked in for "${booking.title}"`,
+    type: N.BOOKING_IN_PROGRESS,
+    data: { bookingId: booking.id },
   });
 
-export const notifyPaymentReceived = (hirerId, amount, currency) =>
+// Hirer receives when worker marks complete
+export const notifyBookingCompleted = (hirerId, workerName, booking) =>
   createNotification({
     userId: hirerId,
-    title: "Payment held in escrow",
-    body: `${currency} ${amount} is held securely until the job is complete.`,
-    type: NOTIFICATION_TYPES.PAYMENT_RECEIVED,
+    title: "Job completed 🎉",
+    body: `${workerName} has completed "${booking.title}". Please release payment and leave a review.`,
+    type: N.BOOKING_COMPLETED,
+    data: { bookingId: booking.id },
   });
 
-export const notifyPaymentReleased = (workerId, amount, currency) =>
+// ══════════════════════════════════════════════════════════════════════════════
+// PAYMENT NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Hirer receives after payment goes to escrow
+export const notifyPaymentReceived = (hirerId, amount, currency, booking) =>
+  createNotification({
+    userId: hirerId,
+    title: "Payment held in escrow 💳",
+    body: `${currency} ${Number(amount).toLocaleString()} is held securely for "${booking.title}"`,
+    type: N.PAYMENT_RECEIVED,
+    data: { bookingId: booking.id },
+  });
+
+// Worker receives when hirer releases escrow
+export const notifyPaymentReleased = (workerId, amount, currency, booking) =>
   createNotification({
     userId: workerId,
-    title: "Payment released",
-    body: `${currency} ${amount} has been released to your account.`,
-    type: NOTIFICATION_TYPES.PAYMENT_RELEASED,
+    title: "Payment released 💰",
+    body: `${currency} ${Number(amount).toLocaleString()} has been released for "${booking.title}"`,
+    type: N.PAYMENT_RELEASED,
+    data: { bookingId: booking.id },
   });
 
-export const notifyNewMessage = (receiverId, senderName) =>
+// User receives when refund is processed
+export const notifyPaymentRefunded = (userId, amount, currency, booking) =>
+  createNotification({
+    userId,
+    title: "Refund processed",
+    body: `${currency} ${Number(amount).toLocaleString()} refund is on its way for "${booking.title}"`,
+    type: N.PAYMENT_REFUNDED,
+    data: { bookingId: booking.id },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REVIEW NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Both parties receive after job complete — prompt to review
+export const notifyReviewRequest = (userId, otherPartyName, booking) =>
+  createNotification({
+    userId,
+    title: "Leave a review ⭐",
+    body: `How was your experience with ${otherPartyName}? Leave a review for "${booking.title}"`,
+    type: N.REVIEW_REQUEST,
+    data: { bookingId: booking.id },
+  });
+
+// Worker/hirer receives when they get a new review
+export const notifyNewReview = (receiverId, giverName, rating, booking) =>
   createNotification({
     userId: receiverId,
-    title: "New message",
-    body: `You have a new message from ${senderName}`,
-    type: NOTIFICATION_TYPES.NEW_MESSAGE,
+    title: "New review received ⭐",
+    body: `${giverName} gave you ${rating} star${rating !== 1 ? "s" : ""} for "${booking.title}"`,
+    type: N.NEW_REVIEW,
+    data: { bookingId: booking.id, rating },
   });
 
-export const notifyNewReview = (workerId, hirerName, rating) =>
+// ══════════════════════════════════════════════════════════════════════════════
+// JOB APPLICATION NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Hirer receives when worker applies
+export const notifyJobApplication = (hirerId, workerName, job) =>
+  createNotification({
+    userId: hirerId,
+    title: "New job application 📋",
+    body: `${workerName} applied for your job "${job.title}"`,
+    type: N.JOB_APPLICATION,
+    data: { jobPostId: job.id },
+  });
+
+// Worker receives when application is accepted
+export const notifyApplicationAccepted = (workerId, hirerName, job) =>
   createNotification({
     userId: workerId,
-    title: "New review received",
-    body: `${hirerName} left you a ${rating}-star review.`,
-    type: NOTIFICATION_TYPES.NEW_REVIEW,
+    title: "Application accepted! 🎉",
+    body: `Your application for "${job.title}" was accepted by ${hirerName}`,
+    type: N.APPLICATION_STATUS,
+    data: { jobPostId: job.id, status: "ACCEPTED" },
+  });
+
+// Worker receives when application is rejected
+export const notifyApplicationRejected = (workerId, job) =>
+  createNotification({
+    userId: workerId,
+    title: "Application update",
+    body: `Your application for "${job.title}" was not selected this time.`,
+    type: N.APPLICATION_STATUS,
+    data: { jobPostId: job.id, status: "REJECTED" },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MESSAGE NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Receiver gets notified of a new message
+export const notifyNewMessage = (
+  receiverId,
+  senderName,
+  preview,
+  conversationId,
+) =>
+  createNotification({
+    userId: receiverId,
+    title: `New message from ${senderName} 💬`,
+    body: preview
+      ? `"${preview.slice(0, 80)}${preview.length > 80 ? "…" : ""}"`
+      : "You have a new message",
+    type: N.NEW_MESSAGE,
+    data: { conversationId, senderName },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROFILE NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Worker/hirer gets notified when someone views their profile
+// Call this in getWorkerProfile and getHirerProfile when req.user exists
+// and it's not the profile owner's own view
+export const notifyProfileViewed = (profileOwnerId, viewerName, viewerRole) =>
+  createNotification({
+    userId: profileOwnerId,
+    title: "Profile viewed 👀",
+    body: `${viewerName} (${viewerRole?.toLowerCase() || "user"}) viewed your profile`,
+    type: N.PROFILE_VIEWED,
+    data: { viewerName, viewerRole },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ACCOUNT NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// User gets notified of new login
+export const notifyLoginAlert = (userId, ip, device) =>
+  createNotification({
+    userId,
+    title: "New login detected 🔐",
+    body: `Your account was accessed${ip ? ` from ${ip}` : ""}${device ? ` on ${device}` : ""}. If this wasn't you, change your password immediately.`,
+    type: N.LOGIN_ALERT,
+    data: { ip, device },
+  });
+
+// User gets notified when account is verified
+export const notifyAccountVerified = (userId) =>
+  createNotification({
+    userId,
+    title: "Account verified ✅",
+    body: "Your identity has been verified. You can now access all features.",
+    type: N.ACCOUNT_VERIFIED,
+    data: {},
   });

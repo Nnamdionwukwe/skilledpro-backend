@@ -1,5 +1,7 @@
+// src/controllers/hirer.controller.js
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { notifyProfileViewed } from "../services/notification.service.js";
 
 export const getMyHirerProfile = async (req, res) => {
   try {
@@ -68,6 +70,22 @@ export const getHirerProfile = async (req, res) => {
       },
     });
     if (!profile) return sendError(res, "Hirer not found", 404);
+
+    // ── Notify hirer their profile was viewed ────────────────────────────────
+    if (req.user && req.user.id !== req.params.userId) {
+      const viewer = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { firstName: true, lastName: true, role: true },
+      });
+      if (viewer) {
+        notifyProfileViewed(
+          req.params.userId,
+          `${viewer.firstName} ${viewer.lastName}`,
+          viewer.role,
+        ).catch(() => {});
+      }
+    }
+
     return sendResponse(res, { data: { profile } });
   } catch (err) {
     return sendError(res, "Failed to fetch hirer");
@@ -98,19 +116,7 @@ export const getHirerBookings = async (req, res) => {
           },
           category: true,
           payment: true,
-          reviews: {
-            include: {
-              giver: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  avatar: true,
-                  role: true,
-                },
-              },
-            },
-          },
+          review: true,
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -247,7 +253,6 @@ export const getSavedWorkers = async (req, res) => {
       ...b.worker,
       lastCategory: b.category,
     }));
-
     return sendResponse(res, { data: { workers } });
   } catch (err) {
     return sendError(res, "Failed to fetch saved workers");
@@ -287,10 +292,7 @@ export const postJob = async (req, res) => {
     if (!category) return sendError(res, "Category not found", 404);
 
     const matchedWorkers = await prisma.workerProfile.findMany({
-      where: {
-        isAvailable: true,
-        categories: { some: { categoryId } },
-      },
+      where: { isAvailable: true, categories: { some: { categoryId } } },
       take: 10,
       orderBy: [{ avgRating: "desc" }, { completedJobs: "desc" }],
       include: {
@@ -331,8 +333,6 @@ export const postJob = async (req, res) => {
   }
 };
 
-// GET /api/hirers/me/reviews
-// Hirer sees reviews they RECEIVED in their dashboard
 export const getHirerReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
