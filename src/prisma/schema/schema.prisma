@@ -341,31 +341,6 @@ model Notification {
   data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-} 
-
-enum WithdrawalStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-model Withdrawal {
-  id          String           @id @default(uuid())
-  workerId    String
-  worker      User             @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  amount      Float
-  currency    String           @default("NGN")
-  method      String           // "bank_transfer" | "paystack" | "mpesa" | etc.
-  destination String           // display label e.g. "First Bank ••• 4521"
-  details     Json             // full payout details object
-  reference   String           @unique
-  status      WithdrawalStatus @default(PENDING)
-  processedAt DateTime?
-  failReason  String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
 }
 
 model JobPost {
@@ -405,10 +380,3 @@ model JobApplication {
 
   @@unique([jobPostId, workerId])
 }
-
-
-with open('prisma/schema.prisma', 'w') as f:
-    f.write(schema)
-
-print("Schema written successfully!")
-print(f"Lines: {len(schema.splitlines())}")
