@@ -11,6 +11,8 @@ import {
   getAllPayments,
   getWorkerEarnings,
   getHirerPayments,
+  requestWithdrawal,
+  getWithdrawals,
 } from "../controllers/payment.controller.js";
 
 const router = express.Router();
@@ -44,16 +46,19 @@ router.post("/refund/:bookingId", refundPayment);
 // Worker: earnings summary
 router.get("/earnings", requireRole("WORKER"), getWorkerEarnings);
 
-// Hirer: full payment history with receipts and summary totals
-// ⚠️  Must be defined BEFORE /:bookingId — otherwise Express matches
-//     the literal string "hirer" as a bookingId param and returns 404
+// Worker: request a payout withdrawal — BEFORE /:bookingId wildcard
+router.post("/withdraw", requireRole("WORKER"), requestWithdrawal);
+
+// Worker: get withdrawal history + live balance — BEFORE /:bookingId wildcard
+router.get("/withdrawals", requireRole("WORKER"), getWithdrawals);
+
+// Hirer: full payment history — BEFORE /:bookingId wildcard
 router.get("/hirer", requireRole("HIRER"), getHirerPayments);
 
 // Admin: all payments
 router.get("/", requireRole("ADMIN"), getAllPayments);
 
-// Hirer or Worker: single booking payment detail
-// ⚠️  Wildcard — always last
+// Hirer or Worker: single booking payment detail — wildcard, always last
 router.get("/:bookingId", getPayment);
 
 export default router;
