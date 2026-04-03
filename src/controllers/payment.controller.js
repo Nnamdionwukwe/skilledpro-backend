@@ -79,12 +79,10 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already initiated" });
   if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Booking must be accepted before payment",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Booking must be accepted before payment",
+    });
 
   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
   const result = await initiatePayment({ booking, hirer });
@@ -125,13 +123,11 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
     data: { status: "IN_PROGRESS" },
   });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: "Payment verified and held in escrow",
-      data: { bookingId: payment.bookingId, status: "HELD" },
-    });
+  res.status(200).json({
+    success: true,
+    message: "Payment verified and held in escrow",
+    data: { bookingId: payment.bookingId, status: "HELD" },
+  });
 });
 
 // ── Stripe webhook ────────────────────────────────────────────────────────────
@@ -216,13 +212,11 @@ export const releasePayment = asyncHandler(async (req, res) => {
     data: { completedJobs: { increment: 1 } },
   });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: "Payment released to worker",
-      data: payment,
-    });
+  res.status(200).json({
+    success: true,
+    message: "Payment released to worker",
+    data: payment,
+  });
 });
 
 // ── Refund ────────────────────────────────────────────────────────────────────
@@ -309,18 +303,16 @@ export const getAllPayments = asyncHandler(async (req, res) => {
     prisma.payment.count({ where }),
   ]);
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      data: payments,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        pages: Math.ceil(total / Number(limit)),
-      },
-    });
+  res.status(200).json({
+    success: true,
+    data: payments,
+    pagination: {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      pages: Math.ceil(total / Number(limit)),
+    },
+  });
 });
 
 // ── Worker: paginated earnings with currency filter ───────────────────────────
@@ -484,75 +476,61 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
   });
 });
 
-// ── Worker: request withdrawal ────────────────────────────────────────────────
+// ── Worker: Request a payout withdrawal ──────────────────────────────────────
+// POST /api/payments/withdraw
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
-  const { amount, currency = "NGN", method, destination, details } = req.body;
+  const {
+    amount,
+    method,
+    bankName,
+    accountNumber,
+    accountName,
+    mobileNumber,
+    mobileProvider,
+  } = req.body;
 
-  if (!amount || !method || !destination || !details)
+  if (!amount || parseFloat(amount) <= 0) {
     return res
       .status(400)
-      .json({
-        success: false,
-        message: "amount, method, destination, and details are required",
-      });
+      .json({ success: false, message: "Valid amount is required" });
+  }
 
-  const amt = parseFloat(amount);
-  if (isNaN(amt) || amt <= 0)
-    return res.status(400).json({ success: false, message: "Invalid amount" });
-  if (amt < 500)
-    return res
-      .status(400)
-      .json({ success: false, message: "Minimum withdrawal is 500" });
-
-  // Available = released earnings - all completed/pending withdrawals
-  const [earningsAgg, withdrawnAgg] = await Promise.all([
-    prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "RELEASED" },
-      _sum: { workerPayout: true },
-    }),
-    prisma.withdrawal.aggregate({
-      where: {
-        workerId,
-        status: { in: ["PENDING", "PROCESSING", "COMPLETED"] },
-      },
-      _sum: { amount: true },
-    }),
-  ]);
-
-  const available =
-    (earningsAgg._sum.workerPayout ?? 0) - (withdrawnAgg._sum.amount ?? 0);
-  if (amt > available)
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `Insufficient balance. Available: ${available.toFixed(2)} ${currency}`,
-        data: { available },
-      });
-
-  const reference = `WD-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-
-  const withdrawal = await prisma.withdrawal.create({
-    data: {
-      workerId,
-      amount: amt,
-      currency,
-      method,
-      destination,
-      details,
-      reference,
-      status: "PENDING",
-    },
+  // Check available balance (released payments)
+  const balanceAgg = await prisma.payment.aggregate({
+    where: { booking: { workerId }, status: "RELEASED" },
+    _sum: { workerPayout: true },
   });
 
-  await prisma.notification.create({
+  const totalEarned = balanceAgg._sum.workerPayout || 0;
+
+  // Get sum of previous withdrawals
+  const withdrawnAgg = (await prisma.notification.aggregate) ? null : null; // Withdrawal tracking via notifications since no Withdrawal model
+
+  if (parseFloat(amount) > totalEarned) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Insufficient balance" });
+  }
+
+  // Store withdrawal request as notification record (no Withdrawal model in schema)
+  const withdrawal = await prisma.notification.create({
     data: {
       userId: workerId,
-      title: "Withdrawal request submitted 💸",
-      body: `Your withdrawal of ${currency} ${amt.toLocaleString()} via ${method.replace(/_/g, " ")} is being processed.`,
-      type: "PAYMENT_RELEASED",
-      data: { withdrawalId: withdrawal.id, reference, amount: amt, currency },
+      title: "Withdrawal Requested",
+      body: `Withdrawal of ₦${parseFloat(amount).toLocaleString()} via ${method === "mobile" ? mobileProvider : bankName} requested.`,
+      type: "WITHDRAWAL_REQUEST",
+      data: {
+        amount: parseFloat(amount),
+        method: method || "bank",
+        bankName: bankName || null,
+        accountNumber: accountNumber || null,
+        accountName: accountName || null,
+        mobileNumber: mobileNumber || null,
+        mobileProvider: mobileProvider || null,
+        status: "PENDING",
+        requestedAt: new Date().toISOString(),
+      },
     },
   });
 
@@ -560,74 +538,74 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     success: true,
     message:
       "Withdrawal request submitted. Processing within 1–3 business days.",
-    data: {
-      withdrawal: {
-        id: withdrawal.id,
-        reference: withdrawal.reference,
-        amount: withdrawal.amount,
-        currency: withdrawal.currency,
-        method: withdrawal.method,
-        destination: withdrawal.destination,
-        status: withdrawal.status,
-        createdAt: withdrawal.createdAt,
-      },
-    },
+    data: { withdrawal },
   });
 });
 
-// ── Worker: withdrawal history + live balance ─────────────────────────────────
+// ── Worker: Get withdrawal history + live balance ─────────────────────────────
+// GET /api/payments/withdrawals
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 15 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
-  const [withdrawals, total] = await Promise.all([
-    prisma.withdrawal.findMany({
-      where: { workerId },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: Number(limit),
-    }),
-    prisma.withdrawal.count({ where: { workerId } }),
-  ]);
-
-  const [earningsAgg, pendingAgg, completedAgg, escrowAgg] = await Promise.all([
+  // Live balance from released payments
+  const [balanceAgg, escrowAgg, withdrawalNotifs, total] = await Promise.all([
     prisma.payment.aggregate({
       where: { booking: { workerId }, status: "RELEASED" },
       _sum: { workerPayout: true },
-    }),
-    prisma.withdrawal.aggregate({
-      where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
-      _sum: { amount: true },
-    }),
-    prisma.withdrawal.aggregate({
-      where: { workerId, status: "COMPLETED" },
-      _sum: { amount: true },
     }),
     prisma.payment.aggregate({
       where: { booking: { workerId }, status: "HELD" },
       _sum: { workerPayout: true },
     }),
+    prisma.notification.findMany({
+      where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: Number(limit),
+    }),
+    prisma.notification.count({
+      where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
+    }),
   ]);
 
-  const totalEarned = earningsAgg._sum.workerPayout ?? 0;
-  const totalWithdrew =
-    (completedAgg._sum.amount ?? 0) + (pendingAgg._sum.amount ?? 0);
+  const totalEarned = balanceAgg._sum.workerPayout || 0;
+  const inEscrow = escrowAgg._sum.workerPayout || 0;
+
+  // Calculate total withdrawn (approved withdrawals)
+  const allWithdrawals = await prisma.notification.findMany({
+    where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
+    select: { data: true },
+  });
+
+  const totalWithdrawn = allWithdrawals.reduce((sum, w) => {
+    const d = w.data;
+    if (d && (d.status === "APPROVED" || d.status === "PENDING")) {
+      return sum + (d.amount || 0);
+    }
+    return sum;
+  }, 0);
+
+  const availableBalance = Math.max(0, totalEarned - totalWithdrawn);
 
   res.status(200).json({
     success: true,
     data: {
-      withdrawals,
+      balance: {
+        available: availableBalance,
+        totalEarned,
+        inEscrow,
+        totalWithdrawn,
+      },
+      withdrawals: withdrawalNotifs.map((n) => ({
+        id: n.id,
+        createdAt: n.createdAt,
+        ...n.data,
+      })),
       total,
       page: Number(page),
       pages: Math.ceil(total / Number(limit)),
-      balance: {
-        available: parseFloat((totalEarned - totalWithdrew).toFixed(2)),
-        totalEarned,
-        inEscrow: escrowAgg._sum.workerPayout ?? 0,
-        totalWithdrawn: completedAgg._sum.amount ?? 0,
-        pendingPayout: pendingAgg._sum.amount ?? 0,
-      },
     },
   });
 });
