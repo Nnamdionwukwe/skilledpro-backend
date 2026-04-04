@@ -200,7 +200,7 @@ export const updateBookingStatus = async (req, res) => {
     if (!booking) return sendError(res, "Booking not found", 404);
 
     const allowed = {
-      WORKER: ["ACCEPTED", "REJECTED", "IN_PROGRESS", "COMPLETED"],
+      WORKER: ["ACCEPTED", "REJECTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
       HIRER: ["CANCELLED"],
       ADMIN: [
         "ACCEPTED",
