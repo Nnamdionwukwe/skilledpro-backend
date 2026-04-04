@@ -699,15 +699,16 @@ export const getMyReviews = async (req, res) => {
 export const addVideoIntro = async (req, res) => {
   try {
     if (!req.file) return sendError(res, "Video file required", 400);
-    const worker = await prisma.workerProfile.update({
+    const updated = await prisma.workerProfile.update({
       where: { userId: req.user.id },
-      data: { idDocument: req.file.path }, // re-using idDocument temporarily — add videoIntro field to schema
+      data: { videoIntroUrl: req.file.path },
     });
     return sendResponse(res, {
       message: "Video intro uploaded",
-      data: { videoUrl: req.file.path },
+      data: { videoUrl: updated.videoIntroUrl },
     });
   } catch (err) {
+    console.error("addVideoIntro error:", err.message);
     return sendError(res, "Failed to upload video intro");
   }
 };
@@ -716,7 +717,7 @@ export const deleteVideoIntro = async (req, res) => {
   try {
     await prisma.workerProfile.update({
       where: { userId: req.user.id },
-      data: { idDocument: null },
+      data: { videoIntroUrl: null },
     });
     return sendResponse(res, { message: "Video intro removed" });
   } catch (err) {
