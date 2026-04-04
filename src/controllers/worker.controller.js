@@ -283,6 +283,21 @@ export const addCategory = async (req, res) => {
   }
 };
 
+export const removeCategory = async (req, res) => {
+  try {
+    const worker = await prisma.workerProfile.findUnique({
+      where: { userId: req.user.id },
+    });
+    if (!worker) return sendError(res, "Worker profile not found", 404);
+    await prisma.workerCategory.deleteMany({
+      where: { workerProfileId: worker.id, categoryId: req.params.categoryId },
+    });
+    return sendResponse(res, { message: "Category removed" });
+  } catch (err) {
+    return sendError(res, "Failed to remove category");
+  }
+};
+
 export const getWorkerDashboard = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -678,5 +693,33 @@ export const getMyReviews = async (req, res) => {
     });
   } catch (err) {
     return sendError(res, "Failed to fetch reviews");
+  }
+};
+
+export const addVideoIntro = async (req, res) => {
+  try {
+    if (!req.file) return sendError(res, "Video file required", 400);
+    const worker = await prisma.workerProfile.update({
+      where: { userId: req.user.id },
+      data: { idDocument: req.file.path }, // re-using idDocument temporarily — add videoIntro field to schema
+    });
+    return sendResponse(res, {
+      message: "Video intro uploaded",
+      data: { videoUrl: req.file.path },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to upload video intro");
+  }
+};
+
+export const deleteVideoIntro = async (req, res) => {
+  try {
+    await prisma.workerProfile.update({
+      where: { userId: req.user.id },
+      data: { idDocument: null },
+    });
+    return sendResponse(res, { message: "Video intro removed" });
+  } catch (err) {
+    return sendError(res, "Failed to remove video intro");
   }
 };

@@ -13,11 +13,18 @@ import {
   getWorkerNotifications,
   markAllNotificationsRead,
   getWorkerEarnings,
+  removeCategory,
+  addVideoIntro,
+  deleteVideoIntro,
   getMyReviews, // renamed from getWorkerReviews — was colliding with review.controller.js
 } from "../controllers/worker.controller.js";
 
 import { protect, requireRole } from "../middleware/auth.middleware.js";
-import { uploadSingle } from "../middleware/upload.middleware.js";
+import {
+  uploadSingle,
+  normaliseFile,
+} from "../middleware/upload.middleware.js";
+import { getMyApplications } from "../controllers/job.controller.js";
 
 const router = Router();
 
@@ -55,6 +62,7 @@ router.post(
   requireRole("WORKER"),
   uploadSingle,
   addPortfolio,
+  normaliseFile,
 );
 router.delete(
   "/portfolio/:id",
@@ -68,9 +76,32 @@ router.post(
   requireRole("WORKER"),
   uploadSingle,
   addCertification,
+  normaliseFile,
 );
 router.put("/availability", protect, requireRole("WORKER"), updateAvailability);
 router.post("/categories", protect, requireRole("WORKER"), addCategory);
+// Add to worker.routes.js:
+router.delete(
+  "/categories/:categoryId",
+  protect,
+  requireRole("WORKER"),
+  removeCategory,
+);
+router.get(
+  "/my-applications",
+  protect,
+  requireRole("WORKER"),
+  getMyApplications,
+);
+router.post(
+  "/video-intro",
+  protect,
+  requireRole("WORKER"),
+  uploadSingle,
+  normaliseFile,
+  addVideoIntro,
+);
+router.delete("/video-intro", protect, requireRole("WORKER"), deleteVideoIntro);
 
 // PUBLIC DYNAMIC ROUTE (wildcard — always last)
 router.get("/:userId", getWorkerProfile);

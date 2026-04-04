@@ -307,22 +307,61 @@ export const updateBookingStatus = async (req, res) => {
   }
 };
 
-// ── Check in ──────────────────────────────────────────────────────────────────
 export const checkIn = async (req, res) => {
   try {
-    const booking = await prisma.booking.update({
+    const { latitude, longitude } = req.body;
+    const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
-      data: { checkInAt: new Date(), status: "IN_PROGRESS" },
     });
-    return sendResponse(res, { message: "Checked in", data: { booking } });
+    if (!booking) return sendError(res, "Booking not found", 404);
+    if (booking.workerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+    if (booking.status !== "ACCEPTED")
+      return sendError(res, "Cannot check in — booking must be ACCEPTED", 400);
+
+    const updated = await prisma.booking.update({
+      where: { id: req.params.id },
+      data: {
+        checkInAt: new Date(),
+        status: "IN_PROGRESS",
+        // Store GPS in notes field as JSON since schema has no lat/lng on checkin
+        notes: booking.notes
+          ? booking.notes
+          : latitude
+            ? `[GPS] Check-in: ${latitude},${longitude}`
+            : booking.notes,
+      },
+    });
+
+    // Notify hirer
+    await prisma.notification.create({
+      data: {
+        userId: booking.hirerId,
+        title: "Worker Checked In 🟢",
+        body: `Your worker has checked in and the job is now in progress.`,
+        type: "BOOKING_CHECKIN",
+        data: {
+          bookingId: booking.id,
+          checkInAt: new Date().toISOString(),
+          latitude: latitude || null,
+          longitude: longitude || null,
+        },
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Checked in — job is now in progress.",
+      data: { booking: updated },
+    });
   } catch (err) {
+    console.error(err);
     return sendError(res, "Check-in failed");
   }
 };
 
-// ── Check out ─────────────────────────────────────────────────────────────────
 export const checkOut = async (req, res) => {
   try {
+    const { latitude, longitude } = req.body;
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
       include: {
@@ -332,6 +371,14 @@ export const checkOut = async (req, res) => {
     });
 
     if (!booking) return sendError(res, "Booking not found", 404);
+    if (booking.workerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+    if (booking.status !== "IN_PROGRESS")
+      return sendError(
+        res,
+        "Cannot check out — booking must be IN_PROGRESS",
+        400,
+      );
 
     const updated = await prisma.booking.update({
       where: { id: req.params.id },
@@ -342,7 +389,22 @@ export const checkOut = async (req, res) => {
       },
     });
 
-    // ── Email: notify hirer to release payment ───────────────────────────────
+    // Notify hirer
+    await prisma.notification.create({
+      data: {
+        userId: booking.hirerId,
+        title: "Job Completed ✅",
+        body: `Your worker has checked out. Please review and release payment.`,
+        type: "BOOKING_CHECKOUT",
+        data: {
+          bookingId: booking.id,
+          checkOutAt: new Date().toISOString(),
+          latitude: latitude || null,
+          longitude: longitude || null,
+        },
+      },
+    });
+
     await sendJobCompletedEmail({
       to: booking.hirer.email,
       hirerName: booking.hirer.firstName,
@@ -350,7 +412,6 @@ export const checkOut = async (req, res) => {
       booking: { id: booking.id, title: booking.title },
     });
 
-    // ── Email: prompt both to review ─────────────────────────────────────────
     await Promise.all([
       sendReviewRequestEmail({
         to: booking.hirer.email,
@@ -367,7 +428,7 @@ export const checkOut = async (req, res) => {
     ]);
 
     return sendResponse(res, {
-      message: "Checked out",
+      message: "Checked out — job marked as completed.",
       data: { booking: updated },
     });
   } catch (err) {
