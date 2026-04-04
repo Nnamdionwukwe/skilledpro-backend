@@ -309,7 +309,7 @@ export const updateBookingStatus = async (req, res) => {
 
 export const checkIn = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude } = req.body || {};
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
     });
@@ -352,7 +352,7 @@ export const checkIn = async (req, res) => {
 
 export const checkOut = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude } = req.body || {};
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
       include: {
