@@ -12,9 +12,15 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: "skilledpro",
-    allowed_formats: ["jpg", "jpeg", "png", "webp", "pdf"],
+  params: (req, file) => {
+    const isVideo = file.mimetype.startsWith("video/");
+    return {
+      folder: "skilledpro",
+      resource_type: isVideo ? "video" : "auto",
+      allowed_formats: isVideo
+        ? ["mp4", "mov", "webm", "avi", "mkv"]
+        : ["jpg", "jpeg", "png", "webp", "pdf"],
+    };
   },
 });
 
