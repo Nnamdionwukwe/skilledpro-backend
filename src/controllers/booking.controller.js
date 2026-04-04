@@ -313,48 +313,39 @@ export const checkIn = async (req, res) => {
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
     });
+
     if (!booking) return sendError(res, "Booking not found", 404);
     if (booking.workerId !== req.user.id)
       return sendError(res, "Forbidden", 403);
     if (booking.status !== "ACCEPTED")
-      return sendError(res, "Cannot check in — booking must be ACCEPTED", 400);
+      return sendError(res, "Booking must be ACCEPTED to check in", 400);
 
     const updated = await prisma.booking.update({
       where: { id: req.params.id },
       data: {
         checkInAt: new Date(),
         status: "IN_PROGRESS",
-        // Store GPS in notes field as JSON since schema has no lat/lng on checkin
-        notes: booking.notes
-          ? booking.notes
-          : latitude
-            ? `[GPS] Check-in: ${latitude},${longitude}`
-            : booking.notes,
+        checkInLat: latitude ? parseFloat(latitude) : null,
+        checkInLng: longitude ? parseFloat(longitude) : null,
       },
     });
 
-    // Notify hirer
     await prisma.notification.create({
       data: {
         userId: booking.hirerId,
         title: "Worker Checked In 🟢",
-        body: `Your worker has checked in and the job is now in progress.`,
+        body: "Your worker has arrived and the job is now in progress.",
         type: "BOOKING_CHECKIN",
-        data: {
-          bookingId: booking.id,
-          checkInAt: new Date().toISOString(),
-          latitude: latitude || null,
-          longitude: longitude || null,
-        },
+        data: { bookingId: booking.id, lat: latitude, lng: longitude },
       },
     });
 
     return sendResponse(res, {
-      message: "Checked in — job is now in progress.",
+      message: "Checked in.",
       data: { booking: updated },
     });
   } catch (err) {
-    console.error(err);
+    console.error("checkIn error:", err.message);
     return sendError(res, "Check-in failed");
   }
 };
@@ -374,11 +365,7 @@ export const checkOut = async (req, res) => {
     if (booking.workerId !== req.user.id)
       return sendError(res, "Forbidden", 403);
     if (booking.status !== "IN_PROGRESS")
-      return sendError(
-        res,
-        "Cannot check out — booking must be IN_PROGRESS",
-        400,
-      );
+      return sendError(res, "Booking must be IN_PROGRESS to check out", 400);
 
     const updated = await prisma.booking.update({
       where: { id: req.params.id },
@@ -386,53 +373,27 @@ export const checkOut = async (req, res) => {
         checkOutAt: new Date(),
         status: "COMPLETED",
         completedAt: new Date(),
+        checkOutLat: latitude ? parseFloat(latitude) : null,
+        checkOutLng: longitude ? parseFloat(longitude) : null,
       },
     });
 
-    // Notify hirer
     await prisma.notification.create({
       data: {
         userId: booking.hirerId,
         title: "Job Completed ✅",
-        body: `Your worker has checked out. Please review and release payment.`,
+        body: "Your worker checked out. Please release payment when satisfied.",
         type: "BOOKING_CHECKOUT",
-        data: {
-          bookingId: booking.id,
-          checkOutAt: new Date().toISOString(),
-          latitude: latitude || null,
-          longitude: longitude || null,
-        },
+        data: { bookingId: booking.id, lat: latitude, lng: longitude },
       },
     });
 
-    await sendJobCompletedEmail({
-      to: booking.hirer.email,
-      hirerName: booking.hirer.firstName,
-      workerName: booking.worker.firstName,
-      booking: { id: booking.id, title: booking.title },
-    });
-
-    await Promise.all([
-      sendReviewRequestEmail({
-        to: booking.hirer.email,
-        name: booking.hirer.firstName,
-        otherPartyName: booking.worker.firstName,
-        booking: { id: booking.id, title: booking.title },
-      }),
-      sendReviewRequestEmail({
-        to: booking.worker.email,
-        name: booking.worker.firstName,
-        otherPartyName: booking.hirer.firstName,
-        booking: { id: booking.id, title: booking.title },
-      }),
-    ]);
-
     return sendResponse(res, {
-      message: "Checked out — job marked as completed.",
+      message: "Checked out.",
       data: { booking: updated },
     });
   } catch (err) {
-    console.error(err);
+    console.error("checkOut error:", err.message);
     return sendError(res, "Check-out failed");
   }
 };

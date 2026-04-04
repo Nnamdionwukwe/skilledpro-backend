@@ -18,6 +18,7 @@ import disputeRoutes from "./routes/dispute.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import jobRoutes from "./routes/job.routes.js";
+import aiRoutes from "./routes/ai.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
 // Calling dotenv.config() here runs at import time, before server.js sets it up.
@@ -83,6 +84,7 @@ app.use("/api/disputes", disputeRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/jobs", jobRoutes);
+app.use("/api/ai", aiRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

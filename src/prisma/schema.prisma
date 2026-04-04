@@ -118,6 +118,7 @@ model WorkerProfile {
   isAvailable        Boolean            @default(true)
   verificationStatus VerificationStatus @default(UNVERIFIED)
   idDocument         String?
+  videoIntroUrl      String?
   backgroundCheck    Boolean            @default(false)
   totalEarnings      Float              @default(0)
   completedJobs      Int                @default(0)
@@ -226,7 +227,11 @@ model Booking {
   status         BookingStatus @default(PENDING)
   notes          String?
   checkInAt      DateTime?
+  checkInLat     Float?
+  checkInLng     Float?
   checkOutAt     DateTime?
+  checkOutLat    Float?
+  checkOutLng    Float?
   completedAt    DateTime?
   cancelReason   String?
   createdAt      DateTime      @default(now())
@@ -238,30 +243,28 @@ model Booking {
 }
 
 model Payment {
-  id               String        @id @default(uuid())
-  bookingId        String        @unique
-  booking          Booking       @relation(fields: [bookingId], references: [id])
-  userId           String
-  user             User          @relation(fields: [userId], references: [id])
-  amount           Float
-  currency         String        @default("USD")
-  platformFee      Float
-  workerPayout     Float
-  // Worker receives in their local currency — may differ from hirer payment currency
-  workerCurrency   String?
+  id                String        @id @default(uuid())
+  bookingId         String        @unique
+  booking           Booking       @relation(fields: [bookingId], references: [id])
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  amount            Float
+  currency          String        @default("USD")
+  platformFee       Float
+  workerPayout      Float
+  workerCurrency    String?
   workerPayoutLocal Float?
-  exchangeRate     Float?        @default(1)
-  // Crypto payment fields
-  cryptoNetwork    String?
-  cryptoTxHash     String?
-  cryptoWallet     String?
-  status           PaymentStatus @default(PENDING)
-  provider         String
-  providerRef      String?
-  escrowReleasedAt DateTime?
-  refundedAt       DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  exchangeRate      Float?        @default(1)
+  cryptoNetwork     String?
+  cryptoTxHash      String?
+  cryptoWallet      String?
+  status            PaymentStatus @default(PENDING)
+  provider          String
+  providerRef       String?
+  escrowReleasedAt  DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 }
 
 model Withdrawal {
@@ -341,31 +344,6 @@ model Notification {
   data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-} 
-
-enum WithdrawalStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-model Withdrawal {
-  id          String           @id @default(uuid())
-  workerId    String
-  worker      User             @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  amount      Float
-  currency    String           @default("NGN")
-  method      String           // "bank_transfer" | "paystack" | "mpesa" | etc.
-  destination String           // display label e.g. "First Bank ••• 4521"
-  details     Json             // full payout details object
-  reference   String           @unique
-  status      WithdrawalStatus @default(PENDING)
-  processedAt DateTime?
-  failReason  String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
 }
 
 model JobPost {
@@ -405,10 +383,3 @@ model JobApplication {
 
   @@unique([jobPostId, workerId])
 }
-
-
-with open('prisma/schema.prisma', 'w') as f:
-    f.write(schema)
-
-print("Schema written successfully!")
-print(f"Lines: {len(schema.splitlines())}")
