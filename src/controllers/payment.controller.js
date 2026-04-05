@@ -120,7 +120,7 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
   });
   await prisma.booking.update({
     where: { id: payment.bookingId },
-    data: { status: "IN_PROGRESS" },
+    data: { status: "ACCEPTED" },
   });
 
   res.status(200).json({
@@ -158,7 +158,7 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
         });
         await prisma.booking.update({
           where: { id: payment.bookingId },
-          data: { status: "IN_PROGRESS" },
+          data: { status: "ACCEPTED" },
         });
       }
       break;
