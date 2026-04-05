@@ -20,6 +20,8 @@ import notificationRoutes from "./routes/notification.routes.js";
 import jobRoutes from "./routes/job.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import insuranceRoutes from "./routes/insurance.routes.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
+import featuredRoutes from "./routes/featured.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
 // Calling dotenv.config() here runs at import time, before server.js sets it up.
@@ -87,6 +89,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/insurance", insuranceRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/api/featured", featuredRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);
