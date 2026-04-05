@@ -35,8 +35,8 @@ export const createBooking = async (req, res) => {
         title,
         description,
         address,
-        latitude,
-        longitude,
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
         scheduledAt: new Date(scheduledAt),
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
         agreedRate: parseFloat(agreedRate),
@@ -54,7 +54,6 @@ export const createBooking = async (req, res) => {
       },
     });
 
-    // ── Email: notify worker of new booking request ──────────────────────────
     await sendBookingRequestEmail({
       to: booking.worker.email,
       workerName: booking.worker.firstName,
@@ -76,7 +75,7 @@ export const createBooking = async (req, res) => {
       data: { booking },
     });
   } catch (err) {
-    console.error(err);
+    console.error("createBooking error:", err);
     return sendError(res, "Booking failed");
   }
 };
@@ -174,7 +173,7 @@ export const getBooking = async (req, res) => {
 
     return sendResponse(res, { data: { booking } });
   } catch (err) {
-    console.error("getBooking error:", err.message, err.code);
+    console.error("getBooking error:", err.message);
     return sendError(res, "Failed to fetch booking");
   }
 };
@@ -199,37 +198,55 @@ export const updateBookingStatus = async (req, res) => {
 
     if (!booking) return sendError(res, "Booking not found", 404);
 
+    // ── Permission check ──────────────────────────────────────────────────────
+    // Workers can now cancel too (PENDING or ACCEPTED only)
     const allowed = {
-      WORKER: ["ACCEPTED", "REJECTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"],
-      HIRER: ["CANCELLED"],
-      ADMIN: [
-        "ACCEPTED",
-        "REJECTED",
-        "IN_PROGRESS",
-        "COMPLETED",
-        "CANCELLED",
-        "DISPUTED",
-      ],
+      WORKER: {
+        PENDING: ["ACCEPTED", "REJECTED", "CANCELLED"],
+        ACCEPTED: ["IN_PROGRESS", "CANCELLED"],
+        IN_PROGRESS: ["COMPLETED"],
+      },
+      HIRER: {
+        PENDING: ["CANCELLED"],
+        ACCEPTED: ["CANCELLED"],
+      },
+      ADMIN: {
+        PENDING: ["ACCEPTED", "REJECTED", "CANCELLED"],
+        ACCEPTED: ["ACCEPTED", "IN_PROGRESS", "CANCELLED"],
+        IN_PROGRESS: ["COMPLETED", "CANCELLED", "DISPUTED"],
+        COMPLETED: ["DISPUTED"],
+        DISPUTED: ["COMPLETED", "CANCELLED"],
+      },
     };
 
-    if (!allowed[req.user.role]?.includes(status)) {
-      return sendError(res, "Not allowed", 403);
+    const permissionsForRole = allowed[req.user.role] || {};
+    const permissionsForStatus = permissionsForRole[booking.status] || [];
+
+    if (!permissionsForStatus.includes(status)) {
+      return sendError(
+        res,
+        `${req.user.role} cannot change status from ${booking.status} to ${status}`,
+        403,
+      );
+    }
+
+    // ── Cancel requires a reason ──────────────────────────────────────────────
+    if (status === "CANCELLED" && !cancelReason?.trim()) {
+      return sendError(res, "A cancellation reason is required", 400);
     }
 
     const updated = await prisma.booking.update({
       where: { id: req.params.id },
       data: {
         status,
-        cancelReason: cancelReason || null,
+        cancelReason: status === "CANCELLED" ? cancelReason.trim() : null,
         completedAt: status === "COMPLETED" ? new Date() : undefined,
         checkInAt: status === "IN_PROGRESS" ? new Date() : undefined,
       },
     });
 
-    // ── Email hooks per status ───────────────────────────────────────────────
-
+    // ── Email hooks ───────────────────────────────────────────────────────────
     if (status === "ACCEPTED") {
-      // Notify hirer — worker accepted, please pay
       await sendBookingConfirmedEmail({
         to: booking.hirer.email,
         hirerName: booking.hirer.firstName,
@@ -246,7 +263,6 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     if (status === "CANCELLED") {
-      // Notify both parties
       await Promise.all([
         sendBookingCancelledEmail({
           to: booking.hirer.email,
@@ -269,10 +285,28 @@ export const updateBookingStatus = async (req, res) => {
           reason: cancelReason,
         }),
       ]);
+
+      // In-app notification to the other party
+      const notifyUserId =
+        req.user.id === booking.hirerId ? booking.workerId : booking.hirerId;
+
+      const cancellerName =
+        req.user.id === booking.hirerId
+          ? `${booking.hirer.firstName} ${booking.hirer.lastName}`
+          : `${booking.worker.firstName} ${booking.worker.lastName}`;
+
+      await prisma.notification.create({
+        data: {
+          userId: notifyUserId,
+          title: "Booking Cancelled",
+          body: `${cancellerName} cancelled the booking "${booking.title}". Reason: ${cancelReason}`,
+          type: "BOOKING_CANCELLED",
+          data: { bookingId: booking.id, reason: cancelReason },
+        },
+      });
     }
 
     if (status === "COMPLETED") {
-      // Notify hirer to release payment and prompt reviews
       await sendJobCompletedEmail({
         to: booking.hirer.email,
         hirerName: booking.hirer.firstName,
@@ -280,7 +314,6 @@ export const updateBookingStatus = async (req, res) => {
         booking: { id: booking.id, title: booking.title },
       });
 
-      // Prompt both to leave a review
       await Promise.all([
         sendReviewRequestEmail({
           to: booking.hirer.email,
@@ -298,20 +331,25 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     return sendResponse(res, {
-      message: "Booking updated",
+      message: `Booking ${status.toLowerCase()}`,
       data: { booking: updated },
     });
   } catch (err) {
-    console.error(err);
+    console.error("updateBookingStatus error:", err);
     return sendError(res, "Update failed");
   }
 };
 
+// ── Check In ──────────────────────────────────────────────────────────────────
 export const checkIn = async (req, res) => {
   try {
     const { latitude, longitude } = req.body || {};
+
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
+      include: {
+        hirer: { select: { id: true, firstName: true } },
+      },
     });
 
     if (!booking) return sendError(res, "Booking not found", 404);
@@ -330,18 +368,23 @@ export const checkIn = async (req, res) => {
       },
     });
 
+    // Notify hirer with worker GPS
     await prisma.notification.create({
       data: {
         userId: booking.hirerId,
         title: "Worker Checked In 🟢",
         body: "Your worker has arrived and the job is now in progress.",
         type: "BOOKING_CHECKIN",
-        data: { bookingId: booking.id, lat: latitude, lng: longitude },
+        data: {
+          bookingId: booking.id,
+          lat: latitude ? parseFloat(latitude) : null,
+          lng: longitude ? parseFloat(longitude) : null,
+        },
       },
     });
 
     return sendResponse(res, {
-      message: "Checked in.",
+      message: "Checked in",
       data: { booking: updated },
     });
   } catch (err) {
@@ -350,9 +393,11 @@ export const checkIn = async (req, res) => {
   }
 };
 
+// ── Check Out ─────────────────────────────────────────────────────────────────
 export const checkOut = async (req, res) => {
   try {
     const { latitude, longitude } = req.body || {};
+
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.id },
       include: {
@@ -378,18 +423,47 @@ export const checkOut = async (req, res) => {
       },
     });
 
+    // Notify hirer
     await prisma.notification.create({
       data: {
         userId: booking.hirerId,
         title: "Job Completed ✅",
         body: "Your worker checked out. Please release payment when satisfied.",
         type: "BOOKING_CHECKOUT",
-        data: { bookingId: booking.id, lat: latitude, lng: longitude },
+        data: {
+          bookingId: booking.id,
+          lat: latitude ? parseFloat(latitude) : null,
+          lng: longitude ? parseFloat(longitude) : null,
+        },
       },
     });
 
+    // Email hirer to release payment
+    await sendJobCompletedEmail({
+      to: booking.hirer.email,
+      hirerName: booking.hirer.firstName,
+      workerName: booking.worker.firstName,
+      booking: { id: booking.id, title: booking.title },
+    });
+
+    // Prompt both to review
+    await Promise.all([
+      sendReviewRequestEmail({
+        to: booking.hirer.email,
+        name: booking.hirer.firstName,
+        otherPartyName: booking.worker.firstName,
+        booking: { id: booking.id, title: booking.title },
+      }),
+      sendReviewRequestEmail({
+        to: booking.worker.email,
+        name: booking.worker.firstName,
+        otherPartyName: booking.hirer.firstName,
+        booking: { id: booking.id, title: booking.title },
+      }),
+    ]);
+
     return sendResponse(res, {
-      message: "Checked out.",
+      message: "Checked out",
       data: { booking: updated },
     });
   } catch (err) {
