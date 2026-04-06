@@ -253,6 +253,9 @@ model Booking {
   sosLatitude          Float?
   sosLongitude         Float?
   sosResolvedAt        DateTime?
+  insuranceRef      String?
+insurancePlan     String?
+insurancePaidAt   DateTime?
 }
 
 model Payment {
