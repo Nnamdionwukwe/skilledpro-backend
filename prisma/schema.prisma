@@ -255,7 +255,10 @@ model Booking {
   sosLatitude       Float?
   sosLongitude      Float?
   sosResolvedAt     DateTime?
-  videoCall VideoCall? 
+  videoCall VideoCall?  
+  insuranceRef      String?
+insurancePlan     String?
+insurancePaidAt   DateTime?
   
 }
 
