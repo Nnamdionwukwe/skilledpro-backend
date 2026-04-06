@@ -8,7 +8,7 @@ export const WORKER_PLANS = [
     tier: "FREE",
     name: "Free",
     price: 0,
-    currency: "NGN",
+    currency: "USD",
     billingCycle: "forever",
     features: [
       "Basic profile listing",
@@ -23,8 +23,8 @@ export const WORKER_PLANS = [
     id: "worker_pro",
     tier: "PRO",
     name: "Pro Worker",
-    price: 5000,
-    currency: "NGN",
+    price: 10,
+    currency: "USD",
     billingCycle: "monthly",
     popular: true,
     features: [
@@ -42,8 +42,8 @@ export const WORKER_PLANS = [
     id: "worker_enterprise",
     tier: "ENTERPRISE",
     name: "Enterprise Worker",
-    price: 15000,
-    currency: "NGN",
+    price: 15,
+    currency: "USD",
     billingCycle: "monthly",
     features: [
       "Everything in Pro",
@@ -64,7 +64,7 @@ export const HIRER_PLANS = [
     tier: "FREE",
     name: "Free",
     price: 0,
-    currency: "NGN",
+    currency: "USD",
     billingCycle: "forever",
     features: [
       "Post up to 3 jobs/month",
@@ -78,8 +78,8 @@ export const HIRER_PLANS = [
     id: "hirer_pro",
     tier: "PRO",
     name: "Pro Hirer",
-    price: 8000,
-    currency: "NGN",
+    price: 10,
+    currency: "USD",
     billingCycle: "monthly",
     popular: true,
     features: [
@@ -97,8 +97,8 @@ export const HIRER_PLANS = [
     id: "hirer_enterprise",
     tier: "ENTERPRISE",
     name: "Enterprise",
-    price: 50000,
-    currency: "NGN",
+    price: 15,
+    currency: "USD",
     billingCycle: "monthly",
     features: [
       "Everything in Pro",
