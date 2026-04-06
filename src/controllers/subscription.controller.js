@@ -1,7 +1,14 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import Stripe from "stripe";
 
-// ── Plan definitions ──────────────────────────────────────────────────────────
+let _stripe;
+function getStripe() {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  return _stripe;
+}
+
+// ── Plan definitions (USD) ────────────────────────────────────────────────────
 export const WORKER_PLANS = [
   {
     id: "worker_free",
@@ -10,51 +17,82 @@ export const WORKER_PLANS = [
     price: 0,
     currency: "USD",
     billingCycle: "forever",
+    stripePriceId: null,
     features: [
-      "Basic profile listing",
+      "Basic profile listing in search",
       "Apply to up to 5 jobs/month",
       "Standard search placement",
       "1 portfolio image",
-      "Basic support",
+      "Basic messaging",
+      "Community support",
     ],
-    limits: { bidsPerMonth: 5, portfolioImages: 1, boosted: false },
+    limits: {
+      bidsPerMonth: 5,
+      portfolioImages: 1,
+      boosted: false,
+      analytics: false,
+      prioritySupport: false,
+      teamAccounts: 0,
+      apiAccess: false,
+    },
   },
   {
     id: "worker_pro",
     tier: "PRO",
     name: "Pro Worker",
-    price: 10,
+    price: 9,
     currency: "USD",
     billingCycle: "monthly",
     popular: true,
+    stripePriceId: process.env.STRIPE_WORKER_PRO_PRICE_ID,
     features: [
       "Boosted profile in search results",
-      "Apply to unlimited jobs/month",
-      "Pro badge on your profile",
+      "Unlimited job applications/month",
+      "⭐ Pro badge on your profile",
       "Up to 20 portfolio images",
       "Priority in hirer search",
-      "Analytics dashboard",
+      "Earnings analytics dashboard",
       "Priority customer support",
+      "Video intro on profile",
     ],
-    limits: { bidsPerMonth: -1, portfolioImages: 20, boosted: true },
+    limits: {
+      bidsPerMonth: -1,
+      portfolioImages: 20,
+      boosted: true,
+      analytics: true,
+      prioritySupport: true,
+      teamAccounts: 0,
+      apiAccess: false,
+    },
   },
   {
     id: "worker_enterprise",
     tier: "ENTERPRISE",
     name: "Enterprise Worker",
-    price: 15,
+    price: 29,
     currency: "USD",
     billingCycle: "monthly",
+    stripePriceId: process.env.STRIPE_WORKER_ENTERPRISE_PRICE_ID,
     features: [
       "Everything in Pro",
-      "Featured at top of category search",
+      "🏆 Featured at top of category search",
       "Dedicated account manager",
-      "Team sub-accounts (up to 5)",
+      "Team sub-accounts (up to 5 workers)",
       "White-label invoices",
       "API access",
-      "SLA support",
+      "SLA guaranteed support",
+      "Custom profile domain",
+      "Bulk job application tools",
     ],
-    limits: { bidsPerMonth: -1, portfolioImages: -1, boosted: true },
+    limits: {
+      bidsPerMonth: -1,
+      portfolioImages: -1,
+      boosted: true,
+      analytics: true,
+      prioritySupport: true,
+      teamAccounts: 5,
+      apiAccess: true,
+    },
   },
 ];
 
@@ -66,51 +104,81 @@ export const HIRER_PLANS = [
     price: 0,
     currency: "USD",
     billingCycle: "forever",
+    stripePriceId: null,
     features: [
       "Post up to 3 jobs/month",
-      "Access to standard worker search",
+      "Access standard worker search",
       "Basic messaging",
+      "1 saved search",
       "Community support",
     ],
-    limits: { jobPostsPerMonth: 3, boostedSearch: false },
+    limits: {
+      jobPostsPerMonth: 3,
+      boostedSearch: false,
+      advancedFilters: false,
+      analytics: false,
+      teamAccounts: 0,
+      apiAccess: false,
+      bulkHiring: false,
+    },
   },
   {
     id: "hirer_pro",
     tier: "PRO",
     name: "Pro Hirer",
-    price: 10,
+    price: 15,
     currency: "USD",
     billingCycle: "monthly",
     popular: true,
+    stripePriceId: process.env.STRIPE_HIRER_PRO_PRICE_ID,
     features: [
-      "Post unlimited jobs",
+      "Post unlimited jobs/month",
       "See verified workers first",
-      "Advanced filters (GPS radius, rating, etc.)",
-      "Saved worker lists",
-      "Priority matching",
-      "Pro badge on your profile",
-      "Analytics on your job posts",
+      "Advanced GPS radius filters",
+      "Saved worker lists (unlimited)",
+      "Priority worker matching",
+      "⭐ Pro badge on profile",
+      "Job post analytics",
+      "Direct booking (skip job board)",
     ],
-    limits: { jobPostsPerMonth: -1, boostedSearch: true },
+    limits: {
+      jobPostsPerMonth: -1,
+      boostedSearch: true,
+      advancedFilters: true,
+      analytics: true,
+      teamAccounts: 0,
+      apiAccess: false,
+      bulkHiring: false,
+    },
   },
   {
     id: "hirer_enterprise",
     tier: "ENTERPRISE",
     name: "Enterprise",
-    price: 15,
+    price: 79,
     currency: "USD",
     billingCycle: "monthly",
+    stripePriceId: process.env.STRIPE_HIRER_ENTERPRISE_PRICE_ID,
     features: [
       "Everything in Pro",
       "Bulk hiring dashboard",
       "Team accounts (up to 20 hirers)",
       "Dedicated account manager",
-      "Custom SLA & contracts",
+      "Custom SLA & contract terms",
       "Invoice & purchase order billing",
       "API integration",
-      "Compliance reporting",
+      "Compliance & audit reporting",
+      "Custom onboarding",
     ],
-    limits: { jobPostsPerMonth: -1, boostedSearch: true },
+    limits: {
+      jobPostsPerMonth: -1,
+      boostedSearch: true,
+      advancedFilters: true,
+      analytics: true,
+      teamAccounts: 20,
+      apiAccess: true,
+      bulkHiring: true,
+    },
   },
 ];
 
@@ -134,8 +202,7 @@ export const getMySubscription = async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const role = req.user.role;
-    const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
+    const plans = req.user.role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
     const currentPlan =
       plans.find((p) => p.tier === (sub?.tier || "FREE")) || plans[0];
 
@@ -152,89 +219,168 @@ export const getMySubscription = async (req, res) => {
   }
 };
 
-// POST /api/subscriptions/subscribe
-export const subscribe = async (req, res) => {
+// POST /api/subscriptions/checkout — create Stripe checkout session
+export const createCheckout = async (req, res) => {
   try {
-    const { planId, paymentMethod = "manual" } = req.body;
-    if (!planId) return sendError(res, "Plan ID is required", 400);
+    const { planId } = req.body;
+    if (!planId) return sendError(res, "Plan ID required", 400);
 
     const role = req.user.role;
     const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
     const plan = plans.find((p) => p.id === planId);
+
     if (!plan) return sendError(res, "Invalid plan", 404);
+    if (plan.price === 0)
+      return sendError(res, "Free plan requires no payment", 400);
 
-    if (plan.tier === "FREE") {
-      return sendError(res, "You are already on the free plan", 400);
-    }
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-    // Cancel any existing active subscription
-    await prisma.subscription.updateMany({
-      where: { userId: req.user.id, status: "ACTIVE" },
-      data: { status: "CANCELLED" },
-    });
-
-    const expiresAt = new Date();
-    expiresAt.setMonth(expiresAt.getMonth() + 1);
-
-    const reference = `SUB-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-
-    const sub = await prisma.subscription.create({
-      data: {
+    const session = await getStripe().checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "subscription",
+      customer_email: user.email,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(plan.price * 100),
+            recurring: { interval: "month" },
+            product_data: {
+              name: plan.name,
+              description: plan.features.slice(0, 3).join(" · "),
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.CLIENT_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}&plan=${planId}`,
+      cancel_url: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
+      metadata: {
         userId: req.user.id,
+        planId,
         tier: plan.tier,
-        role: role,
-        status: "ACTIVE",
-        price: plan.price,
-        currency: plan.currency,
-        startedAt: new Date(),
-        expiresAt,
-        autoRenew: true,
-        reference,
-      },
-    });
-
-    // Notify user
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        title: `${plan.name} Activated ✅`,
-        body: `Your ${plan.name} subscription is now active. Enjoy your benefits!`,
-        type: "SUBSCRIPTION_ACTIVATED",
-        data: { planId: plan.id, tier: plan.tier, reference, expiresAt },
+        role,
       },
     });
 
     return sendResponse(res, {
-      status: 201,
-      message: `${plan.name} subscription activated`,
-      data: { subscription: sub, plan, reference },
+      data: { url: session.url, sessionId: session.id },
     });
   } catch (err) {
-    console.error(err);
-    return sendError(res, "Failed to subscribe");
+    console.error("Checkout error:", err.message);
+    return sendError(res, "Failed to create checkout session");
+  }
+};
+
+// POST /api/subscriptions/verify — called after Stripe redirect
+export const verifyCheckout = async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) return sendError(res, "Session ID required", 400);
+
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      return sendError(res, "Payment not completed", 400);
+    }
+
+    const { userId, planId, tier, role } = session.metadata;
+
+    // Cancel any existing active sub
+    await prisma.subscription.updateMany({
+      where: { userId, status: "ACTIVE" },
+      data: { status: "CANCELLED" },
+    });
+
+    const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
+    const plan = plans.find((p) => p.id === planId);
+
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+
+    const sub = await prisma.subscription.create({
+      data: {
+        userId,
+        tier,
+        role,
+        status: "ACTIVE",
+        price: plan.price,
+        currency: "USD",
+        startedAt: new Date(),
+        expiresAt,
+        autoRenew: true,
+        reference: session.id,
+        stripeSessionId: session.id,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId,
+        title: `${plan.name} Activated ✅`,
+        body: `Your ${plan.name} subscription is now active. Enjoy your upgraded features!`,
+        type: "SUBSCRIPTION_ACTIVATED",
+        data: { planId, tier, sessionId, expiresAt },
+      },
+    });
+
+    return sendResponse(res, {
+      message: `${plan.name} activated`,
+      data: { subscription: sub, plan },
+    });
+  } catch (err) {
+    console.error("Verify error:", err.message);
+    return sendError(res, "Failed to verify payment");
   }
 };
 
 // POST /api/subscriptions/cancel
 export const cancelSubscription = async (req, res) => {
   try {
-    await prisma.subscription.updateMany({
+    const sub = await prisma.subscription.findFirst({
       where: { userId: req.user.id, status: "ACTIVE" },
+    });
+
+    if (!sub) return sendError(res, "No active subscription", 404);
+
+    // Cancel in Stripe if has subscription ID
+    if (sub.stripeSubscriptionId) {
+      await getStripe()
+        .subscriptions.cancel(sub.stripeSubscriptionId)
+        .catch(() => {});
+    }
+
+    await prisma.subscription.update({
+      where: { id: sub.id },
       data: { status: "CANCELLED", autoRenew: false },
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        title: "Subscription Cancelled",
-        body: "Your subscription has been cancelled. You will retain access until the end of your billing period.",
-        type: "SUBSCRIPTION_CANCELLED",
-        data: {},
-      },
+    return sendResponse(res, {
+      message: "Subscription cancelled. Access remains until period end.",
     });
-
-    return sendResponse(res, { message: "Subscription cancelled" });
   } catch (err) {
     return sendError(res, "Failed to cancel subscription");
+  }
+};
+
+// GET /api/subscriptions/invoice/:sessionId — download invoice
+export const getInvoice = async (req, res) => {
+  try {
+    const session = await getStripe().checkout.sessions.retrieve(
+      req.params.sessionId,
+      { expand: ["invoice"] },
+    );
+
+    if (session.invoice?.hosted_invoice_url) {
+      return sendResponse(res, {
+        data: {
+          invoiceUrl: session.invoice.hosted_invoice_url,
+          pdfUrl: session.invoice.invoice_pdf,
+        },
+      });
+    }
+
+    return sendError(res, "Invoice not available", 404);
+  } catch (err) {
+    return sendError(res, "Failed to fetch invoice");
   }
 };

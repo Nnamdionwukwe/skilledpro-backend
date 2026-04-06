@@ -399,28 +399,31 @@ model Subscription {
   role       SubscriptionRole
   status     SubscriptionStatus @default(ACTIVE)
   price      Float              @default(0)
-  currency   String             @default("NGN")
+  currency   String             @default("USD")
   startedAt  DateTime           @default(now())
   expiresAt  DateTime?
   autoRenew  Boolean            @default(false)
-  reference  String?            @unique
+  reference  String?
+  stripeSessionId  String?
+  stripeSubscriptionId String?
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 }
 
 model FeaturedListing {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id])
-  type       String    @default("SEARCH_TOP") // SEARCH_TOP | CATEGORY_TOP | HOMEPAGE
+  type       String    @default("SEARCH_TOP")
   price      Float
-  currency   String    @default("NGN")
+  currency   String    @default("USD")
   startsAt   DateTime  @default(now())
   expiresAt  DateTime
   isActive   Boolean   @default(true)
   reference  String    @unique
+  stripeSessionId String?
   createdAt  DateTime  @default(now())
 }
 
