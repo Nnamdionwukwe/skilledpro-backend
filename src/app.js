@@ -23,6 +23,7 @@ import insuranceRoutes from "./routes/insurance.routes.js";
 import subscriptionRoutes from "./routes/subscription.routes.js";
 import featuredRoutes from "./routes/featured.routes.js";
 import postRoutes from "./routes/post.routes.js";
+import videoCallRoutes from "./routes/videocall.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
 // Calling dotenv.config() here runs at import time, before server.js sets it up.
@@ -93,6 +94,7 @@ app.use("/api/insurance", insuranceRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/featured", featuredRoutes);
 app.use("/api/posts", postRoutes);
+app.use("/api/video-calls", videoCallRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

@@ -107,6 +107,9 @@ featuredListings FeaturedListing[]
 posts         Post[]         @relation("UserPosts")
 postReactions PostReaction[] @relation("UserReactions")
 postComments  PostComment[]  @relation("UserComments")
+callsInitiated VideoCall[] @relation("CallsInitiated")
+callsReceived  VideoCall[] @relation("CallsReceived")
+  gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
 }
 
 model WorkerProfile {
@@ -252,6 +255,7 @@ model Booking {
   sosLatitude       Float?
   sosLongitude      Float?
   sosResolvedAt     DateTime?
+  videoCall VideoCall?
 }
 
 model Payment {
@@ -517,4 +521,19 @@ model JobApplication {
   worker  User    @relation("WorkerJobApplications", fields: [workerId], references: [id], onDelete: Cascade)
 
   @@unique([jobPostId, workerId])
+} 
+
+model VideoCall {
+  id           String   @id @default(uuid())
+  bookingId    String   @unique
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  initiatorId  String
+  initiator    User     @relation("CallsInitiated", fields: [initiatorId], references: [id])
+  receiverId   String
+  receiver     User     @relation("CallsReceived",  fields: [receiverId],  references: [id])
+  roomId       String   @unique
+  status       String   @default("PENDING")  // PENDING | ACTIVE | ENDED | DECLINED
+  startedAt    DateTime?
+  endedAt      DateTime?
+  createdAt    DateTime @default(now())
 }

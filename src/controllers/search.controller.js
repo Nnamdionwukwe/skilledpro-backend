@@ -1,7 +1,19 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
-// GET /api/search?q=plumber&type=workers&city=Lagos&country=Nigeria
+const EARTH_RADIUS_KM = 6371;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// GET /api/search
 export const globalSearch = async (req, res) => {
   try {
     const {
@@ -14,6 +26,12 @@ export const globalSearch = async (req, res) => {
       maxRate,
       rating,
       available,
+      language,
+      gender,
+      verification,
+      lat,
+      lng,
+      radius,
       page = 1,
       limit = 20,
     } = req.query;
@@ -25,7 +43,6 @@ export const globalSearch = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const results = {};
 
-    // ── Search Workers ────────────────────────────────────────────────────────
     if (!type || type === "workers") {
       const workerWhere = {
         isAvailable: available === "false" ? undefined : true,
@@ -49,16 +66,21 @@ export const globalSearch = async (req, res) => {
           ...(country && {
             country: { contains: country, mode: "insensitive" },
           }),
+          ...(language && {
+            language: { contains: language, mode: "insensitive" },
+          }),
+          ...(gender && { gender: gender }),
         },
         ...(minRate && { hourlyRate: { gte: parseFloat(minRate) } }),
         ...(maxRate && { hourlyRate: { lte: parseFloat(maxRate) } }),
         ...(rating && { avgRating: { gte: parseFloat(rating) } }),
+        ...(verification && { verificationStatus: verification.toUpperCase() }),
         ...(category && {
           categories: { some: { category: { slug: category } } },
         }),
       };
 
-      const [workers, workerTotal] = await Promise.all([
+      let [workers, workerTotal] = await Promise.all([
         prisma.workerProfile.findMany({
           where: workerWhere,
           skip,
@@ -72,6 +94,9 @@ export const globalSearch = async (req, res) => {
                 avatar: true,
                 city: true,
                 country: true,
+                latitude: true,
+                longitude: true,
+                language: true,
               },
             },
             categories: {
@@ -86,6 +111,33 @@ export const globalSearch = async (req, res) => {
         prisma.workerProfile.count({ where: workerWhere }),
       ]);
 
+      // Distance filter + sort (client-side after DB fetch)
+      if (lat && lng) {
+        const userLat = parseFloat(lat);
+        const userLng = parseFloat(lng);
+        const maxKm = radius ? parseFloat(radius) : 9999;
+
+        workers = workers
+          .map((w) => ({
+            ...w,
+            _distanceKm:
+              w.user.latitude && w.user.longitude
+                ? Math.round(
+                    haversineKm(
+                      userLat,
+                      userLng,
+                      w.user.latitude,
+                      w.user.longitude,
+                    ) * 10,
+                  ) / 10
+                : null,
+          }))
+          .filter((w) => w._distanceKm === null || w._distanceKm <= maxKm)
+          .sort((a, b) => (a._distanceKm ?? 9999) - (b._distanceKm ?? 9999));
+
+        workerTotal = workers.length;
+      }
+
       results.workers = {
         data: workers,
         total: workerTotal,
@@ -94,7 +146,6 @@ export const globalSearch = async (req, res) => {
       };
     }
 
-    // ── Search Categories ─────────────────────────────────────────────────────
     if (!type || type === "categories") {
       const categories = await prisma.category.findMany({
         where: {
@@ -112,11 +163,9 @@ export const globalSearch = async (req, res) => {
         orderBy: { workers: { _count: "desc" } },
         take: 10,
       });
-
       results.categories = { data: categories, total: categories.length };
     }
 
-    // ── Search by Location (workers in a city/country) ────────────────────────
     if (!type || type === "locations") {
       const locationWorkers = await prisma.user.findMany({
         where: {
@@ -145,6 +194,7 @@ export const globalSearch = async (req, res) => {
               avgRating: true,
               completedJobs: true,
               isAvailable: true,
+              verificationStatus: true,
               categories: {
                 take: 2,
                 include: { category: { select: { name: true, icon: true } } },
@@ -154,14 +204,12 @@ export const globalSearch = async (req, res) => {
         },
         take: parseInt(limit),
       });
-
       results.locations = {
         data: locationWorkers,
         total: locationWorkers.length,
       };
     }
 
-    // ── Suggestions (for autocomplete) ────────────────────────────────────────
     if (type === "suggest") {
       const [categoryNames, workerNames, cities] = await Promise.all([
         prisma.category.findMany({
@@ -211,40 +259,53 @@ export const globalSearch = async (req, res) => {
       data: { query: q, type: type || "all", ...results },
     });
   } catch (err) {
-    console.error(err);
+    console.error("globalSearch error:", err);
     return sendError(res, "Search failed");
   }
 };
 
-// GET /api/search/workers/nearby?lat=6.5&lng=3.3&radius=25&category=electrician
+// GET /api/search/nearby
 export const nearbyWorkers = async (req, res) => {
   try {
-    const { lat, lng, radius = 25, category, page = 1, limit = 20 } = req.query;
+    const {
+      lat,
+      lng,
+      radius = 25,
+      category,
+      language,
+      gender,
+      verification,
+      page = 1,
+      limit = 20,
+    } = req.query;
 
-    if (!lat || !lng) {
+    if (!lat || !lng)
       return sendError(res, "Latitude and longitude are required", 400);
-    }
 
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
     const radiusKm = parseFloat(radius);
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Bounding box approximation (1 degree ≈ 111km)
     const latDelta = radiusKm / 111;
     const lngDelta = radiusKm / (111 * Math.cos((latitude * Math.PI) / 180));
 
     const where = {
       isAvailable: true,
+      ...(verification && { verificationStatus: verification.toUpperCase() }),
+      ...(category && {
+        categories: { some: { category: { slug: category } } },
+      }),
       user: {
         isActive: true,
         isBanned: false,
         latitude: { gte: latitude - latDelta, lte: latitude + latDelta },
         longitude: { gte: longitude - lngDelta, lte: longitude + lngDelta },
+        ...(language && {
+          language: { contains: language, mode: "insensitive" },
+        }),
+        ...(gender && { gender: gender }),
       },
-      ...(category && {
-        categories: { some: { category: { slug: category } } },
-      }),
     };
 
     const [workers, total] = await Promise.all([
@@ -263,6 +324,7 @@ export const nearbyWorkers = async (req, res) => {
               country: true,
               latitude: true,
               longitude: true,
+              language: true,
             },
           },
           categories: {
@@ -277,26 +339,26 @@ export const nearbyWorkers = async (req, res) => {
       prisma.workerProfile.count({ where }),
     ]);
 
-    // Add distance to each worker
-    const workersWithDistance = workers.map((w) => {
-      const wLat = w.user.latitude || 0;
-      const wLng = w.user.longitude || 0;
-      const dLat = ((wLat - latitude) * Math.PI) / 180;
-      const dLng = ((wLng - longitude) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((latitude * Math.PI) / 180) *
-          Math.cos((wLat * Math.PI) / 180) *
-          Math.sin(dLng / 2) ** 2;
-      const distanceKm = 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return { ...w, distanceKm: Math.round(distanceKm * 10) / 10 };
-    });
-
-    workersWithDistance.sort((a, b) => a.distanceKm - b.distanceKm);
+    const withDistance = workers
+      .map((w) => ({
+        ...w,
+        distanceKm:
+          w.user.latitude && w.user.longitude
+            ? Math.round(
+                haversineKm(
+                  latitude,
+                  longitude,
+                  w.user.latitude,
+                  w.user.longitude,
+                ) * 10,
+              ) / 10
+            : null,
+      }))
+      .sort((a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999));
 
     return sendResponse(res, {
       data: {
-        workers: workersWithDistance,
+        workers: withDistance,
         total,
         page: parseInt(page),
         pages: Math.ceil(total / parseInt(limit)),
@@ -304,12 +366,12 @@ export const nearbyWorkers = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("nearbyWorkers error:", err);
     return sendError(res, "Nearby search failed");
   }
 };
 
-// GET /api/search/trending - Trending categories and top workers globally
+// GET /api/search/trending
 export const getTrending = async (req, res) => {
   try {
     const { country, city } = req.query;
@@ -322,14 +384,11 @@ export const getTrending = async (req, res) => {
     };
 
     const [trendingCategories, topWorkers, recentlyJoined] = await Promise.all([
-      // Top categories by booking count
       prisma.category.findMany({
         include: { _count: { select: { bookings: true, workers: true } } },
         orderBy: { bookings: { _count: "desc" } },
         take: 12,
       }),
-
-      // Top rated workers
       prisma.workerProfile.findMany({
         where: {
           avgRating: { gte: 4.0 },
@@ -358,8 +417,6 @@ export const getTrending = async (req, res) => {
         orderBy: [{ avgRating: "desc" }, { completedJobs: "desc" }],
         take: 8,
       }),
-
-      // Recently joined workers
       prisma.workerProfile.findMany({
         where: { isAvailable: true, user: userFilter },
         include: {
@@ -390,12 +447,12 @@ export const getTrending = async (req, res) => {
       data: { trendingCategories, topWorkers, recentlyJoined },
     });
   } catch (err) {
-    console.error(err);
+    console.error("getTrending error:", err);
     return sendError(res, "Failed to fetch trending data");
   }
 };
 
-// GET /api/search/filters - Get available filter options for a category/location
+// GET /api/search/filters
 export const getFilterOptions = async (req, res) => {
   try {
     const { category, country } = req.query;
@@ -410,14 +467,13 @@ export const getFilterOptions = async (req, res) => {
       }),
     };
 
-    const [rateRange, locations, categories] = await Promise.all([
+    const [rateRange, locations, categories, languages] = await Promise.all([
       prisma.workerProfile.aggregate({
         where: workerWhere,
         _min: { hourlyRate: true },
         _max: { hourlyRate: true },
         _avg: { hourlyRate: true },
       }),
-
       prisma.user.findMany({
         where: {
           role: "WORKER",
@@ -431,11 +487,21 @@ export const getFilterOptions = async (req, res) => {
         distinct: ["city"],
         take: 50,
       }),
-
       prisma.category.findMany({
         include: { _count: { select: { workers: true } } },
         orderBy: { workers: { _count: "desc" } },
         take: 20,
+      }),
+      // Distinct languages from worker users
+      prisma.user.findMany({
+        where: {
+          role: "WORKER",
+          isActive: true,
+          isBanned: false,
+          language: { not: null },
+        },
+        select: { language: true },
+        distinct: ["language"],
       }),
     ]);
 
@@ -449,9 +515,17 @@ export const getFilterOptions = async (req, res) => {
         locations: locations.map((u) => ({ city: u.city, country: u.country })),
         categories,
         ratings: [5, 4, 3],
+        languages: languages.map((u) => u.language).filter(Boolean),
+        genders: ["Male", "Female", "Non-binary", "Prefer not to say"],
+        verifications: [
+          { value: "VERIFIED", label: "Verified ✅" },
+          { value: "UNVERIFIED", label: "Any" },
+        ],
+        distances: [5, 10, 25, 50, 100, 200],
       },
     });
   } catch (err) {
+    console.error("getFilterOptions error:", err);
     return sendError(res, "Failed to fetch filter options");
   }
 };
