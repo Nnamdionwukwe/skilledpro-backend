@@ -2,14 +2,21 @@ import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
   getInsurancePlans,
-  purchaseInsurance,
+  createInsuranceCheckout,
+  verifyInsuranceCheckout,
   getMyInsurance,
 } from "../controllers/insurance.controller.js";
 
 const router = Router();
 
 router.get("/plans", getInsurancePlans);
-router.post("/purchase", protect, requireRole("HIRER"), purchaseInsurance);
+router.post(
+  "/checkout",
+  protect,
+  requireRole("HIRER"),
+  createInsuranceCheckout,
+);
+router.post("/verify", protect, requireRole("HIRER"), verifyInsuranceCheckout);
 router.get("/my", protect, requireRole("HIRER"), getMyInsurance);
 
 export default router;

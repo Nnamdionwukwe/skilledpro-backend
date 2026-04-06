@@ -1,17 +1,24 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import Stripe from "stripe";
 
-const PLANS = [
+let _stripe;
+function getStripe() {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  return _stripe;
+}
+
+export const PLANS = [
   {
     id: "basic",
     name: "Basic Protection",
-    description: "Covers accidental property damage up to $5,000",
-    price: 2500,
-    currency: "NGN",
-    coverageAmount: 500000,
-    coverageCurrency: "NGN",
+    description: "Property damage cover up to $5,000",
+    price: 5,
+    currency: "USD",
+    coverageAmount: 5000,
+    coverageCurrency: "USD",
     features: [
-      "Property damage up to ₦500,000",
+      "Property damage up to $5,000",
       "Valid for single booking",
       "24-hour claims support",
       "Instant activation",
@@ -21,15 +28,14 @@ const PLANS = [
   {
     id: "standard",
     name: "Standard Cover",
-    description: "Comprehensive cover for hirers — property + liability",
-    price: 5000,
-    currency: "NGN",
-    coverageAmount: 2000000,
-    coverageCurrency: "NGN",
+    description: "Property + liability — most popular",
+    price: 12,
+    currency: "USD",
+    coverageAmount: 15000,
+    coverageCurrency: "USD",
     features: [
-      "Property damage up to ₦2,000,000",
+      "Property damage up to $15,000",
       "Third-party liability included",
-      "Valid for single booking",
       "Priority claims handling",
       "Same-day payouts",
     ],
@@ -38,16 +44,16 @@ const PLANS = [
   {
     id: "premium",
     name: "Premium Shield",
-    description: "Full coverage — property, liability, and worker injury",
-    price: 10000,
-    currency: "NGN",
-    coverageAmount: 5000000,
-    coverageCurrency: "NGN",
+    description: "Full coverage including worker injury",
+    price: 25,
+    currency: "USD",
+    coverageAmount: 30000,
+    coverageCurrency: "USD",
     features: [
-      "Property damage up to ₦5,000,000",
+      "Property damage up to $30,000",
       "Third-party liability",
       "Worker injury cover",
-      "Legal expenses included",
+      "Legal expenses",
       "Dedicated claims agent",
       "Valid for 30 days",
     ],
@@ -60,17 +66,15 @@ export const getInsurancePlans = async (req, res) => {
   return sendResponse(res, { data: { plans: PLANS } });
 };
 
-// POST /api/insurance/purchase
-export const purchaseInsurance = async (req, res) => {
+// POST /api/insurance/checkout — create Stripe checkout session
+export const createInsuranceCheckout = async (req, res) => {
   try {
     const { planId, bookingId } = req.body;
-
     if (!planId) return sendError(res, "Plan ID is required", 400);
 
     const plan = PLANS.find((p) => p.id === planId);
     if (!plan) return sendError(res, "Invalid plan", 404);
 
-    // If tied to a booking, verify ownership
     if (bookingId) {
       const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
@@ -80,24 +84,88 @@ export const purchaseInsurance = async (req, res) => {
         return sendError(res, "Not your booking", 403);
     }
 
-    // Create notification record as insurance receipt
-    const reference = `INS-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-    const notification = await prisma.notification.create({
-      data: {
+    const session = await getStripe().checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      customer_email: user.email,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(plan.price * 100),
+            product_data: {
+              name: `${plan.name} — SkilledProz Insurance`,
+              description: plan.description,
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.CLIENT_URL}/insurance/success?session_id={CHECKOUT_SESSION_ID}&plan=${planId}&booking=${bookingId || ""}`,
+      cancel_url: `${process.env.CLIENT_URL}/bookings/${bookingId || ""}`,
+      metadata: {
         userId: req.user.id,
-        title: `Insurance Activated: ${plan.name} ✅`,
-        body: `Your ${plan.name} is active. Coverage up to ${plan.coverageCurrency} ${plan.coverageAmount.toLocaleString()}. Reference: ${reference}`,
+        planId,
+        planName: plan.name,
+        bookingId: bookingId || "",
+      },
+    });
+
+    return sendResponse(res, {
+      data: { url: session.url, sessionId: session.id },
+    });
+  } catch (err) {
+    console.error("Insurance checkout error:", err.message);
+    return sendError(res, "Failed to create insurance checkout");
+  }
+};
+
+// POST /api/insurance/verify — verify after Stripe redirect
+export const verifyInsuranceCheckout = async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) return sendError(res, "Session ID required", 400);
+
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      return sendError(res, "Payment not completed", 400);
+    }
+
+    const { userId, planId, planName, bookingId } = session.metadata;
+    const plan = PLANS.find((p) => p.id === planId);
+    const reference = `INS-${sessionId.slice(-8).toUpperCase()}`;
+
+    // If tied to a booking, update with insurance badge
+    if (bookingId) {
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          insuranceRef: reference,
+          insurancePlan: planName,
+          insurancePaidAt: new Date(),
+        },
+      });
+    }
+
+    // Create notification receipt
+    await prisma.notification.create({
+      data: {
+        userId,
+        title: `🛡️ Insurance Activated: ${planName}`,
+        body: `Your ${planName} is now active. Coverage up to ${plan?.coverageCurrency} ${plan?.coverageAmount?.toLocaleString()}. Ref: ${reference}`,
         type: "INSURANCE_PURCHASED",
         data: {
-          planId: plan.id,
-          planName: plan.name,
+          planId,
+          planName,
           bookingId: bookingId || null,
           reference,
-          coverageAmount: plan.coverageAmount,
-          coverageCurrency: plan.coverageCurrency,
-          price: plan.price,
-          currency: plan.currency,
+          coverageAmount: plan?.coverageAmount,
+          coverageCurrency: plan?.coverageCurrency,
+          price: plan?.price,
+          currency: "USD",
+          sessionId,
           purchasedAt: new Date().toISOString(),
           status: "ACTIVE",
         },
@@ -105,19 +173,19 @@ export const purchaseInsurance = async (req, res) => {
     });
 
     return sendResponse(res, {
-      status: 201,
-      message: "Insurance activated successfully",
+      message: "Insurance activated",
       data: {
         reference,
-        plan: plan.name,
-        coverage: `${plan.coverageCurrency} ${plan.coverageAmount.toLocaleString()}`,
+        plan: planName,
+        coverage: `${plan?.coverageCurrency} ${plan?.coverageAmount?.toLocaleString()}`,
         purchasedAt: new Date(),
-        notificationId: notification.id,
+        bookingId: bookingId || null,
+        sessionId,
       },
     });
   } catch (err) {
-    console.error(err);
-    return sendError(res, "Failed to purchase insurance");
+    console.error("Insurance verify error:", err.message);
+    return sendError(res, "Failed to verify insurance payment");
   }
 };
 
@@ -128,7 +196,6 @@ export const getMyInsurance = async (req, res) => {
       where: { userId: req.user.id, type: "INSURANCE_PURCHASED" },
       orderBy: { createdAt: "desc" },
     });
-
     return sendResponse(res, {
       data: {
         policies: policies.map((p) => ({
@@ -140,6 +207,6 @@ export const getMyInsurance = async (req, res) => {
       },
     });
   } catch (err) {
-    return sendError(res, "Failed to fetch insurance policies");
+    return sendError(res, "Failed to fetch insurance");
   }
 };
