@@ -283,12 +283,13 @@ model Payment {
   accountNumber        String?
   bankTransferRef      String?
   bankTransferProof    String?   
-  bankName             String?
-  accountName          String?
-  accountNumber        String?
-  bankTransferRef      String?
-  bankTransferProof    String?   
-}
+  cryptoNetwork        String?
+  cryptoTxHash         String?
+  cryptoWallet         String?
+  cryptoAmount         Float?
+  cryptoCurrency       String?
+} 
+
 
 model Withdrawal {
   id          String           @id @default(uuid())

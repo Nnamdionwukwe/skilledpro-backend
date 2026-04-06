@@ -247,7 +247,7 @@ model Booking {
   payment      Payment?
   reviews      Review[]
   conversation Conversation?
-     emergencyContact  String?
+  emergencyContact  String?
   sosActivatedAt    DateTime?
   sosLatitude       Float?
   sosLongitude      Float?
@@ -274,11 +274,12 @@ model Payment {
   refundedAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-   bankName          String?
-  accountName       String?
-  accountNumber     String?
-  bankTransferRef   String?
-  bankTransferProof String?
+ bankName             String?
+  accountName          String?
+  accountNumber        String?
+  bankTransferRef      String?
+  bankTransferProof    String?   
+
   cryptoNetwork        String?
   cryptoTxHash         String?
   cryptoWallet         String?
