@@ -279,8 +279,11 @@ model Payment {
   accountNumber     String?
   bankTransferRef   String?
   bankTransferProof String?
-  cryptoCurrency    String?
-  cryptoAmount      Float?
+  cryptoNetwork        String?
+  cryptoTxHash         String?
+  cryptoWallet         String?
+  cryptoAmount         Float?
+  cryptoCurrency       String?
 }
 
 model Withdrawal {
