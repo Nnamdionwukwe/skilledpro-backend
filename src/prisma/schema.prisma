@@ -105,6 +105,9 @@ model User {
   withdrawals      Withdrawal[]
   subscriptions    Subscription[]
 featuredListings FeaturedListing[]
+posts         Post[]         @relation("UserPosts")
+postReactions PostReaction[] @relation("UserReactions")
+postComments  PostComment[]  @relation("UserComments")
 }
 
 model WorkerProfile {
@@ -444,6 +447,67 @@ enum SubscriptionStatus {
   CANCELLED
   EXPIRED
   PENDING
+}
+
+enum PostType {
+  GENERAL
+  JOB_UPDATE
+  ACHIEVEMENT
+  PORTFOLIO
+  ANNOUNCEMENT
+  HIRING
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  INSIGHTFUL
+  CELEBRATE
+  SUPPORT
+}
+
+model Post {
+  id         String         @id @default(uuid())
+  authorId   String
+  author     User           @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  content    String
+  images     String[]       @default([])
+  type       PostType       @default(GENERAL)
+  isPublic   Boolean        @default(true)
+  repostOfId String?
+  repostOf   Post?          @relation("Reposts", fields: [repostOfId], references: [id])
+  reposts    Post[]         @relation("Reposts")
+  reactions  PostReaction[]
+  comments   PostComment[]
+  viewCount  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model PostReaction {
+  id        String       @id @default(uuid())
+  postId    String
+  post      Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation("UserReactions", fields: [userId], references: [id], onDelete: Cascade)
+  type      ReactionType @default(LIKE)
+  createdAt DateTime     @default(now())
+
+  @@unique([postId, userId])
+}
+
+model PostComment {
+  id        String        @id @default(uuid())
+  postId    String
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User          @relation("UserComments", fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  parentId  String?
+  parent    PostComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   PostComment[] @relation("CommentReplies")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 }
 
 model JobApplication {

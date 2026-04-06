@@ -22,6 +22,7 @@ import aiRoutes from "./routes/ai.routes.js";
 import insuranceRoutes from "./routes/insurance.routes.js";
 import subscriptionRoutes from "./routes/subscription.routes.js";
 import featuredRoutes from "./routes/featured.routes.js";
+import postRoutes from "./routes/post.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
 // Calling dotenv.config() here runs at import time, before server.js sets it up.
@@ -91,6 +92,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/insurance", insuranceRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/featured", featuredRoutes);
+app.use("/api/posts", postRoutes);
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);
