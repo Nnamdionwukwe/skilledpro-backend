@@ -471,3 +471,165 @@ export const checkOut = async (req, res) => {
     return sendError(res, "Check-out failed");
   }
 };
+
+// ── Activate SOS ──────────────────────────────────────────────────────────────
+export const activateSOS = async (req, res) => {
+  try {
+    const { latitude, longitude } = req.body;
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: req.params.id },
+      include: {
+        hirer: { select: { id: true, firstName: true, email: true } },
+        worker: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    if (!booking) return sendError(res, "Booking not found", 404);
+    if (booking.workerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+    if (!["ACCEPTED", "IN_PROGRESS"].includes(booking.status)) {
+      return sendError(
+        res,
+        "SOS can only be activated on active bookings",
+        400,
+      );
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id: req.params.id },
+      data: {
+        sosActivatedAt: new Date(),
+        sosLatitude: latitude ? parseFloat(latitude) : null,
+        sosLongitude: longitude ? parseFloat(longitude) : null,
+        sosResolvedAt: null,
+      },
+    });
+
+    // Notify hirer immediately
+    await prisma.notification.create({
+      data: {
+        userId: booking.hirerId,
+        title: "🚨 SOS Alert — Worker Needs Help",
+        body: `${booking.worker.firstName} ${booking.worker.lastName} has activated an emergency alert on booking "${booking.title}".`,
+        type: "SOS_ACTIVATED",
+        data: {
+          bookingId: booking.id,
+          lat: latitude ? parseFloat(latitude) : null,
+          lng: longitude ? parseFloat(longitude) : null,
+          activatedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    // Notify all admins
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+
+    await Promise.all(
+      admins.map((admin) =>
+        prisma.notification.create({
+          data: {
+            userId: admin.id,
+            title: "🚨 SOS Alert",
+            body: `Worker ${booking.worker.firstName} ${booking.worker.lastName} activated SOS on booking "${booking.title}"`,
+            type: "SOS_ACTIVATED",
+            data: {
+              bookingId: booking.id,
+              workerId: booking.workerId,
+              lat: latitude ? parseFloat(latitude) : null,
+              lng: longitude ? parseFloat(longitude) : null,
+            },
+          },
+        }),
+      ),
+    );
+
+    return sendResponse(res, {
+      status: 201,
+      message: "SOS activated. Your hirer and our team have been alerted.",
+      data: { booking: updated },
+    });
+  } catch (err) {
+    console.error("activateSOS error:", err.message);
+    return sendError(res, "Failed to activate SOS");
+  }
+};
+
+// ── Resolve SOS ───────────────────────────────────────────────────────────────
+export const resolveSOS = async (req, res) => {
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!booking) return sendError(res, "Booking not found", 404);
+
+    const isInvolved =
+      booking.workerId === req.user.id ||
+      booking.hirerId === req.user.id ||
+      req.user.role === "ADMIN";
+
+    if (!isInvolved) return sendError(res, "Forbidden", 403);
+    if (!booking.sosActivatedAt)
+      return sendError(res, "No active SOS on this booking", 400);
+
+    const updated = await prisma.booking.update({
+      where: { id: req.params.id },
+      data: { sosResolvedAt: new Date() },
+    });
+
+    // Notify the worker the alert is resolved
+    await prisma.notification.create({
+      data: {
+        userId: booking.workerId,
+        title: "✅ SOS Resolved",
+        body: "Your emergency alert has been resolved.",
+        type: "SOS_RESOLVED",
+        data: { bookingId: booking.id },
+      },
+    });
+
+    return sendResponse(res, {
+      message: "SOS resolved",
+      data: { booking: updated },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to resolve SOS");
+  }
+};
+
+// ── Update emergency contact ──────────────────────────────────────────────────
+export const updateEmergencyContact = async (req, res) => {
+  try {
+    const { name, phone, relationship } = req.body;
+
+    if (!name || !phone) {
+      return sendError(res, "Name and phone are required", 400);
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!booking) return sendError(res, "Booking not found", 404);
+    if (booking.workerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+
+    const updated = await prisma.booking.update({
+      where: { id: req.params.id },
+      data: {
+        emergencyContact: JSON.stringify({ name, phone, relationship }),
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Emergency contact saved",
+      data: { emergencyContact: { name, phone, relationship } },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to save emergency contact");
+  }
+};

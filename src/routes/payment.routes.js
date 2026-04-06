@@ -1,4 +1,4 @@
-// src/routes/payment.routes.js
+import { Router } from "express";
 import express from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
@@ -13,52 +13,64 @@ import {
   getHirerPayments,
   requestWithdrawal,
   getWithdrawals,
+  initiateBankTransfer,
+  confirmBankTransfer,
+  initiateCryptoPayment,
+  confirmCryptoPayment,
 } from "../controllers/payment.controller.js";
 
-const router = express.Router();
+const router = Router();
 
-// ── Public — Stripe webhook (no auth, Stripe signs it) ────────────────────────
+// ── Stripe webhook — raw body, no auth ────────────────────────────────────────
 router.post(
   "/webhook/stripe",
   express.raw({ type: "application/json" }),
   stripeWebhook,
 );
 
-// ── Public — Paystack redirect callback ───────────────────────────────────────
+// ── Public — Paystack redirect ────────────────────────────────────────────────
 router.get("/verify/paystack", verifyPaystack);
 
-// ── All routes below require authentication ───────────────────────────────────
+// ── All below require auth ────────────────────────────────────────────────────
 router.use(protect);
 
-// Hirer: initiate payment for an accepted booking
+// Hirer: initiate payment
 router.post(
   "/initiate/:bookingId",
   requireRole("HIRER"),
   initiateBookingPayment,
 );
 
-// Hirer: release escrow after job completion
+// ── Bank transfer ─────────────────────────────────────────────────────────────
+router.post(
+  "/bank-transfer/:bookingId",
+  requireRole("HIRER"),
+  initiateBankTransfer,
+);
+router.patch("/bank-transfer/:bookingId/confirm", confirmBankTransfer);
+
+// ── Crypto ────────────────────────────────────────────────────────────────────
+router.post("/crypto/:bookingId", requireRole("HIRER"), initiateCryptoPayment);
+router.patch("/crypto/:bookingId/confirm", confirmCryptoPayment);
+
+// Hirer: release escrow
 router.post("/release/:bookingId", requireRole("HIRER"), releasePayment);
 
-// Hirer or Admin: issue a refund
+// Hirer or Admin: refund
 router.post("/refund/:bookingId", refundPayment);
 
-// Worker: earnings summary
+// Worker: earnings + withdrawals — before /:bookingId wildcard
 router.get("/earnings", requireRole("WORKER"), getWorkerEarnings);
-
-// Worker: request a payout withdrawal — BEFORE /:bookingId wildcard
 router.post("/withdraw", requireRole("WORKER"), requestWithdrawal);
-
-// Worker: get withdrawal history + live balance — BEFORE /:bookingId wildcard
 router.get("/withdrawals", requireRole("WORKER"), getWithdrawals);
 
-// Hirer: full payment history — BEFORE /:bookingId wildcard
+// Hirer: payment history
 router.get("/hirer", requireRole("HIRER"), getHirerPayments);
 
 // Admin: all payments
 router.get("/", requireRole("ADMIN"), getAllPayments);
 
-// Hirer or Worker: single booking payment detail — wildcard, always last
+// Single booking payment — wildcard last
 router.get("/:bookingId", getPayment);
 
 export default router;

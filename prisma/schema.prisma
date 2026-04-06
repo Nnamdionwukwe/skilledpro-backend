@@ -247,6 +247,11 @@ model Booking {
   payment      Payment?
   reviews      Review[]
   conversation Conversation?
+    emergencyContact     String?   
+  sosActivatedAt       DateTime?
+  sosLatitude          Float?
+  sosLongitude         Float?
+  sosResolvedAt        DateTime?
 }
 
 model Payment {
@@ -262,9 +267,6 @@ model Payment {
   workerCurrency    String?
   workerPayoutLocal Float?
   exchangeRate      Float?        @default(1)
-  cryptoNetwork     String?
-  cryptoTxHash      String?
-  cryptoWallet      String?
   status            PaymentStatus @default(PENDING)
   provider          String
   providerRef       String?
@@ -272,6 +274,16 @@ model Payment {
   refundedAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
+    emergencyContact     String?  
+  sosActivatedAt       DateTime?
+  sosLatitude          Float?
+  sosLongitude         Float?
+  sosResolvedAt        DateTime?
+   cryptoNetwork        String?
+  cryptoTxHash         String?
+  cryptoWallet         String?
+  cryptoAmount         Float?
+  cryptoCurrency       String?
 }
 
 model Withdrawal {
