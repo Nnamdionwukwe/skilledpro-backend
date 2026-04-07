@@ -4,193 +4,89 @@ import Stripe from "stripe";
 
 let _stripe;
 function getStripe() {
-  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error("STRIPE_SECRET_KEY is not set in environment variables");
+  }
+  if (!_stripe)
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2023-10-16",
+    });
   return _stripe;
 }
 
-// ── Plan definitions (USD) ────────────────────────────────────────────────────
-export const WORKER_PLANS = [
-  {
-    id: "worker_free",
-    tier: "FREE",
+// ── Plans (no Stripe Price IDs needed for one-time payments) ─────────────────
+export const WORKER_PLANS = {
+  FREE: {
     name: "Free",
     price: 0,
-    currency: "USD",
-    billingCycle: "forever",
-    stripePriceId: null,
-    features: [
-      "Basic profile listing in search",
-      "Apply to up to 5 jobs/month",
-      "Standard search placement",
-      "1 portfolio image",
-      "Basic messaging",
-      "Community support",
-    ],
-    limits: {
-      bidsPerMonth: 5,
-      portfolioImages: 1,
-      boosted: false,
-      analytics: false,
-      prioritySupport: false,
-      teamAccounts: 0,
-      apiAccess: false,
-    },
+    tier: "FREE",
+    features: ["5 bookings/mo", "Basic profile", "Standard search listing"],
   },
-  {
-    id: "worker_pro",
-    tier: "PRO",
-    name: "Pro Worker",
+  PRO: {
+    name: "Pro",
     price: 9,
-    currency: "USD",
-    billingCycle: "monthly",
-    popular: true,
-    stripePriceId: process.env.STRIPE_WORKER_PRO_PRICE_ID,
+    tier: "PRO",
     features: [
-      "Boosted profile in search results",
-      "Unlimited job applications/month",
-      "⭐ Pro badge on your profile",
-      "Up to 20 portfolio images",
-      "Priority in hirer search",
-      "Earnings analytics dashboard",
-      "Priority customer support",
-      "Video intro on profile",
+      "Unlimited bookings",
+      "Pro badge",
+      "Priority listing",
+      "Advanced analytics",
+      "GPS radius filter",
     ],
-    limits: {
-      bidsPerMonth: -1,
-      portfolioImages: 20,
-      boosted: true,
-      analytics: true,
-      prioritySupport: true,
-      teamAccounts: 0,
-      apiAccess: false,
-    },
   },
-  {
-    id: "worker_enterprise",
-    tier: "ENTERPRISE",
-    name: "Enterprise Worker",
+  ENTERPRISE: {
+    name: "Enterprise",
     price: 29,
-    currency: "USD",
-    billingCycle: "monthly",
-    stripePriceId: process.env.STRIPE_WORKER_ENTERPRISE_PRICE_ID,
+    tier: "ENTERPRISE",
     features: [
       "Everything in Pro",
-      "🏆 Featured at top of category search",
-      "Dedicated account manager",
-      "Team sub-accounts (up to 5 workers)",
-      "White-label invoices",
+      "Team accounts",
       "API access",
-      "SLA guaranteed support",
-      "Custom profile domain",
-      "Bulk job application tools",
+      "Dedicated support",
+      "Custom integrations",
     ],
-    limits: {
-      bidsPerMonth: -1,
-      portfolioImages: -1,
-      boosted: true,
-      analytics: true,
-      prioritySupport: true,
-      teamAccounts: 5,
-      apiAccess: true,
-    },
   },
-];
+};
 
-export const HIRER_PLANS = [
-  {
-    id: "hirer_free",
-    tier: "FREE",
+export const HIRER_PLANS = {
+  FREE: {
     name: "Free",
     price: 0,
-    currency: "USD",
-    billingCycle: "forever",
-    stripePriceId: null,
-    features: [
-      "Post up to 3 jobs/month",
-      "Access standard worker search",
-      "Basic messaging",
-      "1 saved search",
-      "Community support",
-    ],
-    limits: {
-      jobPostsPerMonth: 3,
-      boostedSearch: false,
-      advancedFilters: false,
-      analytics: false,
-      teamAccounts: 0,
-      apiAccess: false,
-      bulkHiring: false,
-    },
+    tier: "FREE",
+    features: ["3 active hires/mo", "Basic search", "Standard support"],
   },
-  {
-    id: "hirer_pro",
-    tier: "PRO",
-    name: "Pro Hirer",
+  PRO: {
+    name: "Pro",
     price: 15,
-    currency: "USD",
-    billingCycle: "monthly",
-    popular: true,
-    stripePriceId: process.env.STRIPE_HIRER_PRO_PRICE_ID,
+    tier: "PRO",
     features: [
-      "Post unlimited jobs/month",
-      "See verified workers first",
-      "Advanced GPS radius filters",
-      "Saved worker lists (unlimited)",
-      "Priority worker matching",
-      "⭐ Pro badge on profile",
-      "Job post analytics",
-      "Direct booking (skip job board)",
+      "Unlimited hires",
+      "Advanced search filters",
+      "Priority support",
+      "Bulk hiring tools",
     ],
-    limits: {
-      jobPostsPerMonth: -1,
-      boostedSearch: true,
-      advancedFilters: true,
-      analytics: true,
-      teamAccounts: 0,
-      apiAccess: false,
-      bulkHiring: false,
-    },
   },
-  {
-    id: "hirer_enterprise",
-    tier: "ENTERPRISE",
+  ENTERPRISE: {
     name: "Enterprise",
     price: 79,
-    currency: "USD",
-    billingCycle: "monthly",
-    stripePriceId: process.env.STRIPE_HIRER_ENTERPRISE_PRICE_ID,
+    tier: "ENTERPRISE",
     features: [
       "Everything in Pro",
-      "Bulk hiring dashboard",
-      "Team accounts (up to 20 hirers)",
+      "Team accounts",
+      "API access",
       "Dedicated account manager",
-      "Custom SLA & contract terms",
-      "Invoice & purchase order billing",
-      "API integration",
-      "Compliance & audit reporting",
-      "Custom onboarding",
+      "Custom contracts",
     ],
-    limits: {
-      jobPostsPerMonth: -1,
-      boostedSearch: true,
-      advancedFilters: true,
-      analytics: true,
-      teamAccounts: 20,
-      apiAccess: true,
-      bulkHiring: true,
-    },
   },
-];
+};
 
 // GET /api/subscriptions/plans
 export const getPlans = async (req, res) => {
-  const role = req.query.role?.toUpperCase();
-  if (role === "WORKER")
-    return sendResponse(res, { data: { plans: WORKER_PLANS } });
-  if (role === "HIRER")
-    return sendResponse(res, { data: { plans: HIRER_PLANS } });
   return sendResponse(res, {
-    data: { workerPlans: WORKER_PLANS, hirerPlans: HIRER_PLANS },
+    data: {
+      worker: Object.entries(WORKER_PLANS).map(([id, p]) => ({ id, ...p })),
+      hirer: Object.entries(HIRER_PLANS).map(([id, p]) => ({ id, ...p })),
+    },
   });
 };
 
@@ -201,98 +97,109 @@ export const getMySubscription = async (req, res) => {
       where: { userId: req.user.id, status: "ACTIVE" },
       orderBy: { createdAt: "desc" },
     });
-
-    const plans = req.user.role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
-    const currentPlan =
-      plans.find((p) => p.tier === (sub?.tier || "FREE")) || plans[0];
-
-    return sendResponse(res, {
-      data: {
-        subscription: sub || { tier: "FREE", status: "ACTIVE", price: 0 },
-        plan: currentPlan,
-        isActive: !sub || sub.status === "ACTIVE",
-        expiresAt: sub?.expiresAt || null,
-      },
-    });
+    return sendResponse(res, { data: { subscription: sub || null } });
   } catch (err) {
     return sendError(res, "Failed to fetch subscription");
   }
 };
 
-// POST /api/subscriptions/checkout — create Stripe checkout session
+// POST /api/subscriptions/checkout
 export const createCheckout = async (req, res) => {
   try {
-    const { planId } = req.body;
-    if (!planId) return sendError(res, "Plan ID required", 400);
+    const { tier, role } = req.body;
 
-    const role = req.user.role;
+    if (!tier || !role)
+      return sendError(res, "tier and role are required", 400);
+    if (!["PRO", "ENTERPRISE"].includes(tier))
+      return sendError(res, "Invalid tier", 400);
+    if (!["WORKER", "HIRER"].includes(role))
+      return sendError(res, "Invalid role", 400);
+
     const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
-    const plan = plans.find((p) => p.id === planId);
+    const plan = plans[tier];
+    if (!plan) return sendError(res, "Plan not found", 404);
 
-    if (!plan) return sendError(res, "Invalid plan", 404);
-    if (plan.price === 0)
-      return sendError(res, "Free plan requires no payment", 400);
+    // Validate env vars upfront with clear messages
+    const clientUrl = process.env.CLIENT_URL;
+    if (!clientUrl)
+      return sendError(res, "SERVER_CONFIG: CLIENT_URL not set", 500);
 
+    const stripe = getStripe();
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-    const session = await getStripe().checkout.sessions.create({
-      payment_method_types: ["card"],
-      mode: "subscription",
-      customer_email: user.email,
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            unit_amount: Math.round(plan.price * 100),
-            recurring: { interval: "month" },
-            product_data: {
-              name: plan.name,
-              description: plan.features.slice(0, 3).join(" · "),
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${process.env.CLIENT_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}&plan=${planId}`,
-      cancel_url: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
-      metadata: {
-        userId: req.user.id,
-        planId,
-        tier: plan.tier,
-        role,
-      },
-    });
+    // Use Stripe price IDs if set, otherwise create one-time payment
+    const priceIdKey = `STRIPE_${role}_${tier}_PRICE_ID`;
+    const priceId = process.env[priceIdKey];
 
+    let sessionConfig;
+
+    if (priceId) {
+      // Recurring subscription
+      sessionConfig = {
+        payment_method_types: ["card"],
+        mode: "subscription",
+        customer_email: user.email,
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${clientUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}&tier=${tier}&role=${role}`,
+        cancel_url: `${clientUrl}/dashboard/${role.toLowerCase()}`,
+        metadata: { userId: req.user.id, tier, role, planName: plan.name },
+      };
+    } else {
+      // One-time payment fallback (no price ID needed)
+      sessionConfig = {
+        payment_method_types: ["card"],
+        mode: "payment",
+        customer_email: user.email,
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: plan.price * 100,
+              product_data: {
+                name: `SkilledProz ${plan.name} — ${role}`,
+                description: plan.features.join(", "),
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${clientUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}&tier=${tier}&role=${role}`,
+        cancel_url: `${clientUrl}/dashboard/${role.toLowerCase()}`,
+        metadata: { userId: req.user.id, tier, role, planName: plan.name },
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
     return sendResponse(res, {
       data: { url: session.url, sessionId: session.id },
     });
   } catch (err) {
-    console.error("Checkout error:", err.message);
-    return sendError(res, "Failed to create checkout session");
+    console.error("createCheckout error:", err.message);
+    return sendError(res, `Checkout failed: ${err.message}`, 500);
   }
 };
 
-// POST /api/subscriptions/verify — called after Stripe redirect
+// POST /api/subscriptions/verify
 export const verifyCheckout = async (req, res) => {
   try {
     const { sessionId } = req.body;
     if (!sessionId) return sendError(res, "Session ID required", 400);
 
     const session = await getStripe().checkout.sessions.retrieve(sessionId);
-    if (session.payment_status !== "paid") {
+    if (
+      !["paid", "complete"].includes(session.payment_status) &&
+      session.mode !== "subscription"
+    ) {
       return sendError(res, "Payment not completed", 400);
     }
 
-    const { userId, planId, tier, role } = session.metadata;
+    const { userId, tier, role, planName } = session.metadata;
 
-    // Cancel any existing active sub
+    // Deactivate old subscriptions
     await prisma.subscription.updateMany({
       where: { userId, status: "ACTIVE" },
       data: { status: "CANCELLED" },
     });
-
-    const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
-    const plan = plans.find((p) => p.id === planId);
 
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + 1);
@@ -303,33 +210,29 @@ export const verifyCheckout = async (req, res) => {
         tier,
         role,
         status: "ACTIVE",
-        price: plan.price,
-        currency: "USD",
-        startedAt: new Date(),
+        stripeSessionId: sessionId,
+        stripeSubscriptionId: session.subscription || null,
         expiresAt,
-        autoRenew: true,
-        reference: session.id,
-        stripeSessionId: session.id,
       },
     });
 
     await prisma.notification.create({
       data: {
         userId,
-        title: `${plan.name} Activated ✅`,
-        body: `Your ${plan.name} subscription is now active. Enjoy your upgraded features!`,
+        title: `🎉 ${planName} Activated`,
+        body: `Your ${planName} subscription is now active. Enjoy your new features!`,
         type: "SUBSCRIPTION_ACTIVATED",
-        data: { planId, tier, sessionId, expiresAt },
+        data: { tier, role, expiresAt: expiresAt.toISOString() },
       },
     });
 
     return sendResponse(res, {
-      message: `${plan.name} activated`,
-      data: { subscription: sub, plan },
+      message: "Subscription activated",
+      data: { subscription: sub },
     });
   } catch (err) {
-    console.error("Verify error:", err.message);
-    return sendError(res, "Failed to verify payment");
+    console.error("verifyCheckout error:", err.message);
+    return sendError(res, `Verification failed: ${err.message}`, 500);
   }
 };
 
@@ -339,48 +242,52 @@ export const cancelSubscription = async (req, res) => {
     const sub = await prisma.subscription.findFirst({
       where: { userId: req.user.id, status: "ACTIVE" },
     });
-
     if (!sub) return sendError(res, "No active subscription", 404);
 
-    // Cancel in Stripe if has subscription ID
+    // Cancel in Stripe if recurring
     if (sub.stripeSubscriptionId) {
-      await getStripe()
-        .subscriptions.cancel(sub.stripeSubscriptionId)
-        .catch(() => {});
+      await getStripe().subscriptions.cancel(sub.stripeSubscriptionId);
     }
 
     await prisma.subscription.update({
       where: { id: sub.id },
-      data: { status: "CANCELLED", autoRenew: false },
+      data: { status: "CANCELLED" },
     });
 
-    return sendResponse(res, {
-      message: "Subscription cancelled. Access remains until period end.",
-    });
+    return sendResponse(res, { message: "Subscription cancelled" });
   } catch (err) {
-    return sendError(res, "Failed to cancel subscription");
+    return sendError(res, "Cancellation failed");
   }
 };
 
-// GET /api/subscriptions/invoice/:sessionId — download invoice
+// GET /api/subscriptions/invoice
 export const getInvoice = async (req, res) => {
   try {
-    const session = await getStripe().checkout.sessions.retrieve(
-      req.params.sessionId,
-      { expand: ["invoice"] },
-    );
+    const sub = await prisma.subscription.findFirst({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!sub) return sendError(res, "No subscription found", 404);
 
-    if (session.invoice?.hosted_invoice_url) {
-      return sendResponse(res, {
-        data: {
-          invoiceUrl: session.invoice.hosted_invoice_url,
-          pdfUrl: session.invoice.invoice_pdf,
+    const plans = sub.role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
+    const plan = plans[sub.tier];
+
+    return sendResponse(res, {
+      data: {
+        invoice: {
+          id: sub.id,
+          tier: sub.tier,
+          role: sub.role,
+          planName: plan?.name,
+          price: plan?.price,
+          status: sub.status,
+          createdAt: sub.createdAt,
+          expiresAt: sub.expiresAt,
+          stripeSessionId: sub.stripeSessionId,
         },
-      });
-    }
-
-    return sendError(res, "Invoice not available", 404);
+      },
+    });
   } catch (err) {
-    return sendError(res, "Failed to fetch invoice");
+    return sendError(res, "Failed to get invoice");
   }
 };

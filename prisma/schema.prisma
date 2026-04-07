@@ -109,6 +109,16 @@ postReactions PostReaction[] @relation("UserReactions")
 postComments  PostComment[]  @relation("UserComments")
 callsInitiated VideoCall[] @relation("CallsInitiated")
 callsReceived  VideoCall[] @relation("CallsReceived")
+  theme             String?  @default("system")  // "light" | "dark" | "system"
+  notifBookings     Boolean  @default(true)
+  notifMessages     Boolean  @default(true)
+  notifPayments     Boolean  @default(true)
+  notifReviews      Boolean  @default(true)
+  notifMarketing    Boolean  @default(false)
+  profileVisible    Boolean  @default(true)
+  showPhone         Boolean  @default(false)
+  showLocation      Boolean  @default(true)
+  twoFactorEnabled  Boolean  @default(false)
   gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
 }
 

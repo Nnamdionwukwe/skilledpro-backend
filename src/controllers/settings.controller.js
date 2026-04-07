@@ -1,593 +1,333 @@
-// src/controllers/settings.controller.js
 import prisma from "../config/database.js";
-import bcrypt from "bcryptjs";
 import { sendResponse, sendError } from "../utils/response.js";
-import cloudinary from "../config/cloudinary.js";
+import bcrypt from "bcryptjs";
 
-// ── GET /api/settings/profile ─────────────────────────────────────────────────
+const USER_SELECT = {
+  id: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  bio: true,
+  phone: true,
+  country: true,
+  city: true,
+  state: true,
+  address: true,
+  currency: true,
+  language: true,
+  theme: true,
+  avatar: true,
+  role: true,
+  isEmailVerified: true,
+  createdAt: true,
+  notifBookings: true,
+  notifMessages: true,
+  notifPayments: true,
+  notifReviews: true,
+  notifMarketing: true,
+  profileVisible: true,
+  showPhone: true,
+  showLocation: true,
+  twoFactorEnabled: true,
+  latitude: true,
+  longitude: true,
+};
+
+// GET /api/settings/profile
 export const getProfile = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        phone: true,
-        avatar: true,
-        bio: true,
-        country: true,
-        city: true,
-        state: true,
-        address: true,
-        latitude: true,
-        longitude: true,
-        currency: true,
-        language: true,
-        gender: true,
-        role: true,
-        isEmailVerified: true,
-        isPhoneVerified: true,
-        createdAt: true,
+        ...USER_SELECT,
         workerProfile: {
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            hourlyRate: true,
-            currency: true,
-            yearsExperience: true,
-            serviceRadius: true,
-            isAvailable: true,
-            verificationStatus: true,
-            videoIntroUrl: true,
-            categories: {
-              include: {
-                category: {
-                  select: { id: true, name: true, slug: true, icon: true },
-                },
-              },
-            },
-          },
+          include: { categories: { include: { category: true } } },
         },
-        hirerProfile: {
-          select: {
-            id: true,
-            companyName: true,
-            companySize: true,
-            website: true,
-            totalSpent: true,
-            totalHires: true,
-            avgRating: true,
-          },
-        },
+        hirerProfile: true,
       },
     });
-
     if (!user) return sendError(res, "User not found", 404);
     return sendResponse(res, { data: { user } });
   } catch (err) {
-    console.error("getProfile error:", err);
     return sendError(res, "Failed to fetch profile");
   }
 };
 
-// ── PATCH /api/settings/profile ───────────────────────────────────────────────
+// PATCH /api/settings/profile
 export const updateProfile = async (req, res) => {
   try {
-    const {
-      firstName,
-      lastName,
-      phone,
-      bio,
-      country,
-      city,
-      state,
-      address,
-      latitude,
-      longitude,
-      currency,
-      language,
-      gender,
-    } = req.body;
+    const fields = [
+      "firstName",
+      "lastName",
+      "bio",
+      "country",
+      "city",
+      "state",
+      "address",
+      "phone",
+      "currency",
+      "language",
+      "theme",
+    ];
+    const data = {};
+    for (const f of fields) {
+      if (req.body[f] !== undefined) data[f] = req.body[f];
+    }
+    if (req.body.latitude !== undefined)
+      data.latitude = req.body.latitude ? parseFloat(req.body.latitude) : null;
+    if (req.body.longitude !== undefined)
+      data.longitude = req.body.longitude
+        ? parseFloat(req.body.longitude)
+        : null;
 
-    const updated = await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: req.user.id },
-      data: {
-        ...(firstName !== undefined && { firstName: firstName.trim() }),
-        ...(lastName !== undefined && { lastName: lastName.trim() }),
-        ...(phone !== undefined && { phone: phone?.trim() || null }),
-        ...(bio !== undefined && { bio: bio?.trim() || null }),
-        ...(country !== undefined && { country: country?.trim() || null }),
-        ...(city !== undefined && { city: city?.trim() || null }),
-        ...(state !== undefined && { state: state?.trim() || null }),
-        ...(address !== undefined && { address: address?.trim() || null }),
-        ...(latitude !== undefined && {
-          latitude: latitude ? parseFloat(latitude) : null,
-        }),
-        ...(longitude !== undefined && {
-          longitude: longitude ? parseFloat(longitude) : null,
-        }),
-        ...(currency !== undefined && { currency: currency }),
-        ...(language !== undefined && { language: language }),
-        ...(gender !== undefined && { gender: gender || null }),
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        phone: true,
-        bio: true,
-        avatar: true,
-        country: true,
-        city: true,
-        state: true,
-        address: true,
-        currency: true,
-        language: true,
-        gender: true,
-        role: true,
-      },
+      data,
+      select: USER_SELECT,
     });
-
-    return sendResponse(res, {
-      message: "Profile updated",
-      data: { user: updated },
-    });
+    return sendResponse(res, { message: "Profile updated", data: { user } });
   } catch (err) {
-    if (err.code === "P2002")
-      return sendError(res, "Phone number already in use", 400);
-    console.error("updateProfile error:", err);
-    return sendError(res, "Failed to update profile");
+    console.error("updateProfile error:", err.message);
+    return sendError(res, "Update failed");
   }
 };
 
-// ── POST /api/settings/avatar ─────────────────────────────────────────────────
+// POST /api/settings/avatar
 export const updateAvatar = async (req, res) => {
   try {
-    if (!req.file) return sendError(res, "No image file provided", 400);
-
-    const current = await prisma.user.findUnique({
+    if (!req.file) return sendError(res, "No file uploaded", 400);
+    const user = await prisma.user.update({
       where: { id: req.user.id },
-      select: { avatar: true },
-    });
-
-    // Delete old avatar from Cloudinary if it exists
-    if (current?.avatar) {
-      const match = current.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/);
-      if (match) {
-        try {
-          await cloudinary.uploader.destroy(match[1]);
-        } catch {}
-      }
-    }
-
-    const b64 = Buffer.from(req.file.buffer).toString("base64");
-    const dataUri = `data:${req.file.mimetype};base64,${b64}`;
-
-    const upload = await cloudinary.uploader.upload(dataUri, {
-      folder: "avatars",
-      transformation: [
-        { width: 400, height: 400, crop: "fill", gravity: "face" },
-      ],
-    });
-
-    const updated = await prisma.user.update({
-      where: { id: req.user.id },
-      data: { avatar: upload.secure_url },
+      data: { avatar: req.file.path },
       select: { id: true, avatar: true },
     });
-
-    return sendResponse(res, {
-      message: "Avatar updated",
-      data: { avatar: updated.avatar },
-    });
+    return sendResponse(res, { message: "Avatar updated", data: { user } });
   } catch (err) {
-    console.error("updateAvatar error:", err);
-    return sendError(res, "Failed to upload avatar");
+    return sendError(res, "Avatar update failed");
   }
 };
 
-// ── PATCH /api/settings/worker-profile ───────────────────────────────────────
+// PATCH /api/settings/worker-profile
 export const updateWorkerProfile = async (req, res) => {
   try {
-    if (req.user.role !== "WORKER") return sendError(res, "Forbidden", 403);
+    const { hourlyRate, bio, yearsOfExperience, location, isAvailable } =
+      req.body;
+    const data = {};
+    if (hourlyRate !== undefined) data.hourlyRate = parseFloat(hourlyRate);
+    if (bio !== undefined) data.bio = bio;
+    if (yearsOfExperience !== undefined)
+      data.yearsOfExperience = parseInt(yearsOfExperience);
+    if (location !== undefined) data.location = location;
+    if (isAvailable !== undefined) data.isAvailable = isAvailable;
 
-    const {
-      title,
-      description,
-      hourlyRate,
-      currency,
-      yearsExperience,
-      serviceRadius,
-      isAvailable,
-    } = req.body;
-
-    const existing = await prisma.workerProfile.findUnique({
+    const profile = await prisma.workerProfile.update({
       where: { userId: req.user.id },
+      data,
     });
-
-    if (!existing) return sendError(res, "Worker profile not found", 404);
-
-    const updated = await prisma.workerProfile.update({
-      where: { userId: req.user.id },
-      data: {
-        ...(title !== undefined && { title: title.trim() }),
-        ...(description !== undefined && {
-          description: description?.trim() || null,
-        }),
-        ...(hourlyRate !== undefined && { hourlyRate: parseFloat(hourlyRate) }),
-        ...(currency !== undefined && { currency }),
-        ...(yearsExperience !== undefined && {
-          yearsExperience: parseInt(yearsExperience),
-        }),
-        ...(serviceRadius !== undefined && {
-          serviceRadius: parseInt(serviceRadius),
-        }),
-        ...(isAvailable !== undefined && { isAvailable: Boolean(isAvailable) }),
-      },
-    });
-
     return sendResponse(res, {
       message: "Worker profile updated",
-      data: { workerProfile: updated },
+      data: { profile },
     });
   } catch (err) {
-    console.error("updateWorkerProfile error:", err);
-    return sendError(res, "Failed to update worker profile");
+    return sendError(res, "Update failed");
   }
 };
 
-// ── PATCH /api/settings/hirer-profile ────────────────────────────────────────
+// PATCH /api/settings/hirer-profile
 export const updateHirerProfile = async (req, res) => {
   try {
-    if (req.user.role !== "HIRER") return sendError(res, "Forbidden", 403);
+    const { companyName, companySize, industry, website } = req.body;
+    const data = {};
+    if (companyName !== undefined) data.companyName = companyName;
+    if (companySize !== undefined) data.companySize = companySize;
+    if (industry !== undefined) data.industry = industry;
+    if (website !== undefined) data.website = website;
 
-    const { companyName, companySize, website } = req.body;
-
-    const existing = await prisma.hirerProfile.findUnique({
+    const profile = await prisma.hirerProfile.update({
       where: { userId: req.user.id },
+      data,
     });
-
-    if (!existing) {
-      await prisma.hirerProfile.create({
-        data: {
-          userId: req.user.id,
-          companyName: companyName?.trim() || null,
-          companySize: companySize || null,
-          website: website?.trim() || null,
-        },
-      });
-    } else {
-      await prisma.hirerProfile.update({
-        where: { userId: req.user.id },
-        data: {
-          ...(companyName !== undefined && {
-            companyName: companyName?.trim() || null,
-          }),
-          ...(companySize !== undefined && {
-            companySize: companySize || null,
-          }),
-          ...(website !== undefined && { website: website?.trim() || null }),
-        },
-      });
-    }
-
-    return sendResponse(res, { message: "Company profile updated" });
+    return sendResponse(res, {
+      message: "Hirer profile updated",
+      data: { profile },
+    });
   } catch (err) {
-    console.error("updateHirerProfile error:", err);
-    return sendError(res, "Failed to update company profile");
+    return sendError(res, "Update failed");
   }
 };
 
-// ── PATCH /api/settings/password ──────────────────────────────────────────────
+// PATCH /api/settings/password
 export const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return sendError(res, "Current and new passwords are required", 400);
-    }
-    if (newPassword.length < 8) {
-      return sendError(res, "New password must be at least 8 characters", 400);
-    }
+    if (!currentPassword || !newPassword)
+      return sendError(res, "Both current and new password are required", 400);
+    if (newPassword.length < 8)
+      return sendError(res, "Password must be at least 8 characters", 400);
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) return sendError(res, "Current password is incorrect", 400);
+    if (!valid) return sendError(res, "Current password is incorrect", 401);
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: req.user.id },
       data: { password: hashed },
     });
-
     return sendResponse(res, { message: "Password changed successfully" });
   } catch (err) {
-    console.error("changePassword error:", err);
-    return sendError(res, "Failed to change password");
+    return sendError(res, "Password change failed");
   }
 };
 
-// ── GET /api/settings/notifications ──────────────────────────────────────────
-// We store notification preferences as a JSON blob in a user meta field.
-// Since schema doesn't have a NotificationPref model, we store as bio-adjacent JSON
-// using a dedicated approach — we'll use a simple upsert on a settings "meta" via
-// a lightweight key-value on the user record using a dedicated table check.
-// For now, we return sane defaults if not set, stored in the notification data field.
-
-const DEFAULT_NOTIF_PREFS = {
-  emailBookingUpdates: true,
-  emailPaymentReceipts: true,
-  emailReviewRequests: true,
-  emailMarketing: false,
-  pushBookings: true,
-  pushMessages: true,
-  pushPayments: true,
-  pushSOS: true,
-};
-
+// GET /api/settings/notifications
 export const getNotificationPrefs = async (req, res) => {
   try {
-    // We store prefs as a special notification record type "USER_PREFS"
-    const prefsRecord = await prisma.notification.findFirst({
-      where: { userId: req.user.id, type: "USER_NOTIFICATION_PREFS" },
-      orderBy: { createdAt: "desc" },
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        notifBookings: true,
+        notifMessages: true,
+        notifPayments: true,
+        notifReviews: true,
+        notifMarketing: true,
+      },
     });
-
-    const prefs = prefsRecord?.data
-      ? { ...DEFAULT_NOTIF_PREFS, ...prefsRecord.data }
-      : DEFAULT_NOTIF_PREFS;
-
-    return sendResponse(res, { data: { prefs } });
+    return sendResponse(res, { data: { prefs: user } });
   } catch (err) {
     return sendError(res, "Failed to fetch notification preferences");
   }
 };
 
-// ── PATCH /api/settings/notifications ────────────────────────────────────────
+// PATCH /api/settings/notifications
 export const updateNotificationPrefs = async (req, res) => {
   try {
-    const prefs = { ...DEFAULT_NOTIF_PREFS, ...req.body };
+    const {
+      notifBookings,
+      notifMessages,
+      notifPayments,
+      notifReviews,
+      notifMarketing,
+    } = req.body;
+    const data = {};
+    if (notifBookings !== undefined) data.notifBookings = notifBookings;
+    if (notifMessages !== undefined) data.notifMessages = notifMessages;
+    if (notifPayments !== undefined) data.notifPayments = notifPayments;
+    if (notifReviews !== undefined) data.notifReviews = notifReviews;
+    if (notifMarketing !== undefined) data.notifMarketing = notifMarketing;
 
-    // Delete old pref record and upsert new
-    await prisma.notification.deleteMany({
-      where: { userId: req.user.id, type: "USER_NOTIFICATION_PREFS" },
-    });
-
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        title: "Notification preferences",
-        body: "User notification preferences",
-        type: "USER_NOTIFICATION_PREFS",
-        data: prefs,
-      },
-    });
-
+    await prisma.user.update({ where: { id: req.user.id }, data });
     return sendResponse(res, {
-      message: "Notification preferences saved",
-      data: { prefs },
+      message: "Notification preferences updated",
+      data: { prefs: data },
     });
   } catch (err) {
-    return sendError(res, "Failed to save notification preferences");
+    return sendError(res, "Update failed");
   }
 };
 
-// ── GET /api/settings/privacy ─────────────────────────────────────────────────
-const DEFAULT_PRIVACY = {
-  profilePublic: true,
-  showPhone: false,
-  showLocation: true,
-  showEarnings: false,
-  allowMessagesFrom: "all", // all | verified | none
-  showOnlineStatus: true,
-  indexableBySearch: true,
-};
-
+// GET /api/settings/privacy
 export const getPrivacySettings = async (req, res) => {
   try {
-    const record = await prisma.notification.findFirst({
-      where: { userId: req.user.id, type: "USER_PRIVACY_PREFS" },
-      orderBy: { createdAt: "desc" },
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { profileVisible: true, showPhone: true, showLocation: true },
     });
-
-    const privacy = record?.data
-      ? { ...DEFAULT_PRIVACY, ...record.data }
-      : DEFAULT_PRIVACY;
-
-    return sendResponse(res, { data: { privacy } });
+    return sendResponse(res, { data: { privacy: user } });
   } catch (err) {
     return sendError(res, "Failed to fetch privacy settings");
   }
 };
 
-// ── PATCH /api/settings/privacy ──────────────────────────────────────────────
+// PATCH /api/settings/privacy
 export const updatePrivacySettings = async (req, res) => {
   try {
-    const privacy = { ...DEFAULT_PRIVACY, ...req.body };
+    const { profileVisible, showPhone, showLocation } = req.body;
+    const data = {};
+    if (profileVisible !== undefined) data.profileVisible = profileVisible;
+    if (showPhone !== undefined) data.showPhone = showPhone;
+    if (showLocation !== undefined) data.showLocation = showLocation;
 
-    await prisma.notification.deleteMany({
-      where: { userId: req.user.id, type: "USER_PRIVACY_PREFS" },
-    });
-
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        title: "Privacy settings",
-        body: "User privacy settings",
-        type: "USER_PRIVACY_PREFS",
-        data: privacy,
-      },
-    });
-
+    await prisma.user.update({ where: { id: req.user.id }, data });
     return sendResponse(res, {
-      message: "Privacy settings saved",
-      data: { privacy },
+      message: "Privacy settings updated",
+      data: { privacy: data },
     });
   } catch (err) {
-    return sendError(res, "Failed to save privacy settings");
+    return sendError(res, "Update failed");
   }
 };
 
-// ── GET /api/settings/security ────────────────────────────────────────────────
+// GET /api/settings/security
 export const getSecurityInfo = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
         isEmailVerified: true,
-        isPhoneVerified: true,
+        twoFactorEnabled: true,
         lastSeen: true,
         createdAt: true,
-        email: true,
-        phone: true,
       },
     });
-
-    // Recent login sessions — we approximate from lastSeen
-    const sessions = [
-      {
-        id: "current",
-        device: "Current session",
-        location: "Unknown",
-        lastSeen: user.lastSeen || new Date(),
-        isCurrent: true,
-      },
-    ];
-
-    return sendResponse(res, {
-      data: {
-        isEmailVerified: user.isEmailVerified,
-        isPhoneVerified: user.isPhoneVerified,
-        email: user.email,
-        phone: user.phone,
-        twoFactorEnabled: false, // extend later
-        sessions,
-        accountCreated: user.createdAt,
-      },
-    });
+    return sendResponse(res, { data: { security: user } });
   } catch (err) {
     return sendError(res, "Failed to fetch security info");
   }
 };
 
-// ── DELETE /api/settings/account ──────────────────────────────────────────────
+// DELETE /api/settings/account
 export const deleteAccount = async (req, res) => {
   try {
-    const { password, reason } = req.body;
-
-    if (!password) return sendError(res, "Password confirmation required", 400);
-
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return sendError(res, "Incorrect password", 400);
-
-    // Soft delete — mark as inactive rather than hard delete
     await prisma.user.update({
       where: { id: req.user.id },
-      data: {
-        isActive: false,
-        isBanned: false,
-        email: `deleted_${Date.now()}_${user.email}`,
-        refreshToken: null,
-        bio: reason ? `Deleted: ${reason}` : "Account deleted",
-      },
+      data: { isActive: false },
     });
-
-    return sendResponse(res, { message: "Account deleted successfully" });
+    return sendResponse(res, { message: "Account deactivated" });
   } catch (err) {
-    console.error("deleteAccount error:", err);
-    return sendError(res, "Failed to delete account");
+    return sendError(res, "Deactivation failed");
   }
 };
 
-// ── GET /api/settings/payment-methods ────────────────────────────────────────
+// GET /api/settings/payment-methods
 export const getPaymentMethods = async (req, res) => {
   try {
-    // Return saved payment methods from withdrawal records as proxy
-    const withdrawals = await prisma.withdrawal.findMany({
-      where: { workerId: req.user.id },
-      select: {
-        method: true,
-        destination: true,
-        details: true,
-        createdAt: true,
-      },
+    const payments = await prisma.payment.findMany({
+      where: { userId: req.user.id },
+      select: { provider: true, status: true, createdAt: true },
+      distinct: ["provider"],
       orderBy: { createdAt: "desc" },
-      take: 5,
     });
-
-    // Deduplicate by destination
-    const seen = new Set();
-    const methods = [];
-    for (const w of withdrawals) {
-      const key = `${w.method}:${w.destination}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        methods.push({
-          method: w.method,
-          destination: w.destination,
-          details: w.details,
-          addedAt: w.createdAt,
-        });
-      }
-    }
-
-    return sendResponse(res, { data: { methods } });
+    return sendResponse(res, { data: { methods: payments } });
   } catch (err) {
     return sendError(res, "Failed to fetch payment methods");
   }
 };
 
-// ── GET /api/settings/activity ────────────────────────────────────────────────
+// GET /api/settings/activity
 export const getActivitySummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const role = req.user.role;
 
-    const [notifCount, bookingCount, reviewCount] = await Promise.all([
-      prisma.notification.count({
-        where: { userId, isRead: false },
-      }),
+    const [bookingCount, reviewCount, notifCount] = await Promise.all([
       prisma.booking.count({
         where: role === "HIRER" ? { hirerId: userId } : { workerId: userId },
       }),
-      prisma.review.count({
-        where: { receiverId: userId },
-      }),
+      prisma.review.count({ where: { giverId: userId } }),
+      prisma.notification.count({ where: { userId, isRead: false } }),
     ]);
-
-    const recentActivity = await prisma.notification.findMany({
-      where: {
-        userId,
-        type: { notIn: ["USER_NOTIFICATION_PREFS", "USER_PRIVACY_PREFS"] },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: {
-        id: true,
-        title: true,
-        body: true,
-        type: true,
-        isRead: true,
-        createdAt: true,
-      },
-    });
 
     return sendResponse(res, {
       data: {
-        summary: {
+        activity: {
+          bookingCount,
+          reviewCount,
           unreadNotifications: notifCount,
-          totalBookings: bookingCount,
-          totalReviews: reviewCount,
         },
-        recentActivity,
       },
     });
   } catch (err) {
-    return sendError(res, "Failed to fetch activity summary");
+    return sendError(res, "Failed to fetch activity");
   }
 };
