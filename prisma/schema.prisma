@@ -149,6 +149,12 @@ model WorkerProfile {
   portfolio      Portfolio[]
   certifications Certification[]
   availability   Availability[]
+  dailyRate         Float?
+weeklyRate        Float?
+monthlyRate       Float?
+customRate        Float?
+customRateLabel   String?
+pricingNote       String?
 }
 
 model HirerProfile {
@@ -269,7 +275,7 @@ model Booking {
   insuranceRef      String?
 insurancePlan     String?
 insurancePaidAt   DateTime?
-  
+  estimatedUnit     String?   @default("hours")
 }
 
 model Payment {
