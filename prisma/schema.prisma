@@ -118,7 +118,13 @@ callsReceived  VideoCall[] @relation("CallsReceived")
   profileVisible    Boolean  @default(true)
   showPhone         Boolean  @default(false)
   showLocation      Boolean  @default(true)
-  twoFactorEnabled  Boolean  @default(false)
+  twoFactorEnabled  Boolean  @default(false) 
+  dashboardCurrency String?  @default("USD") 
+paymentCurrency   String?  @default("USD")  
+showEmail         Boolean  @default(false)
+showGender        Boolean  @default(false)
+defaultEstUnit    String?  @default("hours")
+defaultEstValue   String?
   gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
 }
 
@@ -155,6 +161,7 @@ monthlyRate       Float?
 customRate        Float?
 customRateLabel   String?
 pricingNote       String?
+profileCurrency   String?  @default("USD") 
 }
 
 model HirerProfile {

@@ -24,15 +24,27 @@ const USER_SELECT = {
   isPhoneVerified: true,
   createdAt: true,
   lastSeen: true,
+  // Notification prefs
   notifBookings: true,
   notifMessages: true,
   notifPayments: true,
   notifReviews: true,
   notifMarketing: true,
+  // Privacy
   profileVisible: true,
   showPhone: true,
   showLocation: true,
+  showEmail: true,
+  showGender: true,
+  // Security
   twoFactorEnabled: true,
+  // Currency system
+  dashboardCurrency: true,
+  paymentCurrency: true,
+  // Hirer prefs
+  defaultEstUnit: true,
+  defaultEstValue: true,
+  // Location
   latitude: true,
   longitude: true,
 };
@@ -57,6 +69,7 @@ export const getProfile = async (req, res) => {
             customRateLabel: true,
             pricingNote: true,
             currency: true,
+            profileCurrency: true,
             yearsExperience: true,
             serviceRadius: true,
             isAvailable: true,
@@ -112,6 +125,10 @@ export const updateProfile = async (req, res) => {
       "language",
       "theme",
       "gender",
+      "dashboardCurrency",
+      "paymentCurrency",
+      "defaultEstUnit",
+      "defaultEstValue",
     ];
     const data = {};
     for (const f of allowedFields) {
@@ -122,10 +139,8 @@ export const updateProfile = async (req, res) => {
             : req.body[f];
       }
     }
-    // firstName/lastName must not be null
     if (data.firstName === null) delete data.firstName;
     if (data.lastName === null) delete data.lastName;
-
     if (req.body.latitude !== undefined)
       data.latitude = req.body.latitude ? parseFloat(req.body.latitude) : null;
     if (req.body.longitude !== undefined)
@@ -147,12 +162,12 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-// POST /api/settings/avatar — uploads to Cloudinary and returns new URL
+// POST /api/settings/avatar
 export const updateAvatar = async (req, res) => {
   try {
     if (!req.file) return sendError(res, "No image file provided", 400);
 
-    // Delete old avatar
+    // Delete old avatar from Cloudinary
     const current = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { avatar: true },
@@ -180,7 +195,6 @@ export const updateAvatar = async (req, res) => {
       data: { avatar: upload.secure_url },
       select: { id: true, avatar: true },
     });
-    // Return both avatar and full user so frontend can patch store immediately
     return sendResponse(res, {
       message: "Avatar updated",
       data: { avatar: user.avatar, user },
@@ -206,6 +220,7 @@ export const updateWorkerProfile = async (req, res) => {
       customRateLabel,
       pricingNote,
       currency,
+      profileCurrency,
       yearsExperience,
       serviceRadius,
       isAvailable,
@@ -234,6 +249,7 @@ export const updateWorkerProfile = async (req, res) => {
     if (pricingNote !== undefined)
       data.pricingNote = pricingNote?.trim() || null;
     if (currency !== undefined) data.currency = currency;
+    if (profileCurrency !== undefined) data.profileCurrency = profileCurrency;
     if (yearsExperience !== undefined)
       data.yearsExperience = parseInt(yearsExperience);
     if (serviceRadius !== undefined)
@@ -259,7 +275,6 @@ export const updateHirerProfile = async (req, res) => {
   try {
     if (req.user.role !== "HIRER") return sendError(res, "Forbidden", 403);
     const { companyName, companySize, website } = req.body;
-
     const existing = await prisma.hirerProfile.findUnique({
       where: { userId: req.user.id },
     });
@@ -270,7 +285,6 @@ export const updateHirerProfile = async (req, res) => {
       ...(companySize !== undefined && { companySize: companySize || null }),
       ...(website !== undefined && { website: website?.trim() || null }),
     };
-
     if (!existing) {
       await prisma.hirerProfile.create({
         data: { userId: req.user.id, ...data },
@@ -296,11 +310,9 @@ export const changePassword = async (req, res) => {
       return sendError(res, "Both passwords are required", 400);
     if (newPassword.length < 8)
       return sendError(res, "Password must be at least 8 characters", 400);
-
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) return sendError(res, "Current password is incorrect", 401);
-
     await prisma.user.update({
       where: { id: req.user.id },
       data: { password: await bcrypt.hash(newPassword, 12) },
@@ -311,7 +323,7 @@ export const changePassword = async (req, res) => {
   }
 };
 
-// GET /api/settings/notifications — reads directly from User row
+// GET /api/settings/notifications
 export const getNotificationPrefs = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -348,7 +360,7 @@ export const updateNotificationPrefs = async (req, res) => {
     if (notifMarketing !== undefined) data.notifMarketing = notifMarketing;
     await prisma.user.update({ where: { id: req.user.id }, data });
     return sendResponse(res, {
-      message: "Notification preferences updated",
+      message: "Preferences updated",
       data: { prefs: data },
     });
   } catch (err) {
@@ -361,7 +373,13 @@ export const getPrivacySettings = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { profileVisible: true, showPhone: true, showLocation: true },
+      select: {
+        profileVisible: true,
+        showPhone: true,
+        showLocation: true,
+        showEmail: true,
+        showGender: true,
+      },
     });
     return sendResponse(res, { data: { privacy: user } });
   } catch (err) {
@@ -372,11 +390,14 @@ export const getPrivacySettings = async (req, res) => {
 // PATCH /api/settings/privacy
 export const updatePrivacySettings = async (req, res) => {
   try {
-    const { profileVisible, showPhone, showLocation } = req.body;
+    const { profileVisible, showPhone, showLocation, showEmail, showGender } =
+      req.body;
     const data = {};
     if (profileVisible !== undefined) data.profileVisible = profileVisible;
     if (showPhone !== undefined) data.showPhone = showPhone;
     if (showLocation !== undefined) data.showLocation = showLocation;
+    if (showEmail !== undefined) data.showEmail = showEmail;
+    if (showGender !== undefined) data.showGender = showGender;
     await prisma.user.update({ where: { id: req.user.id }, data });
     return sendResponse(res, {
       message: "Privacy settings updated",
@@ -469,7 +490,6 @@ export const getActivitySummary = async (req, res) => {
   try {
     const userId = req.user.id;
     const role = req.user.role;
-
     const [notifCount, bookingCount, reviewCount] = await Promise.all([
       prisma.notification.count({ where: { userId, isRead: false } }),
       prisma.booking.count({
@@ -477,7 +497,6 @@ export const getActivitySummary = async (req, res) => {
       }),
       prisma.review.count({ where: { receiverId: userId } }),
     ]);
-
     const recentActivity = await prisma.notification.findMany({
       where: {
         userId,
@@ -494,7 +513,6 @@ export const getActivitySummary = async (req, res) => {
         createdAt: true,
       },
     });
-
     return sendResponse(res, {
       data: {
         summary: {
