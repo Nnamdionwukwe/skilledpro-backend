@@ -570,65 +570,6 @@ export const markAllNotificationsRead = async (req, res) => {
   }
 };
 
-export const getWorkerEarnings = async (req, res) => {
-  try {
-    const { from, to, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const dateFilter = {};
-    if (from) dateFilter.gte = new Date(from);
-    if (to) dateFilter.lte = new Date(to);
-
-    const where = {
-      booking: { workerId: req.user.id },
-      status: "RELEASED",
-      ...(Object.keys(dateFilter).length && { createdAt: dateFilter }),
-    };
-
-    const [payments, total, aggregate] = await Promise.all([
-      prisma.payment.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: parseInt(limit),
-        include: {
-          booking: {
-            select: {
-              title: true,
-              scheduledAt: true,
-              category: { select: { name: true } },
-              hirer: {
-                select: { firstName: true, lastName: true, avatar: true },
-              },
-            },
-          },
-        },
-      }),
-      prisma.payment.count({ where }),
-      prisma.payment.aggregate({
-        where,
-        _sum: { workerPayout: true, amount: true, platformFee: true },
-      }),
-    ]);
-
-    return sendResponse(res, {
-      data: {
-        payments,
-        total,
-        page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
-        summary: {
-          totalEarned: aggregate._sum.workerPayout || 0,
-          totalJobValue: aggregate._sum.amount || 0,
-          totalFees: aggregate._sum.platformFee || 0,
-        },
-      },
-    });
-  } catch (err) {
-    return sendError(res, "Failed to fetch earnings");
-  }
-};
-
 export const getMyReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;

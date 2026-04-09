@@ -12,12 +12,12 @@ import {
   getWorkerDashboard,
   getWorkerNotifications,
   markAllNotificationsRead,
-  getWorkerEarnings,
   removeCategory,
   addVideoIntro,
   deleteVideoIntro,
   getMyReviews, // renamed from getWorkerReviews — was colliding with review.controller.js
 } from "../controllers/worker.controller.js";
+import { getWorkerEarnings } from "../controllers/payment.controller.js";
 
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
@@ -50,7 +50,7 @@ router.get(
   "/dashboard/earnings",
   protect,
   requireRole("WORKER"),
-  getWorkerEarnings,
+  getWorkerEarnings, // ← payment controller version
 );
 router.get("/dashboard/reviews", protect, requireRole("WORKER"), getMyReviews);
 
