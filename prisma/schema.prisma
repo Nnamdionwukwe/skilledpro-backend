@@ -122,12 +122,7 @@ callsReceived  VideoCall[] @relation("CallsReceived")
   dashboardCurrency String?  @default("USD") 
 paymentCurrency   String?  @default("USD")  
 showEmail         Boolean  @default(false)
-showGender        Boolean  @default(false)
-defaultEstUnit    String?  @default("hours")
-defaultEstValue   String?
-profileVisible    Boolean  @default(true)
  
-showEmail         Boolean  @default(false)
 showGender        Boolean  @default(false)
 defaultEstUnit    String?
 defaultEstValue   String?
@@ -162,7 +157,6 @@ model WorkerProfile {
   portfolio      Portfolio[]
   certifications Certification[]
   availability   Availability[]
-  dailyRate         Float?
 weeklyRate        Float?
 monthlyRate       Float?
 customRate        Float?
