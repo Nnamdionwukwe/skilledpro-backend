@@ -554,6 +554,82 @@ export const getMyApplications = async (req, res) => {
 
 // ── GET /api/hirers/:userId/profile ───────────────────────────────────────────
 // Public — full hirer public profile with job posts and reviews
+// export const getHirerPublicProfile = async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+
+//     const [hirerProfile, jobPosts, reviews] = await Promise.all([
+//       prisma.hirerProfile.findUnique({
+//         where: { userId },
+//         include: {
+//           user: {
+//             select: {
+//               id: true,
+//               firstName: true,
+//               lastName: true,
+//               avatar: true,
+//               city: true,
+//               country: true,
+//               createdAt: true,
+//             },
+//           },
+//         },
+//       }),
+//       prisma.jobPost.findMany({
+//         where: { hirerId: userId, status: "OPEN" },
+//         include: {
+//           category: true,
+//           _count: { select: { applications: true } },
+//         },
+//         orderBy: { createdAt: "desc" },
+//         take: 10,
+//       }),
+//       prisma.review.findMany({
+//         where: { receiverId: userId },
+//         include: {
+//           giver: {
+//             select: {
+//               id: true,
+//               firstName: true,
+//               lastName: true,
+//               avatar: true,
+//               role: true,
+//             },
+//           },
+//           booking: { select: { id: true, title: true } },
+//         },
+//         orderBy: { createdAt: "desc" },
+//         take: 5,
+//       }),
+//     ]);
+
+//     if (!hirerProfile) return sendError(res, "Hirer not found", 404);
+
+//     const reviewStats = await prisma.review.aggregate({
+//       where: { receiverId: userId },
+//       _avg: { rating: true },
+//       _count: { id: true },
+//     });
+
+//     return sendResponse(res, {
+//       data: {
+//         profile: hirerProfile,
+//         jobPosts,
+//         reviews,
+//         stats: {
+//           avgRating: Math.round((reviewStats._avg.rating || 0) * 10) / 10,
+//           totalReviews: reviewStats._count.id,
+//           totalHires: hirerProfile.totalHires,
+//           openJobs: jobPosts.length,
+//         },
+//       },
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     return sendError(res, "Failed to fetch hirer profile");
+//   }
+// };
+
 export const getHirerPublicProfile = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -570,7 +646,18 @@ export const getHirerPublicProfile = async (req, res) => {
               avatar: true,
               city: true,
               country: true,
+              state: true,
+              email: true,
+              phone: true,
+              gender: true,
+              language: true,
               createdAt: true,
+              // Privacy flags
+              profileVisible: true,
+              showPhone: true,
+              showLocation: true,
+              showEmail: true,
+              showGender: true,
             },
           },
         },
@@ -604,6 +691,28 @@ export const getHirerPublicProfile = async (req, res) => {
     ]);
 
     if (!hirerProfile) return sendError(res, "Hirer not found", 404);
+    if (!hirerProfile.user.profileVisible) {
+      return sendError(res, "This profile is private", 403);
+    }
+
+    // ── Apply privacy rules ───────────────────────────────────────────────────
+    const isOwnProfile = req.user?.id === userId;
+    const u = hirerProfile.user;
+
+    const safeUser = {
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      avatar: u.avatar,
+      language: u.language,
+      createdAt: u.createdAt,
+      city: isOwnProfile || u.showLocation ? u.city : null,
+      country: isOwnProfile || u.showLocation ? u.country : null,
+      state: isOwnProfile || u.showLocation ? u.state : null,
+      phone: isOwnProfile || u.showPhone ? u.phone : null,
+      email: isOwnProfile || u.showEmail ? u.email : null,
+      gender: isOwnProfile || u.showGender ? u.gender : null,
+    };
 
     const reviewStats = await prisma.review.aggregate({
       where: { receiverId: userId },
@@ -613,7 +722,7 @@ export const getHirerPublicProfile = async (req, res) => {
 
     return sendResponse(res, {
       data: {
-        profile: hirerProfile,
+        profile: { ...hirerProfile, user: safeUser },
         jobPosts,
         reviews,
         stats: {
@@ -625,7 +734,7 @@ export const getHirerPublicProfile = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("getHirerPublicProfile error:", err);
     return sendError(res, "Failed to fetch hirer profile");
   }
 };

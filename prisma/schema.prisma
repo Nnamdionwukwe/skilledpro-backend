@@ -125,6 +125,13 @@ showEmail         Boolean  @default(false)
 showGender        Boolean  @default(false)
 defaultEstUnit    String?  @default("hours")
 defaultEstValue   String?
+profileVisible    Boolean  @default(true)
+ 
+showEmail         Boolean  @default(false)
+showGender        Boolean  @default(false)
+defaultEstUnit    String?
+defaultEstValue   String?
+
   gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
 }
 
@@ -162,6 +169,8 @@ customRate        Float?
 customRateLabel   String?
 pricingNote       String?
 profileCurrency   String?  @default("USD") 
+
+dailyRate         Float?
 }
 
 model HirerProfile {
