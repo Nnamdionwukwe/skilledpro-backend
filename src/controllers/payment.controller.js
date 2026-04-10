@@ -57,6 +57,42 @@ export const SUPPORTED_CURRENCIES = [
 export const CRYPTO_CURRENCIES = ["USDC", "USDT"];
 
 // ── Initiate payment ──────────────────────────────────────────────────────────
+// export const initiateBookingPayment = asyncHandler(async (req, res) => {
+//   const { bookingId } = req.params;
+//   const hirerId = req.user.id;
+
+//   const booking = await prisma.booking.findUnique({
+//     where: { id: bookingId },
+//     include: { payment: true },
+//   });
+
+//   if (!booking)
+//     return res
+//       .status(404)
+//       .json({ success: false, message: "Booking not found" });
+//   if (booking.hirerId !== hirerId)
+//     return res
+//       .status(403)
+//       .json({ success: false, message: "Not your booking" });
+//   if (booking.payment)
+//     return res
+//       .status(400)
+//       .json({ success: false, message: "Payment already initiated" });
+//   if (booking.status !== "ACCEPTED")
+//     return res.status(400).json({
+//       success: false,
+//       message: "Booking must be accepted before payment",
+//     });
+
+//   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
+//   const result = await initiatePayment({ booking, hirer });
+
+//   res
+//     .status(200)
+//     .json({ success: true, message: "Payment initiated", data: result });
+// });
+
+// In payment.controller.js — replace initiateBookingPayment
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
@@ -74,18 +110,83 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     return res
       .status(403)
       .json({ success: false, message: "Not your booking" });
-  if (booking.payment)
+  if (booking.status !== "ACCEPTED")
     return res
       .status(400)
-      .json({ success: false, message: "Payment already initiated" });
-  if (booking.status !== "ACCEPTED")
-    return res.status(400).json({
-      success: false,
-      message: "Booking must be accepted before payment",
-    });
+      .json({
+        success: false,
+        message: "Booking must be accepted before payment",
+      });
+
+  // ── If payment exists and is already HELD or RELEASED, block re-initiation ──
+  if (booking.payment) {
+    const { status, provider, providerRef } = booking.payment;
+
+    if (status === "HELD" || status === "RELEASED") {
+      return res.status(400).json({
+        success: false,
+        message:
+          status === "HELD"
+            ? "Payment is already in escrow"
+            : "Payment has already been released",
+      });
+    }
+
+    // ── PENDING Stripe payment — return existing clientSecret instead of creating new ──
+    if (provider === "stripe" && status === "PENDING" && providerRef) {
+      try {
+        const stripe = getStripe();
+        const intent = await stripe.paymentIntents.retrieve(providerRef);
+        if (
+          intent.status === "requires_payment_method" ||
+          intent.status === "requires_confirmation"
+        ) {
+          return res.status(200).json({
+            success: true,
+            message: "Resuming existing payment",
+            data: { clientSecret: intent.client_secret },
+          });
+        }
+      } catch {
+        // Intent not retrievable — delete the stale record and create fresh
+        await prisma.payment.delete({ where: { id: booking.payment.id } });
+      }
+    }
+
+    // ── PENDING Paystack payment — return existing authorization URL ──
+    if (provider === "paystack" && status === "PENDING" && providerRef) {
+      // Re-verify in case it's already been paid
+      try {
+        const tx = await verifyPaystackPayment(providerRef);
+        if (tx.status === "success") {
+          // Already paid but webhook missed — mark as HELD
+          await prisma.payment.update({
+            where: { id: booking.payment.id },
+            data: { status: "HELD" },
+          });
+          return res.status(200).json({
+            success: true,
+            message: "Payment already verified and held in escrow",
+            data: { alreadyPaid: true, bookingId },
+          });
+        }
+      } catch {}
+
+      // Still pending — delete stale record so we can re-initiate cleanly
+      await prisma.payment.delete({ where: { id: booking.payment.id } });
+    }
+
+    // For any other stale PENDING/FAILED payment, delete and re-initiate
+    if (status === "PENDING" || status === "FAILED") {
+      await prisma.payment.delete({ where: { id: booking.payment.id } });
+    }
+  }
 
   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
-  const result = await initiatePayment({ booking, hirer });
+  const result = await initiatePayment({
+    booking: { ...booking, payment: null },
+    hirer,
+  });
 
   res
     .status(200)
@@ -758,12 +859,10 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
   const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
   if (!wallet) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `Unsupported crypto: ${cryptoCurrency}`,
-      });
+    return res.status(400).json({
+      success: false,
+      message: `Unsupported crypto: ${cryptoCurrency}`,
+    });
   }
 
   const booking = await prisma.booking.findUnique({
