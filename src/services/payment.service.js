@@ -27,6 +27,46 @@ function getProvider(currency) {
 
 // ── Stripe ───────────────────────────────────────────────────────────────────
 
+// export async function createStripePaymentIntent({
+//   amount,
+//   currency,
+//   bookingId,
+//   hirerId,
+// }) {
+//   const { platformFee, workerPayout } = calcFees(amount);
+
+//   const paymentIntent = await stripe.paymentIntents.create({
+//     amount: Math.round(amount * 100), // Stripe uses smallest currency unit
+//     currency: currency.toLowerCase(),
+//     metadata: { bookingId, hirerId, platformFee, workerPayout },
+//     capture_method: "manual", // Authorise now, capture on job completion (escrow)
+//     description: `SkilledPro booking ${bookingId}`,
+//   });
+
+//   // Store payment record in DB
+//   await prisma.payment.create({
+//     data: {
+//       bookingId,
+//       userId: hirerId,
+//       amount,
+//       currency,
+//       platformFee,
+//       workerPayout,
+//       status: "PENDING",
+//       provider: "stripe",
+//       providerRef: paymentIntent.id,
+//     },
+//   });
+
+//   return {
+//     clientSecret: paymentIntent.client_secret,
+//     paymentIntentId: paymentIntent.id,
+//     platformFee,
+//     workerPayout,
+//   };
+// }
+
+// payment.service.js — createStripePaymentIntent
 export async function createStripePaymentIntent({
   amount,
   currency,
@@ -36,14 +76,19 @@ export async function createStripePaymentIntent({
   const { platformFee, workerPayout } = calcFees(amount);
 
   const paymentIntent = await stripe.paymentIntents.create({
-    amount: Math.round(amount * 100), // Stripe uses smallest currency unit
+    amount: Math.round(amount * 100),
     currency: currency.toLowerCase(),
-    metadata: { bookingId, hirerId, platformFee, workerPayout },
-    capture_method: "manual", // Authorise now, capture on job completion (escrow)
-    description: `SkilledPro booking ${bookingId}`,
+    metadata: {
+      bookingId,
+      hirerId,
+      platformFee: String(platformFee),
+      workerPayout: String(workerPayout),
+    },
+    // Change from "manual" to "automatic" — charge immediately, hold in DB escrow
+    capture_method: "automatic",
+    description: `SkilledProz booking ${bookingId}`,
   });
 
-  // Store payment record in DB
   await prisma.payment.create({
     data: {
       bookingId,
@@ -210,35 +255,73 @@ export async function initiatePayment({ booking, hirer }) {
 
 // ── Escrow release (job completed) ───────────────────────────────────────────
 
+// export async function releaseEscrow(bookingId) {
+//   const payment = await prisma.payment.findUnique({
+//     where: { bookingId },
+//   });
+
+//   if (!payment) throw new Error("Payment record not found");
+//   if (payment.status === "RELEASED")
+//     throw new Error("Payment already released");
+
+//   if (payment.provider === "stripe") {
+//     await captureStripePayment(payment.providerRef);
+//   }
+//   // For Paystack: funds are held on our end — trigger worker payout separately
+//   // In a real system you'd use Paystack Transfer API here
+
+//   const updated = await prisma.payment.update({
+//     where: { bookingId },
+//     data: {
+//       status: "RELEASED",
+//       escrowReleasedAt: new Date(),
+//     },
+//   });
+
+//   // Update worker total earnings
+//   await prisma.workerProfile.update({
+//     where: {
+//       userId: (await prisma.booking.findUnique({ where: { id: bookingId } }))
+//         .workerId,
+//     },
+//     data: { totalEarnings: { increment: payment.workerPayout } },
+//   });
+
+//   return updated;
+// }
+
 export async function releaseEscrow(bookingId) {
-  const payment = await prisma.payment.findUnique({
-    where: { bookingId },
-  });
+  const payment = await prisma.payment.findUnique({ where: { bookingId } });
 
   if (!payment) throw new Error("Payment record not found");
   if (payment.status === "RELEASED")
     throw new Error("Payment already released");
 
-  if (payment.provider === "stripe") {
-    await captureStripePayment(payment.providerRef);
+  // With automatic capture, funds are already captured — no Stripe action needed.
+  // For manual capture (legacy), capture now:
+  if (payment.provider === "stripe" && payment.status === "HELD") {
+    try {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const intent = await stripe.paymentIntents.retrieve(payment.providerRef);
+      if (
+        intent.capture_method === "manual" &&
+        intent.status === "requires_capture"
+      ) {
+        await stripe.paymentIntents.capture(payment.providerRef);
+      }
+    } catch (err) {
+      console.error("Stripe capture skipped:", err.message);
+    }
   }
-  // For Paystack: funds are held on our end — trigger worker payout separately
-  // In a real system you'd use Paystack Transfer API here
 
   const updated = await prisma.payment.update({
     where: { bookingId },
-    data: {
-      status: "RELEASED",
-      escrowReleasedAt: new Date(),
-    },
+    data: { status: "RELEASED", escrowReleasedAt: new Date() },
   });
 
-  // Update worker total earnings
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   await prisma.workerProfile.update({
-    where: {
-      userId: (await prisma.booking.findUnique({ where: { id: bookingId } }))
-        .workerId,
-    },
+    where: { userId: booking.workerId },
     data: { totalEarnings: { increment: payment.workerPayout } },
   });
 

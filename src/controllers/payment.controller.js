@@ -111,12 +111,10 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       .status(403)
       .json({ success: false, message: "Not your booking" });
   if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Booking must be accepted before payment",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Booking must be accepted before payment",
+    });
 
   // ── If payment exists and is already HELD or RELEASED, block re-initiation ──
   if (booking.payment) {
@@ -232,6 +230,56 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
 });
 
 // ── Stripe webhook ────────────────────────────────────────────────────────────
+// export const stripeWebhook = asyncHandler(async (req, res) => {
+//   const sig = req.headers["stripe-signature"];
+//   let event;
+//   try {
+//     event = getStripe().webhooks.constructEvent(
+//       req.rawBody || req.body,
+//       sig,
+//       process.env.STRIPE_WEBHOOK_SECRET,
+//     );
+//   } catch (err) {
+//     return res
+//       .status(400)
+//       .json({ success: false, message: `Webhook error: ${err.message}` });
+//   }
+
+//   switch (event.type) {
+//     case "payment_intent.amount_capturable_updated": {
+//       const payment = await prisma.payment.findFirst({
+//         where: { providerRef: event.data.object.id },
+//       });
+//       if (payment) {
+//         await prisma.payment.update({
+//           where: { id: payment.id },
+//           data: { status: "HELD" },
+//         });
+//         await prisma.booking.update({
+//           where: { id: payment.bookingId },
+//           data: { status: "ACCEPTED" },
+//         });
+//       }
+//       break;
+//     }
+//     case "payment_intent.payment_failed": {
+//       const payment = await prisma.payment.findFirst({
+//         where: { providerRef: event.data.object.id },
+//       });
+//       if (payment)
+//         await prisma.payment.update({
+//           where: { id: payment.id },
+//           data: { status: "FAILED" },
+//         });
+//       break;
+//     }
+//     default:
+//       break;
+//   }
+//   res.status(200).json({ received: true });
+// });
+
+// payment.controller.js — stripeWebhook
 export const stripeWebhook = asyncHandler(async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
@@ -247,37 +295,69 @@ export const stripeWebhook = asyncHandler(async (req, res) => {
       .json({ success: false, message: `Webhook error: ${err.message}` });
   }
 
+  const markPaymentHeld = async (paymentIntentId) => {
+    const payment = await prisma.payment.findFirst({
+      where: { providerRef: paymentIntentId },
+    });
+    if (!payment) return;
+
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: "HELD" },
+    });
+
+    // ── This is the key fix: update booking so worker can check in ────────────
+    await prisma.booking.update({
+      where: { id: payment.bookingId },
+      data: { status: "ACCEPTED" }, // stays ACCEPTED — HELD payment unlocks check-in
+    });
+
+    // Notify worker that payment is confirmed
+    const booking = await prisma.booking.findUnique({
+      where: { id: payment.bookingId },
+      select: { workerId: true, title: true },
+    });
+    if (booking) {
+      await prisma.notification.create({
+        data: {
+          userId: booking.workerId,
+          title: "Payment Received 💳",
+          body: `The hirer has paid for "${booking.title}". You can now check in.`,
+          type: "PAYMENT_HELD",
+          data: { bookingId: payment.bookingId },
+        },
+      });
+    }
+  };
+
   switch (event.type) {
-    case "payment_intent.amount_capturable_updated": {
+    // Fired when capture_method = "automatic" and payment succeeds
+    case "payment_intent.succeeded":
+      await markPaymentHeld(event.data.object.id);
+      break;
+
+    // Fired when capture_method = "manual" (keep for backwards compat)
+    case "payment_intent.amount_capturable_updated":
+      await markPaymentHeld(event.data.object.id);
+      break;
+
+    case "payment_intent.payment_failed": {
       const payment = await prisma.payment.findFirst({
         where: { providerRef: event.data.object.id },
       });
       if (payment) {
         await prisma.payment.update({
           where: { id: payment.id },
-          data: { status: "HELD" },
-        });
-        await prisma.booking.update({
-          where: { id: payment.bookingId },
-          data: { status: "ACCEPTED" },
+          data: { status: "FAILED" },
         });
       }
       break;
     }
-    case "payment_intent.payment_failed": {
-      const payment = await prisma.payment.findFirst({
-        where: { providerRef: event.data.object.id },
-      });
-      if (payment)
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: { status: "FAILED" },
-        });
-      break;
-    }
+
     default:
       break;
   }
+
   res.status(200).json({ received: true });
 });
 
