@@ -286,6 +286,7 @@ model Booking {
 insurancePlan     String?
 insurancePaidAt   DateTime?
   estimatedUnit     String?   @default("hours")
+  estimatedValue  String?
 }
 
 model Payment {
