@@ -31,27 +31,39 @@ function generateTokens(userId) {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 // POST /api/auth/register
+// src/controllers/auth.controller.js — replace the register export only
 export const register = asyncHandler(async (req, res) => {
-  const { firstName, lastName, email, password, role, phone, country, city } =
-    req.body;
+  const {
+    firstName,
+    lastName,
+    email,
+    password,
+    role,
+    phone,
+    country,
+    city,
+    workerProfile: workerProfileData, // nested worker data from frontend
+    categories, // [{categoryId, isPrimary}]
+  } = req.body;
 
+  // ── Validation ─────────────────────────────────────────────────────────────
   if (!firstName || !lastName || !email || !password || !role) {
     return res
       .status(400)
       .json({ success: false, message: "All fields are required" });
   }
-
   if (!["HIRER", "WORKER"].includes(role)) {
     return res
       .status(400)
       .json({ success: false, message: "Role must be HIRER or WORKER" });
   }
-
   if (password.length < 8) {
-    return res.status(400).json({
-      success: false,
-      message: "Password must be at least 8 characters",
-    });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Password must be at least 8 characters",
+      });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -64,6 +76,7 @@ export const register = asyncHandler(async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 12);
   const emailVerifyToken = crypto.randomBytes(32).toString("hex");
 
+  // ── Create user ─────────────────────────────────────────────────────────────
   const user = await prisma.user.create({
     data: {
       firstName,
@@ -78,78 +91,94 @@ export const register = asyncHandler(async (req, res) => {
     },
   });
 
-  if (workerProfile && categories?.length > 0) {
-    const catData = categories.map((c) => ({
-      workerProfileId: workerProfile.id,
-      categoryId: c.categoryId,
-      isPrimary: c.isPrimary ?? false,
-    }));
-    // Filter to only valid category IDs
-    const validCats = await prisma.category.findMany({
-      where: { id: { in: catData.map((c) => c.categoryId) } },
-      select: { id: true },
-    });
-    const validIds = new Set(validCats.map((c) => c.id));
-    const filtered = catData.filter((c) => validIds.has(c.categoryId));
-    if (filtered.length > 0) {
-      await prisma.workerCategory.createMany({
-        data: filtered,
-        skipDuplicates: true,
-      });
-    }
-  }
-
-  // Also update workerProfile pricing fields after creation if sent:
-  if (workerProfile && workerProfile_data.dailyRate !== undefined) {
-    await prisma.workerProfile.update({
-      where: { id: workerProfile.id },
-      data: {
-        dailyRate: workerProfile_data.dailyRate
-          ? parseFloat(workerProfile_data.dailyRate)
-          : null,
-        weeklyRate: workerProfile_data.weeklyRate
-          ? parseFloat(workerProfile_data.weeklyRate)
-          : null,
-        monthlyRate: workerProfile_data.monthlyRate
-          ? parseFloat(workerProfile_data.monthlyRate)
-          : null,
-        customRate: workerProfile_data.customRate
-          ? parseFloat(workerProfile_data.customRate)
-          : null,
-        customRateLabel: workerProfile_data.customRateLabel || null,
-        pricingNote: workerProfile_data.pricingNote || null,
-      },
-    });
-  }
-
-  // Create the matching profile
+  // ── Create role profile ─────────────────────────────────────────────────────
   if (role === "WORKER") {
-    await prisma.workerProfile.create({
+    const wp = await prisma.workerProfile.create({
       data: {
         userId: user.id,
-        title: `${firstName} ${lastName}`,
-        hourlyRate: 0,
+        title: workerProfileData?.title || `${firstName} ${lastName}`,
+        description: workerProfileData?.description || null,
+        hourlyRate: workerProfileData?.hourlyRate
+          ? parseFloat(workerProfileData.hourlyRate)
+          : 0,
+        currency: workerProfileData?.currency || "USD",
+        yearsExperience: workerProfileData?.yearsExperience
+          ? parseInt(workerProfileData.yearsExperience)
+          : 0,
+        serviceRadius: workerProfileData?.serviceRadius
+          ? parseInt(workerProfileData.serviceRadius)
+          : 25,
+        // Multi-rate pricing
+        dailyRate: workerProfileData?.dailyRate
+          ? parseFloat(workerProfileData.dailyRate)
+          : null,
+        weeklyRate: workerProfileData?.weeklyRate
+          ? parseFloat(workerProfileData.weeklyRate)
+          : null,
+        monthlyRate: workerProfileData?.monthlyRate
+          ? parseFloat(workerProfileData.monthlyRate)
+          : null,
+        customRate: workerProfileData?.customRate
+          ? parseFloat(workerProfileData.customRate)
+          : null,
+        customRateLabel: workerProfileData?.customRateLabel || null,
+        pricingNote: workerProfileData?.pricingNote || null,
       },
     });
+
+    // ── Attach categories ────────────────────────────────────────────────────
+    if (categories?.length > 0) {
+      const validCats = await prisma.category.findMany({
+        where: { id: { in: categories.map((c) => c.categoryId) } },
+        select: { id: true },
+      });
+      const validIds = new Set(validCats.map((c) => c.id));
+      const catData = categories
+        .filter((c) => validIds.has(c.categoryId))
+        .map((c) => ({
+          workerProfileId: wp.id,
+          categoryId: c.categoryId,
+          isPrimary: c.isPrimary ?? false,
+        }));
+
+      if (catData.length > 0) {
+        await prisma.workerCategory.createMany({
+          data: catData,
+          skipDuplicates: true,
+        });
+      }
+    }
   } else {
     await prisma.hirerProfile.create({ data: { userId: user.id } });
   }
 
-  // Send verification email
-  await sendVerificationEmail({
-    to: email,
-    firstName,
-    token: emailVerifyToken,
-  });
+  // ── Email verification ──────────────────────────────────────────────────────
+  try {
+    await sendVerificationEmail({
+      to: email,
+      firstName,
+      token: emailVerifyToken,
+    });
+  } catch (emailErr) {
+    console.error("Verification email failed:", emailErr.message);
+    // Don't block registration if email fails
+  }
 
-  const { accessToken, refreshToken } = generateTokens(user.id);
+  // ── Tokens ──────────────────────────────────────────────────────────────────
+  const accessToken = generateToken(
+    user.id,
+    process.env.JWT_SECRET,
+    process.env.JWT_EXPIRES_IN || "7d",
+  );
+  const refreshToken = generateToken(
+    user.id,
+    process.env.JWT_REFRESH_SECRET,
+    process.env.JWT_REFRESH_EXPIRES_IN || "30d",
+  );
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken },
-  });
+  await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     message: "Account created. Please verify your email.",
     data: {
