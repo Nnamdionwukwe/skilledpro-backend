@@ -78,6 +78,50 @@ export const register = asyncHandler(async (req, res) => {
     },
   });
 
+  if (workerProfile && categories?.length > 0) {
+    const catData = categories.map((c) => ({
+      workerProfileId: workerProfile.id,
+      categoryId: c.categoryId,
+      isPrimary: c.isPrimary ?? false,
+    }));
+    // Filter to only valid category IDs
+    const validCats = await prisma.category.findMany({
+      where: { id: { in: catData.map((c) => c.categoryId) } },
+      select: { id: true },
+    });
+    const validIds = new Set(validCats.map((c) => c.id));
+    const filtered = catData.filter((c) => validIds.has(c.categoryId));
+    if (filtered.length > 0) {
+      await prisma.workerCategory.createMany({
+        data: filtered,
+        skipDuplicates: true,
+      });
+    }
+  }
+
+  // Also update workerProfile pricing fields after creation if sent:
+  if (workerProfile && workerProfile_data.dailyRate !== undefined) {
+    await prisma.workerProfile.update({
+      where: { id: workerProfile.id },
+      data: {
+        dailyRate: workerProfile_data.dailyRate
+          ? parseFloat(workerProfile_data.dailyRate)
+          : null,
+        weeklyRate: workerProfile_data.weeklyRate
+          ? parseFloat(workerProfile_data.weeklyRate)
+          : null,
+        monthlyRate: workerProfile_data.monthlyRate
+          ? parseFloat(workerProfile_data.monthlyRate)
+          : null,
+        customRate: workerProfile_data.customRate
+          ? parseFloat(workerProfile_data.customRate)
+          : null,
+        customRateLabel: workerProfile_data.customRateLabel || null,
+        pricingNote: workerProfile_data.pricingNote || null,
+      },
+    });
+  }
+
   // Create the matching profile
   if (role === "WORKER") {
     await prisma.workerProfile.create({
