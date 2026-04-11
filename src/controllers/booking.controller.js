@@ -22,6 +22,8 @@ export const createBooking = async (req, res) => {
       longitude,
       scheduledAt,
       estimatedHours,
+      estimatedUnit, // ← new
+      estimatedValue, // ← new
       agreedRate,
       currency,
       notes,
@@ -39,6 +41,8 @@ export const createBooking = async (req, res) => {
         longitude: longitude ? parseFloat(longitude) : null,
         scheduledAt: new Date(scheduledAt),
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
+        estimatedUnit: estimatedUnit || "hours", // ← saved
+        estimatedValue: estimatedValue || null, // ← saved
         agreedRate: parseFloat(agreedRate),
         currency: currency || "USD",
         notes,
@@ -54,6 +58,7 @@ export const createBooking = async (req, res) => {
       },
     });
 
+    // ── Email worker ──────────────────────────────────────────────────────────
     await sendBookingRequestEmail({
       to: booking.worker.email,
       workerName: booking.worker.firstName,
