@@ -40,6 +40,27 @@ export const protect = async (req, res, next) => {
   }
 };
 
+// Add this alongside your existing `protect`
+export const optionalProtect = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      req.user = null;
+      return next(); // no token — proceed as guest
+    }
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, role: true, email: true, isActive: true },
+    });
+    req.user = user?.isActive ? user : null;
+  } catch {
+    req.user = null; // invalid token — proceed as guest
+  }
+  next();
+};
+
 export const requireRole =
   (...roles) =>
   (req, res, next) => {
