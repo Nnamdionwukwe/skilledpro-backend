@@ -6,7 +6,7 @@ import prisma from "../config/database.js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const PAYSTACK_BASE = "https://api.paystack.co";
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
-const PLATFORM_FEE_PERCENT = 0.15; // 15% platform commission
+const PLATFORM_FEE_PERCENT = 0.1; // 10% platform commission
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
