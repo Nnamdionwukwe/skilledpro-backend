@@ -417,7 +417,9 @@ model JobPost {
   notes          String?
   status         JobPostStatus @default(OPEN)
   createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  updatedAt      DateTime      @updatedAt 
+  estimatedUnit  String?  @default("hours")
+estimatedValue String?
 
   hirer        User             @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
   category     Category         @relation(fields: [categoryId], references: [id])
