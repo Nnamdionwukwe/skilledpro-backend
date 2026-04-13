@@ -1,7 +1,11 @@
 import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { sendJobApplicationEmail } from "../services/email.service.js";
+import {
+  sendJobApplicationEmail,
+  sendNewJobMatchEmail,
+} from "../services/email.service.js";
+import { notifyNewJobMatch } from "../services/notification.service.js";
 
 // ── POST /api/jobs ─────────────────────────────────────────────────────────────
 // Hirer creates a public job post
@@ -64,6 +68,51 @@ export const createJobPost = async (req, res) => {
         _count: { select: { applications: true } },
       },
     });
+
+    prisma.workerCategory
+      .findMany({
+        where: { categoryId, workerProfile: { isAvailable: true } },
+        include: {
+          workerProfile: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  email: true,
+                  notifBookings: true,
+                },
+              },
+            },
+          },
+        },
+        take: 50,
+      })
+      .then((matches) => {
+        matches.forEach((m) => {
+          const u = m.workerProfile.user;
+          if (!u || u.id === req.user.id) return;
+          notifyNewJobMatch(
+            u.id,
+            jobPost.title,
+            jobPost.id,
+            category.name,
+          ).catch(() => {});
+          if (u.notifBookings) {
+            sendNewJobMatchEmail({
+              to: u.email,
+              workerName: u.firstName,
+              jobTitle: jobPost.title,
+              jobId: jobPost.id,
+              categoryName: category.name,
+              budget: jobPost.budget,
+              currency: jobPost.currency,
+              address: jobPost.address,
+            }).catch(() => {});
+          }
+        });
+      })
+      .catch(() => {});
 
     return sendResponse(res, {
       status: 201,
