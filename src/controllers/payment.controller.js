@@ -799,6 +799,7 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 
 // ── Bank transfer ─────────────────────────────────────────────────────────────
 
+// ── Bank transfer — GET details only, no DB record ───────────────────────────
 export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
 
@@ -813,107 +814,124 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment)
+  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
     return res
       .status(400)
-      .json({ success: false, message: "Payment already exists" });
+      .json({ success: false, message: "Payment already completed" });
   if (booking.status !== "ACCEPTED")
     return res
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
+  // ── Compute 10% platform fee — hirer pays amount + fee ───────────────────
   const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const workerPayout = parseFloat(
-    (booking.agreedRate - platformFee).toFixed(2),
-  );
-
+  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
+  const workerPayout = booking.agreedRate; // worker gets full agreedRate
   const reference = `BT-${bookingId}-${Date.now()}`;
 
-  const payment = await prisma.payment.create({
-    data: {
-      bookingId,
-      userId: req.user.id,
-      amount: booking.agreedRate,
-      currency: booking.currency,
-      platformFee,
-      workerPayout,
-      status: "PENDING",
-      provider: "bank_transfer",
-      providerRef: reference,
-    },
-  });
-
-  return res.status(201).json({
+  // ── Return bank details ONLY — no DB write yet ────────────────────────────
+  return res.status(200).json({
     success: true,
     message:
-      "Bank transfer initiated. Upload your proof of payment to confirm.",
+      "Bank transfer details. Complete the transfer then click 'I have transferred'.",
     data: {
-      payment,
       reference,
+      platformFee,
+      workerPayout,
+      totalToSend,
       bankDetails: {
         bankName: process.env.PLATFORM_BANK_NAME || "First Bank",
         accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER || "0123456789",
         accountName: process.env.PLATFORM_ACCOUNT_NAME || "SkilledPro Ltd",
-        amount: booking.agreedRate,
+        amount: totalToSend,
         currency: booking.currency,
-        narration: `Payment for booking ${bookingId} — Ref: ${reference}`,
+        narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
       },
     },
   });
 });
 
+// ── Bank transfer confirm — creates DB record when hirer says they paid ───────
 export const confirmBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { proofUrl, senderName, bankName } = req.body;
+  const { reference, proofUrl, senderName, bankName } = req.body;
 
-  const payment = await prisma.payment.findFirst({
-    where: { bookingId, provider: "bank_transfer" },
+  if (!reference)
+    return res
+      .status(400)
+      .json({ success: false, message: "Reference is required" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
   });
 
-  if (!payment)
+  if (!booking)
     return res
       .status(404)
-      .json({ success: false, message: "Bank transfer record not found" });
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
 
-  const updatedPayment = await prisma.payment.update({
-    where: { id: payment.id },
+  // Delete any previous stale PENDING bank transfer record for this booking
+  if (booking.payment && booking.payment.status === "PENDING") {
+    await prisma.payment.delete({ where: { id: booking.payment.id } });
+  }
+
+  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
+  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
+  const workerPayout = booking.agreedRate;
+
+  // ── NOW create the payment record — hirer has confirmed they transferred ──
+  const payment = await prisma.payment.create({
     data: {
+      bookingId,
+      userId: req.user.id,
+      amount: totalToSend,
+      currency: booking.currency,
+      platformFee,
+      workerPayout,
+      status: "PENDING", // Admin reviews before marking HELD
+      provider: "bank_transfer",
+      providerRef: reference,
       bankTransferProof: proofUrl || null,
       accountName: senderName || null,
       bankName: bankName || null,
-      status: "PENDING", // Admin reviews proof before marking HELD
     },
   });
 
-  // Notify admin
+  // Notify admins
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
     select: { id: true },
   });
-
   await Promise.all(
     admins.map((admin) =>
       prisma.notification.create({
         data: {
           userId: admin.id,
-          title: "Bank Transfer Proof Uploaded",
-          body: `Hirer submitted proof for booking ${bookingId}. Ref: ${payment.providerRef}`,
+          title: "Bank Transfer Submitted",
+          body: `Hirer confirmed bank transfer for booking ${bookingId}. Ref: ${reference}`,
           type: "BANK_TRANSFER_PROOF",
-          data: { bookingId, paymentId: payment.id, proofUrl },
+          data: { bookingId, paymentId: payment.id, proofUrl, reference },
         },
       }),
     ),
   );
 
-  return res.status(200).json({
+  return res.status(201).json({
     success: true,
-    message: "Proof of payment submitted. We'll confirm within 1–2 hours.",
-    data: { payment: updatedPayment },
+    message:
+      "Transfer confirmed. We'll verify and activate your booking within 1–2 hours.",
+    data: { payment },
   });
 });
 
-// ── Crypto payment ────────────────────────────────────────────────────────────
-
+// ── Crypto — GET wallet details only, no DB record ────────────────────────────
 const CRYPTO_WALLETS = {
   USDC: {
     network: "Ethereum",
@@ -938,12 +956,13 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
   const { cryptoCurrency = "USDC" } = req.body;
 
   const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
-  if (!wallet) {
-    return res.status(400).json({
-      success: false,
-      message: `Unsupported crypto: ${cryptoCurrency}`,
-    });
-  }
+  if (!wallet)
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: `Unsupported crypto: ${cryptoCurrency}`,
+      });
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -956,49 +975,35 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment)
+  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
     return res
       .status(400)
-      .json({ success: false, message: "Payment already exists" });
+      .json({ success: false, message: "Payment already completed" });
   if (booking.status !== "ACCEPTED")
     return res
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
+  // ── 10% platform fee — hirer sends agreedRate + 10% ──────────────────────
   const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const workerPayout = parseFloat(
-    (booking.agreedRate - platformFee).toFixed(2),
-  );
+  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
+  const workerPayout = booking.agreedRate;
   const reference = `CRYPTO-${bookingId}-${Date.now()}`;
 
-  const payment = await prisma.payment.create({
+  // ── Return wallet details ONLY — no DB write yet ─────────────────────────
+  return res.status(200).json({
+    success: true,
+    message: "Send the exact amount below then click 'I have transferred'.",
     data: {
-      bookingId,
-      userId: req.user.id,
-      amount: booking.agreedRate,
-      currency: booking.currency,
+      reference,
       platformFee,
       workerPayout,
-      status: "PENDING",
-      provider: "crypto",
-      providerRef: reference,
-      cryptoNetwork: wallet.network,
-      cryptoWallet: wallet.address,
-      cryptoCurrency: cryptoCurrency.toUpperCase(),
-    },
-  });
-
-  return res.status(201).json({
-    success: true,
-    message: `Send exactly ${booking.agreedRate} ${booking.currency} equivalent to the wallet below.`,
-    data: {
-      payment,
-      reference,
+      totalToSend,
       cryptoDetails: {
         currency: cryptoCurrency.toUpperCase(),
         network: wallet.network,
         wallet: wallet.address,
-        amountFiat: booking.agreedRate,
+        amountFiat: totalToSend,
         currency: booking.currency,
         note: `Include reference ${reference} in transaction memo`,
       },
@@ -1006,58 +1011,91 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
   });
 });
 
+// ── Crypto confirm — creates DB record when hirer says they paid ──────────────
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { txHash, cryptoAmount, cryptoCurrency } = req.body;
+  const { txHash, cryptoAmount, cryptoCurrency, reference } = req.body;
 
   if (!txHash)
     return res
       .status(400)
       .json({ success: false, message: "Transaction hash required" });
+  if (!reference)
+    return res
+      .status(400)
+      .json({ success: false, message: "Reference required" });
 
-  const payment = await prisma.payment.findFirst({
-    where: { bookingId, provider: "crypto" },
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
   });
 
-  if (!payment)
+  if (!booking)
     return res
       .status(404)
-      .json({ success: false, message: "Crypto payment record not found" });
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
 
-  const updatedPayment = await prisma.payment.update({
-    where: { id: payment.id },
+  // Delete any previous stale PENDING crypto record
+  if (booking.payment && booking.payment.status === "PENDING") {
+    await prisma.payment.delete({ where: { id: booking.payment.id } });
+  }
+
+  const wallet =
+    CRYPTO_WALLETS[(cryptoCurrency || "USDC").toUpperCase()] ||
+    CRYPTO_WALLETS.USDC;
+  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
+  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
+  const workerPayout = booking.agreedRate;
+
+  // ── NOW create payment record ─────────────────────────────────────────────
+  const payment = await prisma.payment.create({
     data: {
+      bookingId,
+      userId: req.user.id,
+      amount: totalToSend,
+      currency: booking.currency,
+      platformFee,
+      workerPayout,
+      status: "PENDING", // Admin verifies on-chain before marking HELD
+      provider: "crypto",
+      providerRef: reference,
+      cryptoNetwork: wallet.network,
+      cryptoWallet: wallet.address,
+      cryptoCurrency: (cryptoCurrency || "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-      cryptoCurrency: cryptoCurrency || payment.cryptoCurrency,
-      status: "PENDING", // Admin verifies on-chain before marking HELD
     },
   });
 
-  // Notify admin to verify on-chain
+  // Notify admins
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
     select: { id: true },
   });
-
   await Promise.all(
     admins.map((admin) =>
       prisma.notification.create({
         data: {
           userId: admin.id,
-          title: "Crypto Tx Submitted",
-          body: `Hirer submitted crypto tx ${txHash} for booking ${bookingId}`,
+          title: "Crypto Transfer Submitted",
+          body: `Hirer submitted crypto tx for booking ${bookingId}. Hash: ${txHash}`,
           type: "CRYPTO_TX_SUBMITTED",
-          data: { bookingId, txHash, cryptoCurrency, cryptoAmount },
+          data: { bookingId, txHash, cryptoCurrency, cryptoAmount, reference },
         },
       }),
     ),
   );
 
-  return res.status(200).json({
+  return res.status(201).json({
     success: true,
     message:
-      "Transaction hash submitted. We'll verify on-chain and confirm within 30 minutes.",
-    data: { payment: updatedPayment },
+      "Transaction submitted. We'll verify on-chain and confirm within 30 minutes.",
+    data: { payment },
   });
 });

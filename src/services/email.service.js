@@ -620,3 +620,417 @@ export async function sendJobApplicationEmail({
     html,
   });
 }
+
+// ── 12. New message notification ──────────────────────────────────────────────
+export async function sendNewMessageEmail({
+  to,
+  recipientName,
+  senderName,
+  preview,
+  conversationId,
+}) {
+  const html = baseTemplate({
+    title: "New message — SkilledPro",
+    preheader: `${senderName} sent you a message`,
+    body: `
+      <p class="greeting">Hi ${recipientName},</p>
+      <p>You have a new message from <strong>${senderName}</strong>.</p>
+      ${
+        preview
+          ? `
+      <div class="card" style="border-left:4px solid #0f0f6e;">
+        <p style="font-style:italic;color:#555;margin:0;">"${preview.slice(0, 120)}${preview.length > 120 ? "…" : ""}"</p>
+      </div>`
+          : ""
+      }
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/messages" class="btn">Reply Now</a>
+      </div>
+      <p style="font-size:12px;color:#aaa;text-align:center;margin-top:16px;">You can manage message notifications in your account settings.</p>
+    `,
+  });
+  return sendEmail({ to, subject: `New message from ${senderName}`, html });
+}
+
+// ── 13. Profile viewed ────────────────────────────────────────────────────────
+export async function sendProfileViewedEmail({
+  to,
+  ownerName,
+  viewerName,
+  viewerRole,
+  profileUrl,
+}) {
+  const html = baseTemplate({
+    title: "Someone viewed your profile — SkilledPro",
+    preheader: `${viewerName} viewed your SkilledPro profile`,
+    body: `
+      <p class="greeting">Hi ${ownerName},</p>
+      <p>Your profile was just viewed by <strong>${viewerName}</strong> — a ${viewerRole?.toLowerCase() || "user"} on SkilledPro.</p>
+      <p>This could be a potential opportunity! Make sure your profile is complete and up to date to maximise your chances.</p>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/settings" class="btn">Update Profile</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `👀 ${viewerName} viewed your profile`,
+    html,
+  });
+}
+
+// ── 14. New device / login alert ──────────────────────────────────────────────
+export async function sendLoginAlertEmail({
+  to,
+  name,
+  ip,
+  device,
+  time,
+  location,
+}) {
+  const html = baseTemplate({
+    title: "New login detected — SkilledPro",
+    preheader: "A new login to your account was detected",
+    body: `
+      <p class="greeting">Hi ${name},</p>
+      <p>We detected a new login to your SkilledPro account. Here are the details:</p>
+      <div class="card">
+        <div class="card-row">
+          <span class="card-label">Time</span>
+          <span class="card-value">${time || new Date().toLocaleString()}</span>
+        </div>
+        ${ip ? `<div class="card-row"><span class="card-label">IP Address</span><span class="card-value">${ip}</span></div>` : ""}
+        ${device ? `<div class="card-row"><span class="card-label">Device</span><span class="card-value">${device}</span></div>` : ""}
+        ${location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${location}</span></div>` : ""}
+      </div>
+      <div class="warning">
+        ⚠️ If this wasn't you, <strong>change your password immediately</strong> and contact our support team.
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/settings?tab=security" class="btn btn-danger">Secure My Account</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: "🔐 New login to your SkilledPro account",
+    html,
+  });
+}
+
+// ── 15. Application accepted (worker notified) ────────────────────────────────
+export async function sendApplicationAcceptedEmail({
+  to,
+  workerName,
+  hirerName,
+  jobTitle,
+  jobId,
+  workerId,
+}) {
+  const html = baseTemplate({
+    title: "Application accepted! — SkilledPro",
+    preheader: `Your application for "${jobTitle}" has been accepted`,
+    body: `
+      <p class="greeting">Congratulations, ${workerName}! 🎉</p>
+      <p><strong>${hirerName}</strong> has accepted your application for <strong>"${jobTitle}"</strong>.</p>
+      <p>The hirer may now create a booking with you. Make sure your profile is complete so they can proceed quickly.</p>
+      <div class="card">
+        <div class="card-row"><span class="card-label">Job</span><span class="card-value">${jobTitle}</span></div>
+        <div class="card-row"><span class="card-label">Hirer</span><span class="card-value">${hirerName}</span></div>
+        <div class="card-row"><span class="card-label">Status</span><span class="badge badge-green">Accepted</span></div>
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/jobs/${jobId}" class="btn btn-success">View Job</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `🎉 Application accepted — ${jobTitle}`,
+    html,
+  });
+}
+
+// ── 16. Application rejected (worker notified) ────────────────────────────────
+export async function sendApplicationRejectedEmail({
+  to,
+  workerName,
+  jobTitle,
+  jobId,
+}) {
+  const html = baseTemplate({
+    title: "Application update — SkilledPro",
+    preheader: `Your application for "${jobTitle}"`,
+    body: `
+      <p class="greeting">Hi ${workerName},</p>
+      <p>Thank you for applying to <strong>"${jobTitle}"</strong>. Unfortunately the hirer has chosen to move forward with another applicant this time.</p>
+      <p>Don't be discouraged — there are many more jobs available on the platform.</p>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/jobs" class="btn">Browse More Jobs</a>
+      </div>
+    `,
+  });
+  return sendEmail({ to, subject: `Application update — ${jobTitle}`, html });
+}
+
+// ── 17. Dispute raised ────────────────────────────────────────────────────────
+export async function sendDisputeRaisedEmail({
+  to,
+  name,
+  raisedBy,
+  bookingTitle,
+  bookingId,
+  reason,
+}) {
+  const html = baseTemplate({
+    title: "Dispute raised — SkilledPro",
+    preheader: `A dispute has been raised on booking "${bookingTitle}"`,
+    body: `
+      <p class="greeting">Hi ${name},</p>
+      <p><strong>${raisedBy}</strong> has raised a dispute on the booking <strong>"${bookingTitle}"</strong>.</p>
+      ${reason ? `<div class="card"><div class="card-row"><span class="card-label">Reason</span><span class="card-value">${reason}</span></div></div>` : ""}
+      <p>Our support team will review the dispute within <strong>24–48 hours</strong>. Both parties will be contacted. In the meantime, payment remains in escrow.</p>
+      <div class="warning">
+        📋 Please avoid any actions on this booking until the dispute is resolved.
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/bookings/${bookingId}" class="btn">View Booking</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `⚠️ Dispute raised — ${bookingTitle}`,
+    html,
+  });
+}
+
+// ── 18. Dispute resolved ──────────────────────────────────────────────────────
+export async function sendDisputeResolvedEmail({
+  to,
+  name,
+  bookingTitle,
+  bookingId,
+  resolution,
+}) {
+  const html = baseTemplate({
+    title: "Dispute resolved — SkilledPro",
+    preheader: `The dispute on "${bookingTitle}" has been resolved`,
+    body: `
+      <p class="greeting">Hi ${name},</p>
+      <p>The dispute on booking <strong>"${bookingTitle}"</strong> has been resolved by our support team.</p>
+      ${resolution ? `<div class="card"><div class="card-row"><span class="card-label">Resolution</span><span class="card-value">${resolution}</span></div></div>` : ""}
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/bookings/${bookingId}" class="btn">View Booking</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `✅ Dispute resolved — ${bookingTitle}`,
+    html,
+  });
+}
+
+// ── 19. Payment refund ────────────────────────────────────────────────────────
+export async function sendRefundEmail({
+  to,
+  name,
+  amount,
+  currency,
+  bookingTitle,
+  bookingId,
+}) {
+  const html = baseTemplate({
+    title: "Refund processed — SkilledPro",
+    preheader: `Your refund of ${currency} ${amount} is on its way`,
+    body: `
+      <p class="greeting">Hi ${name},</p>
+      <p>A refund of <strong>${currency} ${Number(amount).toLocaleString()}</strong> has been processed for the booking <strong>"${bookingTitle}"</strong>.</p>
+      <div class="card">
+        <div class="card-row"><span class="card-label">Amount</span><span class="card-value" style="color:#16a34a;">${currency} ${Number(amount).toLocaleString()}</span></div>
+        <div class="card-row"><span class="card-label">Booking</span><span class="card-value">${bookingTitle}</span></div>
+        <div class="card-row"><span class="card-label">ETA</span><span class="card-value">3–5 business days</span></div>
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/bookings/${bookingId}" class="btn">View Booking</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `Refund of ${currency} ${amount} processed`,
+    html,
+  });
+}
+
+// ── 20. Withdrawal status ─────────────────────────────────────────────────────
+export async function sendWithdrawalEmail({
+  to,
+  workerName,
+  amount,
+  currency,
+  status,
+  method,
+  reference,
+}) {
+  const isSuccess = status === "COMPLETED";
+  const html = baseTemplate({
+    title: `Withdrawal ${isSuccess ? "successful" : "update"} — SkilledPro`,
+    preheader: `Your withdrawal of ${currency} ${amount} is ${status.toLowerCase()}`,
+    body: `
+      <p class="greeting">Hi ${workerName},</p>
+      <p>Your withdrawal request has been <strong>${status.toLowerCase()}</strong>.</p>
+      <div class="card">
+        <div class="card-row"><span class="card-label">Amount</span><span class="card-value">${currency} ${Number(amount).toLocaleString()}</span></div>
+        <div class="card-row"><span class="card-label">Method</span><span class="card-value">${method}</span></div>
+        <div class="card-row"><span class="card-label">Reference</span><span class="card-value" style="font-size:12px;">${reference}</span></div>
+        <div class="card-row"><span class="card-label">Status</span>
+          <span class="badge ${isSuccess ? "badge-green" : "badge-orange"}">${status}</span>
+        </div>
+      </div>
+      ${!isSuccess ? '<div class="warning">⚠️ If your withdrawal failed, your balance has been restored. Please contact support if you need help.</div>' : ""}
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/dashboard/earnings" class="btn">View Earnings</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `Withdrawal ${status.toLowerCase()} — ${currency} ${amount}`,
+    html,
+  });
+}
+
+// ── 21. Verification status changed (worker) ──────────────────────────────────
+export async function sendVerificationStatusEmail({
+  to,
+  workerName,
+  status,
+  reason,
+}) {
+  const isApproved = status === "VERIFIED";
+  const html = baseTemplate({
+    title: `Verification ${isApproved ? "approved" : "update"} — SkilledPro`,
+    preheader: `Your SkilledPro verification status: ${status}`,
+    body: `
+      <p class="greeting">Hi ${workerName},</p>
+      ${
+        isApproved
+          ? `<p>🎉 Congratulations! Your profile has been <strong>verified</strong>. You'll now appear with a verified badge, helping you get more bookings.</p>`
+          : `<p>Your verification application has been <strong>${status.toLowerCase()}</strong>.</p>
+           ${reason ? `<div class="card"><div class="card-row"><span class="card-label">Reason</span><span class="card-value">${reason}</span></div></div>` : ""}
+           <p>You can update your documents and reapply from your dashboard.</p>`
+      }
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/settings?tab=security" class="btn ${isApproved ? "btn-success" : ""}">
+          ${isApproved ? "View Profile" : "Reapply"}
+        </a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `Verification ${isApproved ? "approved ✅" : `update — ${status}`}`,
+    html,
+  });
+}
+
+// ── 22. Password changed confirmation ─────────────────────────────────────────
+export async function sendPasswordChangedEmail({ to, name }) {
+  const html = baseTemplate({
+    title: "Password changed — SkilledPro",
+    preheader: "Your SkilledPro password was successfully changed",
+    body: `
+      <p class="greeting">Hi ${name},</p>
+      <p>Your SkilledPro password was successfully changed.</p>
+      <div class="warning">
+        ⚠️ If you did not make this change, your account may be compromised. Please <strong>reset your password immediately</strong> and contact support.
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/forgot-password" class="btn btn-danger">Reset Password</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: "Your SkilledPro password was changed",
+    html,
+  });
+}
+
+// ── 23. SOS alert (to hirer + admins) ────────────────────────────────────────
+export async function sendSOSAlertEmail({
+  to,
+  recipientName,
+  workerName,
+  bookingTitle,
+  bookingId,
+  lat,
+  lng,
+}) {
+  const mapsLink =
+    lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null;
+  const html = baseTemplate({
+    title: "🚨 SOS Alert — SkilledPro",
+    preheader: `Emergency alert from ${workerName}`,
+    body: `
+      <p class="greeting" style="color:#dc2626;">🚨 Emergency Alert</p>
+      <p>Hi ${recipientName},</p>
+      <p><strong>${workerName}</strong> has activated an SOS emergency alert on booking <strong>"${bookingTitle}"</strong>.</p>
+      <div class="card" style="border-left:4px solid #dc2626;">
+        <div class="card-row"><span class="card-label">Worker</span><span class="card-value">${workerName}</span></div>
+        <div class="card-row"><span class="card-label">Booking</span><span class="card-value">${bookingTitle}</span></div>
+        <div class="card-row"><span class="card-label">Time</span><span class="card-value">${new Date().toLocaleString()}</span></div>
+        ${mapsLink ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value"><a href="${mapsLink}" style="color:#0f0f6e;">View on Google Maps →</a></span></div>` : ""}
+      </div>
+      <div class="warning" style="background:#fef2f2;border-left-color:#dc2626;color:#991b1b;">
+        Please check in with the worker or contact emergency services immediately if needed.
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/bookings/${bookingId}" class="btn btn-danger">View Booking</a>
+      </div>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `🚨 SOS Alert — ${workerName} needs help`,
+    html,
+  });
+}
+
+// ── 24. New job posted matching worker category ───────────────────────────────
+export async function sendNewJobMatchEmail({
+  to,
+  workerName,
+  jobTitle,
+  jobId,
+  categoryName,
+  budget,
+  currency,
+  address,
+}) {
+  const html = baseTemplate({
+    title: "New job matching your skills — SkilledPro",
+    preheader: `A new ${categoryName} job was just posted`,
+    body: `
+      <p class="greeting">Hi ${workerName},</p>
+      <p>A new job matching your skills has been posted on SkilledPro.</p>
+      <div class="card">
+        <div class="card-row"><span class="card-label">Job Title</span><span class="card-value">${jobTitle}</span></div>
+        <div class="card-row"><span class="card-label">Category</span><span class="card-value">${categoryName}</span></div>
+        <div class="card-row"><span class="card-label">Budget</span><span class="card-value">${currency} ${Number(budget).toLocaleString()}</span></div>
+        <div class="card-row"><span class="card-label">Location</span><span class="card-value">${address}</span></div>
+      </div>
+      <div style="text-align:center;">
+        <a href="${process.env.CLIENT_URL}/jobs/${jobId}" class="btn">Apply Now →</a>
+      </div>
+      <p style="font-size:12px;color:#aaa;text-align:center;margin-top:16px;">You received this because your profile matches this job category. Manage job alerts in settings.</p>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: `New ${categoryName} job posted — Apply now`,
+    html,
+  });
+}

@@ -284,3 +284,184 @@ export const notifyAccountVerified = (userId) =>
     type: N.ACCOUNT_VERIFIED,
     data: {},
   });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DISPUTE NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyDisputeRaised = (userId, raisedByName, booking) =>
+  createNotification({
+    userId,
+    title: "⚠️ Dispute raised",
+    body: `${raisedByName} raised a dispute on "${booking.title}". Our team will review within 24–48 hours.`,
+    type: "DISPUTE_RAISED",
+    data: { bookingId: booking.id },
+  });
+
+export const notifyDisputeResolved = (userId, booking, resolution) =>
+  createNotification({
+    userId,
+    title: "✅ Dispute resolved",
+    body: `The dispute on "${booking.title}" has been resolved.${resolution ? ` Resolution: ${resolution}` : ""}`,
+    type: "DISPUTE_RESOLVED",
+    data: { bookingId: booking.id },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SOS NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifySOSActivated = (userId, workerName, booking, coords) =>
+  createNotification({
+    userId,
+    title: "🚨 SOS Alert — Worker needs help",
+    body: `${workerName} activated an emergency alert on booking "${booking.title}".`,
+    type: "SOS_ACTIVATED",
+    data: { bookingId: booking.id, lat: coords?.lat, lng: coords?.lng },
+  });
+
+export const notifySOSResolved = (workerId, booking) =>
+  createNotification({
+    userId: workerId,
+    title: "✅ SOS Alert resolved",
+    body: `Your emergency alert on "${booking.title}" has been resolved.`,
+    type: "SOS_RESOLVED",
+    data: { bookingId: booking.id },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SUBSCRIPTION NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifySubscriptionActivated = (userId, tier, role) =>
+  createNotification({
+    userId,
+    title: "🚀 Subscription activated",
+    body: `Your ${tier} plan for ${role?.toLowerCase()} is now active. Enjoy your premium features!`,
+    type: "SUBSCRIPTION_ACTIVATED",
+    data: { tier, role },
+  });
+
+export const notifySubscriptionExpired = (userId, tier) =>
+  createNotification({
+    userId,
+    title: "⚠️ Subscription expired",
+    body: `Your ${tier} plan has expired. Renew now to keep your premium features.`,
+    type: "SUBSCRIPTION_EXPIRED",
+    data: { tier },
+  });
+
+export const notifySubscriptionCancelled = (userId, tier) =>
+  createNotification({
+    userId,
+    title: "Subscription cancelled",
+    body: `Your ${tier} plan has been cancelled. You'll retain access until the end of your billing period.`,
+    type: "SUBSCRIPTION_CANCELLED",
+    data: { tier },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WITHDRAWAL NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyWithdrawalProcessed = (
+  workerId,
+  amount,
+  currency,
+  reference,
+) =>
+  createNotification({
+    userId: workerId,
+    title: "💸 Withdrawal processed",
+    body: `Your withdrawal of ${currency} ${Number(amount).toLocaleString()} has been sent. Ref: ${reference}`,
+    type: "WITHDRAWAL_COMPLETED",
+    data: { amount, currency, reference },
+  });
+
+export const notifyWithdrawalFailed = (workerId, amount, currency, reason) =>
+  createNotification({
+    userId: workerId,
+    title: "❌ Withdrawal failed",
+    body: `Your withdrawal of ${currency} ${Number(amount).toLocaleString()} failed.${reason ? ` Reason: ${reason}` : ""} Your balance has been restored.`,
+    type: "WITHDRAWAL_FAILED",
+    data: { amount, currency, reason },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VERIFICATION NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyVerificationApproved = (workerId) =>
+  createNotification({
+    userId: workerId,
+    title: "✅ Profile verified",
+    body: "Your identity has been verified! Your profile now shows a verified badge — this helps you get more bookings.",
+    type: "VERIFICATION_APPROVED",
+    data: {},
+  });
+
+export const notifyVerificationRejected = (workerId, reason) =>
+  createNotification({
+    userId: workerId,
+    title: "Verification update",
+    body: `Your verification was not approved.${reason ? ` Reason: ${reason}` : ""} You can resubmit with updated documents.`,
+    type: "VERIFICATION_REJECTED",
+    data: { reason },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SECURITY NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyPasswordChanged = (userId) =>
+  createNotification({
+    userId,
+    title: "🔒 Password changed",
+    body: "Your password was successfully changed. If this wasn't you, please contact support immediately.",
+    type: "PASSWORD_CHANGED",
+    data: {},
+  });
+
+export const notifyNewDevice = (userId, ip, device) =>
+  createNotification({
+    userId,
+    title: "🔐 New login detected",
+    body: `A login was detected${device ? ` from ${device}` : ""}${ip ? ` (${ip})` : ""}. If this wasn't you, change your password now.`,
+    type: "LOGIN_ALERT",
+    data: { ip, device },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// JOB MATCH NOTIFICATIONS (workers notified when matching job posted)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyNewJobMatch = (workerId, jobTitle, jobId, categoryName) =>
+  createNotification({
+    userId: workerId,
+    title: `📋 New ${categoryName} job posted`,
+    body: `A new job matching your skills was just posted: "${jobTitle}". Apply before it fills up!`,
+    type: "JOB_MATCH",
+    data: { jobPostId: jobId, categoryName },
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FEATURED LISTING NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const notifyFeaturedActivated = (userId, expiresAt) =>
+  createNotification({
+    userId,
+    title: "⭐ Featured listing active",
+    body: `Your profile is now featured in search results until ${new Date(expiresAt).toLocaleDateString()}.`,
+    type: "FEATURED_ACTIVATED",
+    data: { expiresAt },
+  });
+
+export const notifyFeaturedExpiring = (userId) =>
+  createNotification({
+    userId,
+    title: "⚠️ Featured listing expiring soon",
+    body: "Your featured listing expires in 24 hours. Renew to keep your top placement.",
+    type: "FEATURED_EXPIRING",
+    data: {},
+  });
