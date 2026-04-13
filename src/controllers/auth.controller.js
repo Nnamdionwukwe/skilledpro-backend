@@ -8,7 +8,14 @@ import {
   sendVerificationEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendPasswordChangedEmail,
+  sendLoginAlertEmail,
 } from "../services/email.service.js";
+
+import {
+  notifyPasswordChanged,
+  notifyNewDevice,
+} from "../services/notification.service.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
@@ -58,12 +65,10 @@ export const register = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Role must be HIRER or WORKER" });
   }
   if (password.length < 8) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Password must be at least 8 characters",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Password must be at least 8 characters",
+    });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -312,6 +317,17 @@ export const login = asyncHandler(async (req, res) => {
       },
     },
   });
+
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const device = req.headers["user-agent"]?.slice(0, 80) || "Unknown device";
+  sendLoginAlertEmail({
+    to: user.email,
+    name: user.firstName,
+    ip,
+    device,
+    time: new Date().toLocaleString(),
+  }).catch(() => {});
+  notifyNewDevice(user.id, ip, device).catch(() => {});
 });
 
 // ── Refresh token ─────────────────────────────────────────────────────────────
@@ -475,4 +491,9 @@ export const resetPassword = asyncHandler(async (req, res) => {
     success: true,
     message: "Password reset successful. Please log in.",
   });
+
+  sendPasswordChangedEmail({ to: user.email, name: user.firstName }).catch(
+    () => {},
+  );
+  notifyPasswordChanged(user.id).catch(() => {});
 });
