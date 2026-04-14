@@ -83,11 +83,14 @@ export const sendMessage = async (req, res) => {
   try {
     const { receiverId, content, conversationId } = req.body;
 
-    // Allow file-only messages (image/video) — content can be empty if file present
     if (!receiverId) {
       return sendError(res, "receiverId is required", 400);
     }
-    if (!content?.trim() && !req.file) {
+
+    // ── Normalise file — upload.any() puts it in req.files[], not req.file ──
+    const file = req.file || (req.files?.length > 0 ? req.files[0] : null);
+
+    if (!content?.trim() && !file) {
       return sendError(res, "Message content or file is required", 400);
     }
 
@@ -95,7 +98,6 @@ export const sendMessage = async (req, res) => {
     let convoId = conversationId || null;
 
     if (!convoId) {
-      // Find existing direct (non-booking) conversation between these two users
       const existing = await prisma.conversation.findFirst({
         where: {
           bookingId: null,
@@ -107,7 +109,6 @@ export const sendMessage = async (req, res) => {
         include: { users: { select: { userId: true } } },
       });
 
-      // Confirm it's exactly these two people (not a group or booking convo)
       const isExact =
         existing?.users?.length === 2 &&
         existing.users.some((u) => u.userId === req.user.id) &&
@@ -128,18 +129,16 @@ export const sendMessage = async (req, res) => {
     }
 
     // ── Resolve file + content ────────────────────────────────────────────────
-    const fileUrl = req.file?.path || null;
+    const fileUrl = file?.path || null;
     let messageContent = content?.trim() || "";
 
-    if (req.file) {
-      const mime = req.file.mimetype || "";
-      if (mime.startsWith("image/")) {
+    if (file) {
+      const mime = file.mimetype || "";
+      if (mime.startsWith("image/"))
         messageContent = messageContent || "[Image]";
-      } else if (mime.startsWith("video/")) {
+      else if (mime.startsWith("video/"))
         messageContent = messageContent || "[Video]";
-      } else {
-        messageContent = messageContent || req.file.originalname || "[File]";
-      }
+      else messageContent = messageContent || file.originalname || "[File]";
     }
 
     // ── Create message ────────────────────────────────────────────────────────
@@ -158,7 +157,6 @@ export const sendMessage = async (req, res) => {
       },
     });
 
-    // Bump conversation updatedAt so it sorts to top
     await prisma.conversation.update({
       where: { id: convoId },
       data: { updatedAt: new Date() },

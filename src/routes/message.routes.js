@@ -1,9 +1,19 @@
 import { Router } from "express";
-import { getConversations, getMessages, sendMessage } from "../controllers/message.controller.js";
+import {
+  getConversations,
+  getMessages,
+  sendMessage,
+} from "../controllers/message.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
-import { uploadSingle } from "../middleware/upload.middleware.js";
+import {
+  uploadSingle,
+  normaliseFile,
+} from "../middleware/upload.middleware.js";
+
 const router = Router();
+
 router.get("/conversations", protect, getConversations);
 router.get("/:conversationId", protect, getMessages);
-router.post("/", protect, uploadSingle, sendMessage);
+router.post("/", protect, uploadSingle, normaliseFile, sendMessage); // ← add normaliseFile
+
 export default router;
