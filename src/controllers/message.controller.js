@@ -83,25 +83,31 @@ export const sendMessage = async (req, res) => {
   try {
     const { receiverId, content, conversationId } = req.body;
 
-    if (!receiverId || !content?.trim()) {
-      return sendError(res, "receiverId and content are required", 400);
+    // Allow file-only messages (image/video) — content can be empty if file present
+    if (!receiverId) {
+      return sendError(res, "receiverId is required", 400);
+    }
+    if (!content?.trim() && !req.file) {
+      return sendError(res, "Message content or file is required", 400);
     }
 
-    let convoId = conversationId;
+    // ── Resolve conversation ──────────────────────────────────────────────────
+    let convoId = conversationId || null;
 
     if (!convoId) {
-      // ── Look for an existing DIRECT (non-booking) conversation between these two users ──
+      // Find existing direct (non-booking) conversation between these two users
       const existing = await prisma.conversation.findFirst({
         where: {
-          bookingId: null, // direct conversations only
-          users: { some: { userId: req.user.id } },
-          AND: [{ users: { some: { userId: receiverId } } }],
+          bookingId: null,
+          AND: [
+            { users: { some: { userId: req.user.id } } },
+            { users: { some: { userId: receiverId } } },
+          ],
         },
-        // Extra safety: ensure BOTH users are in it (exactly these two)
         include: { users: { select: { userId: true } } },
       });
 
-      // Verify it's exactly a 2-person conversation between these specific users
+      // Confirm it's exactly these two people (not a group or booking convo)
       const isExact =
         existing?.users?.length === 2 &&
         existing.users.some((u) => u.userId === req.user.id) &&
@@ -110,7 +116,6 @@ export const sendMessage = async (req, res) => {
       if (isExact) {
         convoId = existing.id;
       } else {
-        // Create a new direct conversation only if none exists
         const newConvo = await prisma.conversation.create({
           data: {
             users: {
@@ -122,13 +127,29 @@ export const sendMessage = async (req, res) => {
       }
     }
 
+    // ── Resolve file + content ────────────────────────────────────────────────
+    const fileUrl = req.file?.path || null;
+    let messageContent = content?.trim() || "";
+
+    if (req.file) {
+      const mime = req.file.mimetype || "";
+      if (mime.startsWith("image/")) {
+        messageContent = messageContent || "[Image]";
+      } else if (mime.startsWith("video/")) {
+        messageContent = messageContent || "[Video]";
+      } else {
+        messageContent = messageContent || req.file.originalname || "[File]";
+      }
+    }
+
+    // ── Create message ────────────────────────────────────────────────────────
     const message = await prisma.message.create({
       data: {
         conversationId: convoId,
         senderId: req.user.id,
         receiverId,
-        content: content.trim(),
-        fileUrl: req.file?.path || null,
+        content: messageContent,
+        fileUrl,
       },
       include: {
         sender: {
@@ -137,6 +158,7 @@ export const sendMessage = async (req, res) => {
       },
     });
 
+    // Bump conversation updatedAt so it sorts to top
     await prisma.conversation.update({
       where: { id: convoId },
       data: { updatedAt: new Date() },
