@@ -110,3 +110,29 @@ export const suggestCategory = async (req, res) => {
     return sendError(res, "Failed to add category");
   }
 };
+
+export const deleteCategory = async (req, res) => {
+  try {
+    await prisma.category.delete({ where: { id: req.params.id } });
+    return sendResponse(res, { message: "Category deleted" });
+  } catch (err) {
+    return sendError(res, "Failed to delete category");
+  }
+};
+
+export const updateCategory = async (req, res) => {
+  try {
+    const { name, icon, description } = req.body;
+    const updated = await prisma.category.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name && { name: name.trim() }),
+        ...(icon && { icon }),
+        ...(description && { description }),
+      },
+    });
+    return sendResponse(res, { data: { category: updated } });
+  } catch (err) {
+    return sendError(res, "Failed to update category");
+  }
+};
