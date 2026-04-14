@@ -492,13 +492,14 @@ export const getFilterOptions = async (req, res) => {
         orderBy: { workers: { _count: "desc" } },
         take: 20,
       }),
+
       // Distinct languages from worker users
       prisma.user.findMany({
         where: {
           role: "WORKER",
           isActive: true,
           isBanned: false,
-          NOT: { language: null }, // ← use NOT at the record level instead
+          language: { not: null }, // ← THIS is the error
         },
         select: { language: true },
         distinct: ["language"],
