@@ -106,15 +106,15 @@ function baseTemplate({ title, preheader, body }) {
   <span style="display:none;max-height:0;overflow:hidden;">${preheader}</span>
   <div class="wrapper">
     <div class="header">
-      <h1>SkilledPro</h1>
+      <h1>SkilledProz</h1>
       <span>Connecting skilled workers with the world</span>
     </div>
     <div class="body">
       ${body}
     </div>
     <div class="footer">
-      <p>© ${new Date().getFullYear()} SkilledPro. All rights reserved.</p>
-      <p>You received this email because you have an account on SkilledPro.</p>
+      <p>© ${new Date().getFullYear()} SkilledProz. All rights reserved.</p>
+      <p>You received this email because you have an account on SkilledProz.</p>
       <p><a href="${process.env.CLIENT_URL}/unsubscribe">Unsubscribe</a> · <a href="${process.env.CLIENT_URL}/privacy">Privacy Policy</a></p>
     </div>
   </div>
@@ -126,7 +126,7 @@ function baseTemplate({ title, preheader, body }) {
 async function sendEmail({ to, subject, html }) {
   try {
     const info = await getTransporter().sendMail({
-      from: `"SkilledPro" <${process.env.EMAIL_FROM}>`,
+      from: `"SkilledProz" <${process.env.EMAIL_FROM}>`,
       to,
       subject,
       html,
@@ -144,11 +144,11 @@ export async function sendVerificationEmail({ to, firstName, token }) {
   const verifyUrl = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
 
   const html = baseTemplate({
-    title: "Verify your email — SkilledPro",
-    preheader: "Click the link to verify your SkilledPro account",
+    title: "Verify your email — SkilledProz",
+    preheader: "Click the link to verify your SkilledProz account",
     body: `
       <p class="greeting">Hi ${firstName} 👋</p>
-      <p>Welcome to SkilledPro! You're one step away from connecting with skilled professionals around the world.</p>
+      <p>Welcome to SkilledProz! You're one step away from connecting with skilled professionals around the world.</p>
       <p>Please verify your email address to activate your account:</p>
       <div style="text-align:center;">
         <a href="${verifyUrl}" class="btn">Verify My Email</a>
@@ -158,12 +158,12 @@ export async function sendVerificationEmail({ to, firstName, token }) {
       </p>
       <hr class="divider"/>
       <div class="warning">
-        ⏰ This link expires in <strong>24 hours</strong>. If you didn't create a SkilledPro account, you can safely ignore this email.
+        ⏰ This link expires in <strong>24 hours</strong>. If you didn't create a SkilledProz account, you can safely ignore this email.
       </div>
     `,
   });
 
-  return sendEmail({ to, subject: "Verify your SkilledPro account", html });
+  return sendEmail({ to, subject: "Verify your SkilledProz account", html });
 }
 
 // ── 2. Welcome email (after verification) ────────────────────────────────────
@@ -171,11 +171,11 @@ export async function sendWelcomeEmail({ to, firstName, role }) {
   const isWorker = role === "WORKER";
 
   const html = baseTemplate({
-    title: "Welcome to SkilledPro!",
+    title: "Welcome to SkilledProz!",
     preheader: `Your account is verified. Let's get started!`,
     body: `
       <p class="greeting">Welcome aboard, ${firstName}! 🎉</p>
-      <p>Your email is verified and your SkilledPro account is active.</p>
+      <p>Your email is verified and your SkilledProz account is active.</p>
 
       ${
         isWorker
@@ -205,7 +205,7 @@ export async function sendWelcomeEmail({ to, firstName, role }) {
     `,
   });
 
-  return sendEmail({ to, subject: "Welcome to SkilledPro 🎉", html });
+  return sendEmail({ to, subject: "Welcome to SkilledProz 🎉", html });
 }
 
 // ── 3. Password reset ─────────────────────────────────────────────────────────
@@ -213,11 +213,11 @@ export async function sendPasswordResetEmail({ to, firstName, token }) {
   const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
 
   const html = baseTemplate({
-    title: "Reset your password — SkilledPro",
+    title: "Reset your password — SkilledProz",
     preheader: "We received a request to reset your password",
     body: `
       <p class="greeting">Hi ${firstName},</p>
-      <p>We received a request to reset the password on your SkilledPro account.</p>
+      <p>We received a request to reset the password on your SkilledProz account.</p>
       <p>Click the button below to choose a new password:</p>
       <div style="text-align:center;">
         <a href="${resetUrl}" class="btn">Reset My Password</a>
@@ -229,7 +229,7 @@ export async function sendPasswordResetEmail({ to, firstName, token }) {
     `,
   });
 
-  return sendEmail({ to, subject: "Reset your SkilledPro password", html });
+  return sendEmail({ to, subject: "Reset your SkilledProz password", html });
 }
 
 // ── 4. Booking request (worker notified) ─────────────────────────────────────
@@ -240,7 +240,7 @@ export async function sendBookingRequestEmail({
   booking,
 }) {
   const html = baseTemplate({
-    title: "New booking request — SkilledPro",
+    title: "New booking request — SkilledProz",
     preheader: `${hirerName} wants to book you for a job`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
@@ -298,7 +298,7 @@ export async function sendBookingConfirmedEmail({
   booking,
 }) {
   const html = baseTemplate({
-    title: "Booking confirmed — SkilledPro",
+    title: "Booking confirmed — SkilledProz",
     preheader: `${workerName} has accepted your booking request`,
     body: `
       <p class="greeting">Great news, ${hirerName}! 🎉</p>
@@ -348,7 +348,7 @@ export async function sendBookingConfirmedEmail({
 // ── 6. Payment receipt ────────────────────────────────────────────────────────
 export async function sendPaymentReceiptEmail({ to, name, payment, booking }) {
   const html = baseTemplate({
-    title: "Payment receipt — SkilledPro",
+    title: "Payment receipt — SkilledProz",
     preheader: `Your payment of ${payment.currency} ${payment.amount} is held securely in escrow`,
     body: `
       <p class="greeting">Hi ${name},</p>
@@ -450,7 +450,7 @@ export async function sendPaymentReleasedEmail({
   booking,
 }) {
   const html = baseTemplate({
-    title: "Payment released — SkilledPro",
+    title: "Payment released — SkilledProz",
     preheader: `${payment.currency} ${payment.workerPayout} has been released to you`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
@@ -491,7 +491,7 @@ export async function sendPaymentReleasedEmail({
 // ── 9. Booking cancelled ──────────────────────────────────────────────────────
 export async function sendBookingCancelledEmail({ to, name, booking, reason }) {
   const html = baseTemplate({
-    title: "Booking cancelled — SkilledPro",
+    title: "Booking cancelled — SkilledProz",
     preheader: `Your booking for ${booking.title} has been cancelled`,
     body: `
       <p class="greeting">Hi ${name},</p>
@@ -540,12 +540,12 @@ export async function sendReviewRequestEmail({
   booking,
 }) {
   const html = baseTemplate({
-    title: "Leave a review — SkilledPro",
+    title: "Leave a review — SkilledProz",
     preheader: `How was your experience with ${otherPartyName}?`,
     body: `
       <p class="greeting">Hi ${name},</p>
       <p>Your job <strong>${booking.title}</strong> is complete. How was your experience with <strong>${otherPartyName}</strong>?</p>
-      <p>Reviews help build trust in the SkilledPro community. It only takes 30 seconds.</p>
+      <p>Reviews help build trust in the SkilledProz community. It only takes 30 seconds.</p>
 
       <div style="text-align:center;">
         <a href="${process.env.CLIENT_URL}/bookings/${booking.id}/review" class="btn">Leave a Review</a>
@@ -575,7 +575,7 @@ export async function sendJobApplicationEmail({
   message,
 }) {
   const html = baseTemplate({
-    title: "New job application — SkilledPro",
+    title: "New job application — SkilledProz",
     preheader: `${workerName} has applied for your job: ${jobTitle}`,
     body: `
       <p class="greeting">Hi ${hirerName},</p>
@@ -630,7 +630,7 @@ export async function sendNewMessageEmail({
   conversationId,
 }) {
   const html = baseTemplate({
-    title: "New message — SkilledPro",
+    title: "New message — SkilledProz",
     preheader: `${senderName} sent you a message`,
     body: `
       <p class="greeting">Hi ${recipientName},</p>
@@ -661,11 +661,11 @@ export async function sendProfileViewedEmail({
   profileUrl,
 }) {
   const html = baseTemplate({
-    title: "Someone viewed your profile — SkilledPro",
-    preheader: `${viewerName} viewed your SkilledPro profile`,
+    title: "Someone viewed your profile — SkilledProz",
+    preheader: `${viewerName} viewed your SkilledProz profile`,
     body: `
       <p class="greeting">Hi ${ownerName},</p>
-      <p>Your profile was just viewed by <strong>${viewerName}</strong> — a ${viewerRole?.toLowerCase() || "user"} on SkilledPro.</p>
+      <p>Your profile was just viewed by <strong>${viewerName}</strong> — a ${viewerRole?.toLowerCase() || "user"} on SkilledProz.</p>
       <p>This could be a potential opportunity! Make sure your profile is complete and up to date to maximise your chances.</p>
       <div style="text-align:center;">
         <a href="${process.env.CLIENT_URL}/settings" class="btn">Update Profile</a>
@@ -689,11 +689,11 @@ export async function sendLoginAlertEmail({
   location,
 }) {
   const html = baseTemplate({
-    title: "New login detected — SkilledPro",
+    title: "New login detected — SkilledProz",
     preheader: "A new login to your account was detected",
     body: `
       <p class="greeting">Hi ${name},</p>
-      <p>We detected a new login to your SkilledPro account. Here are the details:</p>
+      <p>We detected a new login to your SkilledProz account. Here are the details:</p>
       <div class="card">
         <div class="card-row">
           <span class="card-label">Time</span>
@@ -713,7 +713,7 @@ export async function sendLoginAlertEmail({
   });
   return sendEmail({
     to,
-    subject: "🔐 New login to your SkilledPro account",
+    subject: "🔐 New login to your SkilledProz account",
     html,
   });
 }
@@ -728,7 +728,7 @@ export async function sendApplicationAcceptedEmail({
   workerId,
 }) {
   const html = baseTemplate({
-    title: "Application accepted! — SkilledPro",
+    title: "Application accepted! — SkilledProz",
     preheader: `Your application for "${jobTitle}" has been accepted`,
     body: `
       <p class="greeting">Congratulations, ${workerName}! 🎉</p>
@@ -759,7 +759,7 @@ export async function sendApplicationRejectedEmail({
   jobId,
 }) {
   const html = baseTemplate({
-    title: "Application update — SkilledPro",
+    title: "Application update — SkilledProz",
     preheader: `Your application for "${jobTitle}"`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
@@ -783,7 +783,7 @@ export async function sendDisputeRaisedEmail({
   reason,
 }) {
   const html = baseTemplate({
-    title: "Dispute raised — SkilledPro",
+    title: "Dispute raised — SkilledProz",
     preheader: `A dispute has been raised on booking "${bookingTitle}"`,
     body: `
       <p class="greeting">Hi ${name},</p>
@@ -814,7 +814,7 @@ export async function sendDisputeResolvedEmail({
   resolution,
 }) {
   const html = baseTemplate({
-    title: "Dispute resolved — SkilledPro",
+    title: "Dispute resolved — SkilledProz",
     preheader: `The dispute on "${bookingTitle}" has been resolved`,
     body: `
       <p class="greeting">Hi ${name},</p>
@@ -842,7 +842,7 @@ export async function sendRefundEmail({
   bookingId,
 }) {
   const html = baseTemplate({
-    title: "Refund processed — SkilledPro",
+    title: "Refund processed — SkilledProz",
     preheader: `Your refund of ${currency} ${amount} is on its way`,
     body: `
       <p class="greeting">Hi ${name},</p>
@@ -876,7 +876,7 @@ export async function sendWithdrawalEmail({
 }) {
   const isSuccess = status === "COMPLETED";
   const html = baseTemplate({
-    title: `Withdrawal ${isSuccess ? "successful" : "update"} — SkilledPro`,
+    title: `Withdrawal ${isSuccess ? "successful" : "update"} — SkilledProz`,
     preheader: `Your withdrawal of ${currency} ${amount} is ${status.toLowerCase()}`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
@@ -911,8 +911,8 @@ export async function sendVerificationStatusEmail({
 }) {
   const isApproved = status === "VERIFIED";
   const html = baseTemplate({
-    title: `Verification ${isApproved ? "approved" : "update"} — SkilledPro`,
-    preheader: `Your SkilledPro verification status: ${status}`,
+    title: `Verification ${isApproved ? "approved" : "update"} — SkilledProz`,
+    preheader: `Your SkilledProz verification status: ${status}`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
       ${
@@ -939,11 +939,11 @@ export async function sendVerificationStatusEmail({
 // ── 22. Password changed confirmation ─────────────────────────────────────────
 export async function sendPasswordChangedEmail({ to, name }) {
   const html = baseTemplate({
-    title: "Password changed — SkilledPro",
-    preheader: "Your SkilledPro password was successfully changed",
+    title: "Password changed — SkilledProz",
+    preheader: "Your SkilledProz password was successfully changed",
     body: `
       <p class="greeting">Hi ${name},</p>
-      <p>Your SkilledPro password was successfully changed.</p>
+      <p>Your SkilledProz password was successfully changed.</p>
       <div class="warning">
         ⚠️ If you did not make this change, your account may be compromised. Please <strong>reset your password immediately</strong> and contact support.
       </div>
@@ -954,7 +954,7 @@ export async function sendPasswordChangedEmail({ to, name }) {
   });
   return sendEmail({
     to,
-    subject: "Your SkilledPro password was changed",
+    subject: "Your SkilledProz password was changed",
     html,
   });
 }
@@ -972,7 +972,7 @@ export async function sendSOSAlertEmail({
   const mapsLink =
     lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null;
   const html = baseTemplate({
-    title: "🚨 SOS Alert — SkilledPro",
+    title: "🚨 SOS Alert — SkilledProz",
     preheader: `Emergency alert from ${workerName}`,
     body: `
       <p class="greeting" style="color:#dc2626;">🚨 Emergency Alert</p>
@@ -1011,11 +1011,11 @@ export async function sendNewJobMatchEmail({
   address,
 }) {
   const html = baseTemplate({
-    title: "New job matching your skills — SkilledPro",
+    title: "New job matching your skills — SkilledProz",
     preheader: `A new ${categoryName} job was just posted`,
     body: `
       <p class="greeting">Hi ${workerName},</p>
-      <p>A new job matching your skills has been posted on SkilledPro.</p>
+      <p>A new job matching your skills has been posted on SkilledProz.</p>
       <div class="card">
         <div class="card-row"><span class="card-label">Job Title</span><span class="card-value">${jobTitle}</span></div>
         <div class="card-row"><span class="card-label">Category</span><span class="card-value">${categoryName}</span></div>
