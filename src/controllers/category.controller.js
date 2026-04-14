@@ -3,9 +3,11 @@ import { sendResponse, sendError } from "../utils/response.js";
 
 export const getCategories = async (req, res) => {
   try {
-    const { search, limit = 200 } = req.query;
+    const { search, limit = 500 } = req.query; // ← default 500, not 200
+
     const where = {
-      parentId: null,
+      // ← REMOVED parentId: null — this was silently hiding user-submitted
+      //   categories if they somehow got a parentId, and artificially capping results
       ...(search && {
         OR: [
           { name: { contains: search, mode: "insensitive" } },
@@ -13,6 +15,7 @@ export const getCategories = async (req, res) => {
         ],
       }),
     };
+
     const categories = await prisma.category.findMany({
       where,
       include: {
@@ -20,8 +23,9 @@ export const getCategories = async (req, res) => {
         _count: { select: { workers: true, bookings: true } },
       },
       orderBy: [{ isUserSubmitted: "asc" }, { name: "asc" }],
-      take: parseInt(limit),
+      take: Math.min(parseInt(limit), 1000), // hard cap at 1000
     });
+
     return sendResponse(res, { data: { categories } });
   } catch (err) {
     return sendError(res, "Failed to fetch categories");
@@ -44,41 +48,55 @@ export const getCategory = async (req, res) => {
   }
 };
 
-// POST /api/categories/suggest — User submits a custom category
 export const suggestCategory = async (req, res) => {
   try {
     const { name, description } = req.body;
     if (!name?.trim()) return sendError(res, "Category name is required", 400);
 
-    const slug = name
+    // ── Build slug ────────────────────────────────────────────────────────────
+    const baseSlug = name
       .toLowerCase()
       .trim()
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, ""); // strip leading/trailing dashes
 
-    // Check if already exists
-    const existing = await prisma.category.findFirst({
-      where: {
-        OR: [{ slug }, { name: { equals: name, mode: "insensitive" } }],
-      },
+    // ── Check if already exists by name ──────────────────────────────────────
+    const existingByName = await prisma.category.findFirst({
+      where: { name: { equals: name.trim(), mode: "insensitive" } },
     });
-
-    if (existing) {
+    if (existingByName) {
       return sendResponse(res, {
         message: "Category already exists",
-        data: { category: existing, alreadyExists: true },
+        data: { category: existingByName, alreadyExists: true },
       });
     }
 
+    // ── Handle slug collisions by appending a suffix ──────────────────────────
+    let slug = baseSlug;
+    let attempt = 0;
+    while (true) {
+      const existingBySlug = await prisma.category.findUnique({
+        where: { slug },
+      });
+      if (!existingBySlug) break; // slug is free
+      attempt++;
+      slug = `${baseSlug}-${attempt}`;
+    }
+
+    // ── Create ────────────────────────────────────────────────────────────────
     const category = await prisma.category.create({
       data: {
         name: name.trim(),
         slug,
-        description: description || `${name} services`,
+        description: description?.trim() || `${name.trim()} services`,
         icon: "🔧",
         isUserSubmitted: true,
         submittedBy: req.user?.id || null,
+      },
+      include: {
+        _count: { select: { workers: true, bookings: true } },
       },
     });
 
@@ -88,7 +106,7 @@ export const suggestCategory = async (req, res) => {
       data: { category, alreadyExists: false },
     });
   } catch (err) {
-    console.error(err);
+    console.error("suggestCategory error:", err);
     return sendError(res, "Failed to add category");
   }
 };
