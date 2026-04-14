@@ -498,7 +498,7 @@ export const getFilterOptions = async (req, res) => {
           role: "WORKER",
           isActive: true,
           isBanned: false,
-          language: { not: null },
+          NOT: { language: null }, // ← use NOT at the record level instead
         },
         select: { language: true },
         distinct: ["language"],
