@@ -1,6 +1,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
+// user.controller.js — getProfile, change only the hirerProfile line in the select
 export const getProfile = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -10,6 +11,7 @@ export const getProfile = async (req, res) => {
         email: true,
         firstName: true,
         lastName: true,
+        phone: true,
         role: true,
         avatar: true,
         bio: true,
@@ -24,14 +26,44 @@ export const getProfile = async (req, res) => {
             categories: { include: { category: true } },
             portfolio: true,
             certifications: true,
+            availability: true,
           },
         },
-        hirerProfile: true,
+        hirerProfile: true, // ← was hirerProfile: { include: { _count: false } }
       },
     });
+
     if (!user) return sendError(res, "User not found", 404);
+
+    // Augment hirer with live stats
+    if (user.role === "HIRER") {
+      const [bookingStats, paymentStats, reviewStats] = await Promise.all([
+        prisma.booking.aggregate({
+          where: { hirerId: user.id },
+          _count: { id: true },
+        }),
+        prisma.payment.aggregate({
+          where: { booking: { hirerId: user.id }, status: "RELEASED" },
+          _sum: { amount: true },
+        }),
+        prisma.review.aggregate({
+          where: { receiverId: user.id },
+          _avg: { rating: true },
+          _count: { id: true },
+        }),
+      ]);
+
+      user.hirerStats = {
+        totalHires: bookingStats._count.id ?? 0,
+        totalSpent: paymentStats._sum.amount ?? 0,
+        avgRating: reviewStats._avg.rating ?? 0,
+        totalReviews: reviewStats._count.id ?? 0,
+      };
+    }
+
     return sendResponse(res, { data: { user } });
   } catch (err) {
+    console.error("getProfile error:", err);
     return sendError(res, "Failed to fetch profile");
   }
 };
