@@ -275,7 +275,6 @@ export const nearbyWorkers = async (req, res) => {
       language,
       gender,
       verification,
-      page = 1,
       limit = 20,
     } = req.query;
 
@@ -284,60 +283,83 @@ export const nearbyWorkers = async (req, res) => {
 
     const latitude = parseFloat(lat);
     const longitude = parseFloat(lng);
-    const radiusKm = parseFloat(radius);
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const requestedRadius = parseFloat(radius);
 
-    const latDelta = radiusKm / 111;
-    const lngDelta = radiusKm / (111 * Math.cos((latitude * Math.PI) / 180));
-
-    const where = {
-      isAvailable: true,
-      ...(verification && { verificationStatus: verification.toUpperCase() }),
-      ...(category && {
-        categories: { some: { category: { slug: category } } },
-      }),
-      user: {
-        isActive: true,
-        isBanned: false,
-        latitude: { gte: latitude - latDelta, lte: latitude + latDelta },
-        longitude: { gte: longitude - lngDelta, lte: longitude + lngDelta },
-        ...(language && {
-          language: { contains: language, mode: "insensitive" },
+    const buildWhere = (km) => {
+      const latDelta = km / 111;
+      const lngDelta = km / (111 * Math.cos((latitude * Math.PI) / 180));
+      return {
+        isAvailable: true,
+        ...(verification && { verificationStatus: verification.toUpperCase() }),
+        ...(category && {
+          categories: { some: { category: { slug: category } } },
         }),
-        ...(gender && { gender: gender }),
+        user: {
+          isActive: true,
+          isBanned: false,
+          latitude: { gte: latitude - latDelta, lte: latitude + latDelta },
+          longitude: { gte: longitude - lngDelta, lte: longitude + lngDelta },
+          ...(language && {
+            language: { contains: language, mode: "insensitive" },
+          }),
+          ...(gender && { gender }),
+        },
+      };
+    };
+
+    const include = {
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          avatar: true,
+          city: true,
+          state: true,
+          country: true,
+          latitude: true,
+          longitude: true,
+          language: true,
+        },
+      },
+      categories: {
+        take: 3,
+        include: {
+          category: { select: { name: true, slug: true, icon: true } },
+        },
       },
     };
 
-    const [workers, total] = await Promise.all([
-      prisma.workerProfile.findMany({
-        where,
-        skip,
+    const orderBy = [{ avgRating: "desc" }, { completedJobs: "desc" }];
+
+    // Progressive expansion: street → city → state → country
+    const radiusLevels = [
+      { km: requestedRadius, label: "nearby" },
+      { km: 50, label: "city" },
+      { km: 150, label: "state" },
+      { km: 500, label: "country" },
+    ];
+
+    let workers = [];
+    let usedRadius = requestedRadius;
+    let expansionNote = null;
+
+    for (const level of radiusLevels) {
+      if (level.km < requestedRadius) continue; // don't go smaller than requested
+      const found = await prisma.workerProfile.findMany({
+        where: buildWhere(level.km),
         take: parseInt(limit),
-        include: {
-          user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              avatar: true,
-              city: true,
-              country: true,
-              latitude: true,
-              longitude: true,
-              language: true,
-            },
-          },
-          categories: {
-            take: 3,
-            include: {
-              category: { select: { name: true, slug: true, icon: true } },
-            },
-          },
-        },
-        orderBy: [{ avgRating: "desc" }, { completedJobs: "desc" }],
-      }),
-      prisma.workerProfile.count({ where }),
-    ]);
+        include,
+        orderBy,
+      });
+      if (found.length > 0) {
+        workers = found;
+        usedRadius = level.km;
+        if (level.km > requestedRadius)
+          expansionNote = `No workers found within ${requestedRadius}km. Showing workers within ${level.km}km.`;
+        break;
+      }
+    }
 
     const withDistance = workers
       .map((w) => ({
@@ -359,10 +381,9 @@ export const nearbyWorkers = async (req, res) => {
     return sendResponse(res, {
       data: {
         workers: withDistance,
-        total,
-        page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
-        searchCenter: { latitude, longitude, radiusKm },
+        total: withDistance.length,
+        searchCenter: { latitude, longitude, radiusKm: usedRadius },
+        expansionNote,
       },
     });
   } catch (err) {
@@ -467,44 +488,45 @@ export const getFilterOptions = async (req, res) => {
       }),
     };
 
-    const [rateRange, locations, categories, languages] = await Promise.all([
-      prisma.workerProfile.aggregate({
-        where: workerWhere,
-        _min: { hourlyRate: true },
-        _max: { hourlyRate: true },
-        _avg: { hourlyRate: true },
-      }),
-      prisma.user.findMany({
-        where: {
-          role: "WORKER",
-          isActive: true,
-          isBanned: false,
-          ...(country && {
-            country: { contains: country, mode: "insensitive" },
-          }),
-        },
-        select: { city: true, country: true },
-        distinct: ["city"],
-        take: 50,
-      }),
-      prisma.category.findMany({
-        include: { _count: { select: { workers: true } } },
-        orderBy: { workers: { _count: "desc" } },
-        take: 20,
-      }),
+    const [rateRange, locations, categories, languageUsers] = await Promise.all(
+      [
+        prisma.workerProfile.aggregate({
+          where: workerWhere,
+          _min: { hourlyRate: true },
+          _max: { hourlyRate: true },
+          _avg: { hourlyRate: true },
+        }),
+        prisma.user.findMany({
+          where: {
+            role: "WORKER",
+            isActive: true,
+            isBanned: false,
+            ...(country && {
+              country: { contains: country, mode: "insensitive" },
+            }),
+          },
+          select: { city: true, country: true },
+          distinct: ["city"],
+          take: 50,
+        }),
+        prisma.category.findMany({
+          include: { _count: { select: { workers: true } } },
+          orderBy: { workers: { _count: "desc" } },
+          take: 500, // ← return all categories, not just 20
+        }),
+        // ← Fix: don't filter by language, just fetch and dedupe in JS
+        prisma.user.findMany({
+          where: { role: "WORKER", isActive: true, isBanned: false },
+          select: { language: true },
+          take: 500,
+        }),
+      ],
+    );
 
-      // Distinct languages from worker users
-      prisma.user.findMany({
-        where: {
-          role: "WORKER",
-          isActive: true,
-          isBanned: false,
-          language: { not: null }, // ← THIS is the error
-        },
-        select: { language: true },
-        distinct: ["language"],
-      }),
-    ]);
+    // Dedupe languages in JS, filter nulls/empties here instead of in Prisma
+    const languages = [
+      ...new Set(languageUsers.map((u) => u.language).filter(Boolean)),
+    ].sort();
 
     return sendResponse(res, {
       data: {
@@ -514,9 +536,9 @@ export const getFilterOptions = async (req, res) => {
           avg: Math.round(rateRange._avg.hourlyRate || 0),
         },
         locations: locations.map((u) => ({ city: u.city, country: u.country })),
-        categories,
+        categories, // full list now
+        languages,
         ratings: [5, 4, 3],
-        languages: languages.map((u) => u.language).filter(Boolean),
         genders: ["Male", "Female", "Non-binary", "Prefer not to say"],
         verifications: [
           { value: "VERIFIED", label: "Verified ✅" },
