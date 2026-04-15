@@ -19,13 +19,15 @@ export const getConversations = async (req, res) => {
           },
         },
         messages: { orderBy: { createdAt: "desc" }, take: 1 },
-        // ← count unread messages addressed to this user
-        _count: false,
+        // ← REMOVED _count: false   (invalid Prisma — was breaking unread counts for Hirers)
       },
       orderBy: { updatedAt: "desc" },
     });
 
-    // Add unread count per conversation
+    if (convos.length === 0) {
+      return sendResponse(res, { data: { conversations: [] } });
+    }
+
     const unreadCounts = await prisma.message.groupBy({
       by: ["conversationId"],
       where: {
@@ -46,10 +48,12 @@ export const getConversations = async (req, res) => {
 
     return sendResponse(res, { data: { conversations: result } });
   } catch (err) {
+    console.error("getConversations error:", err);
     return sendError(res, "Failed to fetch conversations");
   }
 };
 
+// In getMessages — REMOVE the updateMany, just fetch:
 export const getMessages = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
@@ -65,14 +69,7 @@ export const getMessages = async (req, res) => {
       },
       orderBy: { createdAt: "asc" },
     });
-    await prisma.message.updateMany({
-      where: {
-        conversationId: req.params.conversationId,
-        receiverId: req.user.id,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
+    // ← No more updateMany here
     return sendResponse(res, { data: { messages } });
   } catch (err) {
     return sendError(res, "Failed to fetch messages");
