@@ -54,6 +54,7 @@ export const getConversations = async (req, res) => {
 };
 
 // In getMessages — REMOVE the updateMany, just fetch:
+// In getMessages — REMOVE the updateMany, just fetch:
 export const getMessages = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
