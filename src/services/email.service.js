@@ -1,41 +1,34 @@
 // src/services/email.service.js
 import nodemailer from "nodemailer";
-// ── Transporter ───────────────────────────────────────────────────────────────
-let transporter;
+import { Resend } from "resend";
 
-// function getTransporter() {
-//   // Read env fresh every call until transporter is built with valid creds.
-//   // This avoids the dotenv timing bug where this file is imported before
-//   // dotenv has populated process.env.
-//   const user = (process.env.SMTP_USER || "").trim();
-//   const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+// ── Provider selection ───────────────────────────────────────────────────────
+// Use Resend when RESEND_API_KEY is present (production on Railway).
+// Fall back to Gmail SMTP for local development (no Resend key needed locally).
+//
+// Why: Railway blocks outbound SMTP to Gmail (and Gmail throttles datacenter
+// IPs anyway). Resend is built for transactional sending and works everywhere.
+const useResend = !!process.env.RESEND_API_KEY;
 
-//   if (!transporter || !user || !pass) {
-//     transporter = nodemailer.createTransport({
-//       host: "smtp.gmail.com",
-//       port: 587,
-//       secure: false, // STARTTLS on port 587
-//       family: 4, // Force IPv4 — prevents ENETUNREACH
-//       auth: { user, pass },
-//       tls: { rejectUnauthorized: false },
-//     });
-//   }
-//   return transporter;
-// }
+let resend = null;
+let transporter = null;
 
-// Replace your existing getTransporter() function in email.service.js with this one.
-// Tries port 465 (SSL) first, falls back gracefully.
+function getResend() {
+  if (!resend) resend = new Resend(process.env.RESEND_API_KEY);
+  return resend;
+}
 
 function getTransporter() {
   const user = (process.env.SMTP_USER || "").trim();
   const pass = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
 
   if (!transporter || !user || !pass) {
+    const port = Number(process.env.SMTP_PORT) || 465;
     transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465, // ← changed from 587 to 465
-      secure: true, // ← changed from false to true (SSL, not STARTTLS)
-      family: 4,
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port,
+      secure: port === 465, // SSL on 465, STARTTLS on 587
+      family: 4, // Force IPv4 — prevents ENETUNREACH
       auth: { user, pass },
       tls: { rejectUnauthorized: false },
       connectionTimeout: 10000,
@@ -46,10 +39,19 @@ function getTransporter() {
   return transporter;
 }
 
-// Add `sendJobApplicationEmail` to your `email.service.js` — it's called in `applyToJob`.
-
-// Call this from server.js AFTER dotenv has loaded env vars
+// Call this from server.js AFTER dotenv has loaded env vars.
 export function verifyEmailTransporter() {
+  if (useResend) {
+    console.log("📧 Email provider: Resend");
+    if (!process.env.EMAIL_FROM) {
+      console.warn(
+        "⚠️  EMAIL_FROM not set — Resend will reject sends. Set it to a verified domain.",
+      );
+    }
+    return;
+  }
+
+  console.log("📧 Email provider: Gmail SMTP (local dev)");
   transporter = null; // force rebuild with now-loaded env vars
   getTransporter().verify((error) => {
     if (error) {
@@ -122,19 +124,45 @@ function baseTemplate({ title, preheader, body }) {
 </html>`;
 }
 
-// ── Core send function ────────────────────────────────────────────────────────
+// ── Core send function — used by every send*Email export ─────────────────────
 async function sendEmail({ to, subject, html }) {
+  const fromAddress = (process.env.EMAIL_FROM || "").trim();
+  if (!fromAddress) {
+    console.error("❌ EMAIL_FROM env var is not set");
+    return { success: false, error: "EMAIL_FROM not configured" };
+  }
+  const from = `SkilledProz <${fromAddress}>`;
+
   try {
-    const info = await getTransporter().sendMail({
-      from: `"SkilledProz" <${process.env.EMAIL_FROM}>`,
-      to,
-      subject,
-      html,
-    });
+    if (useResend) {
+      const { data, error } = await getResend().emails.send({
+        from,
+        to,
+        subject,
+        html,
+      });
+      if (error) {
+        // Resend returns errors in the result object instead of throwing
+        throw new Error(
+          typeof error === "string"
+            ? error
+            : error.message || JSON.stringify(error),
+        );
+      }
+      console.log(`📧 Email sent to ${to} — ${data?.id}`);
+      return { success: true, messageId: data?.id };
+    }
+
+    const info = await getTransporter().sendMail({ from, to, subject, html });
     console.log(`📧 Email sent to ${to} — ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error(`❌ Email failed to ${to}:`, error.message);
+    // Verbose logging so production failures are visible in Railway logs
+    console.error(`❌ Email failed to ${to} | subject: "${subject}"`);
+    console.error("   provider:", useResend ? "Resend" : "SMTP");
+    console.error("   error:", error.message);
+    if (error.code) console.error("   code:", error.code);
+    if (error.statusCode) console.error("   status:", error.statusCode);
     return { success: false, error: error.message };
   }
 }
