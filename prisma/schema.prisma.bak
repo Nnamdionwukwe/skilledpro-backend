@@ -407,7 +407,7 @@ model JobPost {
   categoryId     String
   title          String
   description    String
-  address        String
+  address        String?
   latitude       Float?
   longitude      Float?
   scheduledAt    DateTime
@@ -424,6 +424,12 @@ estimatedValue String?
   hirer        User             @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
   category     Category         @relation(fields: [categoryId], references: [id])
   applications JobApplication[]
+  jobType      JobType      @default(FULL_TIME)
+  locationType LocationType @default(REMOTE)
+  budgetType   BudgetType   @default(FIXED)
+  durationType DurationType @default(HOURS)
+  durationValue String?
+  skills        String[]    @default([])
 }
 
 enum SubscriptionTier {
@@ -569,4 +575,33 @@ model VideoCall {
   startedAt    DateTime?
   endedAt      DateTime?
   createdAt    DateTime @default(now())
+}
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+}
+
+enum LocationType {
+  REMOTE
+  ON_SITE
+  HYBRID
+}
+
+enum BudgetType {
+  FIXED
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum DurationType {
+  HOURS
+  DAYS
+  WEEKS
+  MONTHS
+  CUSTOM
 }
