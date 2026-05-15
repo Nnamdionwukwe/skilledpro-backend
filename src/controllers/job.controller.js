@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import {
@@ -15,27 +14,47 @@ export const createJobPost = async (req, res) => {
       categoryId,
       title,
       description,
+      // location
+      locationType = "REMOTE",
       address,
       latitude,
       longitude,
-      scheduledAt,
+      // job meta
+      jobType = "FULL_TIME",
+      scheduledAt, // legacy field name
+      startDate, // app sends this
       estimatedHours,
       estimatedUnit,
       estimatedValue,
+      // payment / duration
+      budgetType = "FIXED",
       budget,
       currency,
+      durationType = "HOURS",
+      durationValue,
+      // extras
+      skills = [],
       notes,
     } = req.body;
 
-    if (
-      !categoryId ||
-      !title ||
-      !description ||
-      !address ||
-      !scheduledAt ||
-      !budget
-    ) {
-      return sendError(res, "Please provide all required fields", 400);
+    // Resolve date — app sends startDate, legacy sends scheduledAt
+    const resolvedDate = scheduledAt || startDate;
+
+    // ── Validation ────────────────────────────────────────────────────────────
+    const missing = [];
+    if (!categoryId) missing.push("categoryId");
+    if (!title) missing.push("title");
+    if (!description) missing.push("description");
+    if (!resolvedDate) missing.push("startDate");
+    if (!budget) missing.push("budget");
+    if (locationType !== "REMOTE" && !address) missing.push("address");
+
+    if (missing.length) {
+      return sendError(
+        res,
+        `Missing required fields: ${missing.join(", ")}`,
+        400,
+      );
     }
 
     const category = await prisma.category.findUnique({
@@ -49,15 +68,21 @@ export const createJobPost = async (req, res) => {
         categoryId,
         title,
         description,
-        address,
+        locationType,
+        address: locationType !== "REMOTE" ? address : null,
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
-        scheduledAt: new Date(scheduledAt),
+        jobType,
+        scheduledAt: new Date(resolvedDate),
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
         estimatedUnit: estimatedUnit || "hours",
         estimatedValue: estimatedValue ? String(estimatedValue) : null,
+        budgetType,
         budget: parseFloat(budget),
         currency: currency || "NGN",
+        durationType,
+        durationValue: durationValue ? String(durationValue) : null,
+        skills: Array.isArray(skills) ? skills : [],
         notes: notes || null,
       },
       include: {
@@ -69,6 +94,7 @@ export const createJobPost = async (req, res) => {
       },
     });
 
+    // ── Notify matching workers (fire-and-forget) ─────────────────────────────
     prisma.workerCategory
       .findMany({
         where: { categoryId, workerProfile: { isAvailable: true } },
@@ -120,7 +146,7 @@ export const createJobPost = async (req, res) => {
       data: { jobPost },
     });
   } catch (err) {
-    console.error(err);
+    console.error("createJobPost error:", err);
     return sendError(res, "Failed to post job");
   }
 };
@@ -137,6 +163,9 @@ export const getJobPosts = async (req, res) => {
       minBudget,
       maxBudget,
       currency,
+      jobType,
+      locationType,
+      budgetType,
       page = 1,
       limit = 20,
     } = req.query;
@@ -154,7 +183,12 @@ export const getJobPosts = async (req, res) => {
       ...(minBudget && { budget: { gte: parseFloat(minBudget) } }),
       ...(maxBudget && { budget: { lte: parseFloat(maxBudget) } }),
       ...(currency && { currency }),
-      ...(city && { hirer: { city: { contains: city, mode: "insensitive" } } }),
+      ...(jobType && { jobType }),
+      ...(locationType && { locationType }),
+      ...(budgetType && { budgetType }),
+      ...(city && {
+        hirer: { city: { contains: city, mode: "insensitive" } },
+      }),
       ...(country && {
         hirer: { country: { contains: country, mode: "insensitive" } },
       }),
