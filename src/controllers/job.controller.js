@@ -57,6 +57,16 @@ export const createJobPost = async (req, res) => {
       );
     }
 
+    // Validate the date is actually parseable — prevents new Date("Bsbdbd")
+    const parsedDate = new Date(resolvedDate);
+    if (isNaN(parsedDate.getTime())) {
+      return sendError(
+        res,
+        "Invalid start date. Please use YYYY-MM-DD format (e.g. 2025-09-01)",
+        400,
+      );
+    }
+
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
     });
@@ -73,7 +83,7 @@ export const createJobPost = async (req, res) => {
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
         jobType,
-        scheduledAt: new Date(resolvedDate),
+        scheduledAt: parsedDate, // ← use validated Date object
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
         estimatedUnit: estimatedUnit || "hours",
         estimatedValue: estimatedValue ? String(estimatedValue) : null,
