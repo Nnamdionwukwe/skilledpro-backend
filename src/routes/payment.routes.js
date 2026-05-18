@@ -17,6 +17,7 @@ import {
   confirmBankTransfer,
   initiateCryptoPayment,
   confirmCryptoPayment,
+  initiateStripeCheckout,
 } from "../controllers/payment.controller.js";
 
 const router = Router();
@@ -33,6 +34,13 @@ router.get("/verify/paystack", verifyPaystack);
 
 // ── All below require auth ────────────────────────────────────────────────────
 router.use(protect);
+
+router.post(
+  "/initiate-checkout/:bookingId",
+  requireRole("HIRER"),
+  initiateStripeCheckout,
+);
+//
 
 // Hirer: initiate payment
 router.post(
