@@ -72,7 +72,12 @@ app.use(
 );
 
 // ── Security & logging ────────────────────────────────────────────────────────
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+    crossOriginOpenerPolicy: false,
+  }),
+);
 app.use(morgan("dev"));
 
 // ── Body parsers ──────────────────────────────────────────────────────────────
