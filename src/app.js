@@ -27,55 +27,62 @@ import videoCallRoutes from "./routes/videocall.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import translateRoutes from "./routes/translate.routes.js";
 
-// NOTE: dotenv is NOT called here — server.js handles it first before importing this file.
-// Calling dotenv.config() here runs at import time, before server.js sets it up.
+// NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
+// before this file is imported.
 
 const app = express();
 
-// ── Stripe webhook needs raw body — must be before express.json() ─────────────
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// Single cors() call — handles both regular requests AND OPTIONS preflight.
+// Never call cors() a second time anywhere (no app.options + cors(), no per-router cors()).
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin: mobile apps, server-to-server, curl, Postman
+    if (!origin) return callback(null, true);
+
+    const allowed = [
+      process.env.CLIENT_URL, // set in .env, e.g. https://www.skilledproz.com
+      "http://localhost:3000",
+      "http://localhost:5173", // Vite dev
+      "http://localhost:4173", // Vite preview
+      "https://www.skilledproz.com",
+      "https://skilledproz.com",
+    ].filter(Boolean);
+
+    if (allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked origin: ${origin}`);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+
+// ── Stripe webhook — raw body BEFORE express.json() ───────────────────────────
+// Stripe requires the raw, unparsed body to verify the webhook signature.
+// This must come before express.json() so the body is not consumed first.
 app.use(
   "/api/payments/webhook/stripe",
   express.raw({ type: "application/json" }),
 );
-app.options("/{*path}", cors());
 
 // ── Security & logging ────────────────────────────────────────────────────────
 app.use(helmet());
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-
-      const allowed = [
-        process.env.CLIENT_URL, // e.g. http://localhost:3000
-        "http://localhost:3000",
-        "http://localhost:5173", // Vite default dev port
-        "http://localhost:4173", // Vite preview port
-        "https://www.skilledproz.com",
-        "https://skilledproz.com",
-      ].filter(Boolean);
-
-      if (allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.warn(`CORS blocked: ${origin}`);
-        callback(new Error(`CORS: origin ${origin} not allowed`));
-      }
-      console.log("Incoming origin:", origin); // ← add this
-    },
-    credentials: true,
-  }),
-);
-
 app.use(morgan("dev"));
+
+// ── Body parsers ──────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));
+// ── Health check ──────────────────────────────────────────────────────────────
+app.get("/", (_req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));
 
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/workers", workerRoutes);
@@ -100,7 +107,7 @@ app.use("/api/video-calls", videoCallRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/translate", translateRoutes);
 
-// ── Error handler (must be last) ──────────────────────────────────────────────
+// ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 
 export default app;

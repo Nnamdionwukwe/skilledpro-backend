@@ -1215,35 +1215,3 @@ export const initiateStripeCheckout = asyncHandler(async (req, res) => {
     data: { url: session.url, sessionId: session.id },
   });
 });
-
-// ── ADD TO src/routes/payment.routes.js ──────────────────────────────────────
-// Import:
-//   import { ..., initiateStripeCheckout } from "../controllers/payment.controller.js";
-//
-// Add BEFORE the existing /initiate/:bookingId route:
-//   router.post("/initiate-checkout/:bookingId", requireRole("HIRER"), initiateStripeCheckout);
-//
-// ── ADD TO stripeWebhook switch (payment.controller.js) ──────────────────────
-// Add this case alongside the existing payment_intent.succeeded case:
-//
-//   case "checkout.session.completed": {
-//     const session   = event.data.object;
-//     const bookingId = session.metadata?.booking_id;
-//     if (session.payment_status === "paid" && bookingId) {
-//       const payment = await prisma.payment.findFirst({ where: { bookingId } });
-//       if (payment) {
-//         await prisma.payment.update({ where: { id: payment.id }, data: { status: "HELD" } });
-//         const b = await prisma.booking.findUnique({
-//           where: { id: bookingId }, select: { workerId: true, title: true }
-//         });
-//         if (b) await prisma.notification.create({ data: {
-//           userId: b.workerId,
-//           title:  "Payment Received 💳",
-//           body:   `Payment for "${b.title}" is held in escrow. You can now check in.`,
-//           type:   "PAYMENT_HELD",
-//           data:   { bookingId },
-//         }});
-//       }
-//     }
-//     break;
-//   }
