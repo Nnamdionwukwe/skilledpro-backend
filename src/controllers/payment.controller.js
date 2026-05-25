@@ -973,20 +973,28 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
 // ── Crypto — GET wallet details only, no DB record ────────────────────────────
 const CRYPTO_WALLETS = {
   USDC: {
-    network: "Ethereum",
-    address: process.env.CRYPTO_WALLET_USDC || "0xYourUSDCWalletAddress",
+    network: "BSC (BEP20)",
+    address:
+      process.env.CRYPTO_WALLET_USDC ||
+      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
   },
   USDT: {
-    network: "Tron (TRC20)",
-    address: process.env.CRYPTO_WALLET_USDT || "TYourUSDTWalletAddress",
+    network: "BSC (BEP20)",
+    address:
+      process.env.CRYPTO_WALLET_USDT ||
+      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
   },
   BTC: {
     network: "Bitcoin",
-    address: process.env.CRYPTO_WALLET_BTC || "bc1YourBTCWalletAddress",
+    address:
+      process.env.CRYPTO_WALLET_BTC ||
+      "bc1q06xe25nfy7ys3x5rxk67xdh48dx3qqy4scnu8z",
   },
   ETH: {
-    network: "Ethereum",
-    address: process.env.CRYPTO_WALLET_ETH || "0xYourETHWalletAddress",
+    network: "BSC (BEP20)",
+    address:
+      process.env.CRYPTO_WALLET_ETH ||
+      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
   },
 };
 
