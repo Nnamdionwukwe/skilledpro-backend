@@ -9,6 +9,8 @@ import {
 } from "../services/payment.service.js";
 import Stripe from "stripe";
 
+import { FEE_CONFIG } from "../config/fees.js";
+
 // ── Lazy Stripe init — avoids crash if env not loaded yet ────────────────────
 let _stripe;
 function getStripe() {
@@ -854,10 +856,13 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
-  // ── Compute 10% platform fee — hirer pays amount + fee ───────────────────
-  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
-  const workerPayout = booking.agreedRate; // worker gets full agreedRate
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+
   const reference = `BT-${bookingId}-${Date.now()}`;
 
   // ── Return bank details ONLY — no DB write yet ────────────────────────────
@@ -913,9 +918,12 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     await prisma.payment.delete({ where: { id: booking.payment.id } });
   }
 
-  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
-  const workerPayout = booking.agreedRate;
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
 
   // ── NOW create the payment record — hirer has confirmed they transferred ──
   const payment = await prisma.payment.create({
@@ -1014,9 +1022,13 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
   // ── 10% platform fee — hirer sends agreedRate + 10% ──────────────────────
-  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
-  const workerPayout = booking.agreedRate;
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+
   const reference = `CRYPTO-${bookingId}-${Date.now()}`;
 
   // ── Return wallet details ONLY — no DB write yet ─────────────────────────
@@ -1168,9 +1180,12 @@ export const initiateStripeCheckout = asyncHandler(async (req, res) => {
       .catch(() => {});
   }
 
-  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
-  const workerPayout = booking.agreedRate;
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
   const currency = (booking.currency ?? "USD").toLowerCase();
 
   const session = await getStripe().checkout.sessions.create({

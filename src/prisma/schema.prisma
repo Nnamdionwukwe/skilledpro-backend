@@ -291,6 +291,8 @@ model Payment {
   cryptoWallet         String?
   cryptoAmount         Float?
   cryptoCurrency       String?
+
+   feePhase  Int?  @default(1)   // ← ADD THIS — tracks which fee phase was applied
 } 
 
 
@@ -422,13 +424,23 @@ model Subscription {
   role       SubscriptionRole
   status     SubscriptionStatus @default(ACTIVE)
   price      Float              @default(0)
-  currency   String             @default("USD")
+  currency   String             @default("NGN")         // ← CHANGE from "USD" to "NGN"
   startedAt  DateTime           @default(now())
   expiresAt  DateTime?
   autoRenew  Boolean            @default(false)
   reference  String?
-  stripeSessionId  String?
+  stripeSessionId      String?
   stripeSubscriptionId String?
+
+  // ── Paystack fields — ADD ALL OF THESE ───────────────────────────────
+  paystackSubscriptionCode String?
+  paystackCustomerCode     String?
+  paystackPlanCode         String?
+  paystackEmailToken       String?
+  nextPaymentDate          DateTime?
+  paystackStatus           String?
+  // ─────────────────────────────────────────────────────────────────────
+
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
 }
