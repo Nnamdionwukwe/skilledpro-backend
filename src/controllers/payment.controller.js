@@ -1,24 +1,43 @@
 // src/controllers/payment.controller.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Global multi-provider payment controller for SkilledProz
+//
+// Payment initiation:
+//   NGN              → Paystack (best-in-class for Nigeria)
+//   All other FX     → Flutterwave (30+ currencies, 150+ countries)
+//
+// Withdrawal / payout:
+//   NGN (Nigeria)    → Paystack Transfer API
+//   Other African    → Flutterwave Transfer API
+//   International    → Flutterwave Transfer API
+//   Mobile Money     → Flutterwave Transfer API
+//   Crypto           → Recorded; admin dispatches off-chain
+// ─────────────────────────────────────────────────────────────────────────────
+
+import crypto from "crypto";
 import prisma from "../config/database.js";
 import { asyncHandler } from "../middleware/error.middleware.js";
-import {
-  initiatePayment,
-  verifyPaystackPayment,
-  releaseEscrow,
-  processRefund,
-} from "../services/payment.service.js";
-import Stripe from "stripe";
-
 import { FEE_CONFIG } from "../config/fees.js";
 
-// ── Lazy Stripe init — avoids crash if env not loaded yet ────────────────────
-let _stripe;
-function getStripe() {
-  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  return _stripe;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// § 1  CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY;
+const FLW_BASE = "https://api.flutterwave.com/v3";
+const FLW_ENC_KEY = process.env.FLUTTERWAVE_ENCRYPTION_KEY;
 
-// ── Supported currencies (fiat + stablecoin) ─────────────────────────────────
+const PS_SECRET = process.env.PAYSTACK_SECRET_KEY;
+const PS_BASE = "https://api.paystack.co";
+
+const CLIENT_URL = process.env.CLIENT_URL ?? "http://localhost:5173";
+
+// Currencies handled by Paystack (NGN primary; others via FLW)
+const PAYSTACK_CURRENCIES = new Set(["NGN"]);
+
+// African countries whose banks are in Paystack (others via FLW)
+const PAYSTACK_COUNTRIES = new Set(["NG"]);
+
+// All supported fiat + stablecoins for display / validation
 export const SUPPORTED_CURRENCIES = [
   "USD",
   "EUR",
@@ -55,53 +74,242 @@ export const SUPPORTED_CURRENCIES = [
   "USDC",
   "USDT",
 ];
+export const CRYPTO_CURRENCIES = ["USDC", "USDT", "BTC", "ETH"];
 
-export const CRYPTO_CURRENCIES = ["USDC", "USDT"];
+// ─────────────────────────────────────────────────────────────────────────────
+// § 2  FLUTTERWAVE HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ── Initiate payment ──────────────────────────────────────────────────────────
-// export const initiateBookingPayment = asyncHandler(async (req, res) => {
-//   const { bookingId } = req.params;
-//   const hirerId = req.user.id;
+// Generic FLW API call
+async function flw(method, path, body = null) {
+  const res = await fetch(`${FLW_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${FLW_SECRET}`,
+      "Content-Type": "application/json",
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return res.json();
+}
 
-//   const booking = await prisma.booking.findUnique({
-//     where: { id: bookingId },
-//     include: { payment: true },
-//   });
+// Generate a standard Flutterwave payment link
+async function flwInitiatePayment({
+  txRef,
+  amount,
+  currency,
+  email,
+  name,
+  bookingId,
+  redirectUrl,
+}) {
+  return flw("POST", "/payments", {
+    tx_ref: txRef,
+    amount,
+    currency,
+    redirect_url: redirectUrl,
+    customer: { email, name },
+    customizations: {
+      title: "SkilledProz",
+      description: "Secure escrow payment",
+      logo: `${CLIENT_URL}/logo.png`,
+    },
+    meta: { booking_id: bookingId },
+  });
+}
 
-//   if (!booking)
-//     return res
-//       .status(404)
-//       .json({ success: false, message: "Booking not found" });
-//   if (booking.hirerId !== hirerId)
-//     return res
-//       .status(403)
-//       .json({ success: false, message: "Not your booking" });
-//   if (booking.payment)
-//     return res
-//       .status(400)
-//       .json({ success: false, message: "Payment already initiated" });
-//   if (booking.status !== "ACCEPTED")
-//     return res.status(400).json({
-//       success: false,
-//       message: "Booking must be accepted before payment",
-//     });
+// Verify a FLW transaction by tx_ref or transaction_id
+async function flwVerifyTransaction(transactionId) {
+  return flw("GET", `/transactions/${transactionId}/verify`);
+}
 
-//   const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
-//   const result = await initiatePayment({ booking, hirer });
+// Verify via tx_ref (used in redirect callback)
+async function flwVerifyByTxRef(txRef) {
+  const result = await flw("GET", `/transactions?tx_ref=${txRef}`);
+  if (result.status !== "success" || !result.data?.length) return null;
+  return result.data[0];
+}
 
-//   res
-//     .status(200)
-//     .json({ success: true, message: "Payment initiated", data: result });
-// });
+// Initiate a bank transfer payout via Flutterwave
+async function flwTransfer({
+  accountBank,
+  accountNumber,
+  amount,
+  currency,
+  narration,
+  reference,
+  meta,
+}) {
+  return flw("POST", "/transfers", {
+    account_bank: accountBank,
+    account_number: accountNumber,
+    amount,
+    currency,
+    narration,
+    reference,
+    debit_currency: currency,
+    callback_url: `${process.env.API_URL ?? "http://localhost:4000"}/api/payments/webhook/flutterwave`,
+    ...(meta ? { meta } : {}),
+  });
+}
 
-// In payment.controller.js — replace initiateBookingPayment
+// Initiate a mobile money payout via Flutterwave
+async function flwMobileTransfer({
+  accountNumber,
+  amount,
+  currency,
+  narration,
+  reference,
+}) {
+  return flw("POST", "/transfers", {
+    account_bank: currency === "GHS" ? "MTN" : "AIRTEL",
+    account_number: accountNumber, // phone number
+    amount,
+    currency,
+    narration,
+    reference,
+    debit_currency: currency,
+  });
+}
+
+// List banks for a country via Flutterwave
+async function flwGetBanks(countryCode) {
+  return flw("GET", `/banks/${countryCode.toUpperCase()}`);
+}
+
+// Verify a bank account via Flutterwave
+async function flwVerifyAccount(accountNumber, bankCode) {
+  return flw("POST", "/accounts/resolve", {
+    account_number: accountNumber,
+    account_bank: bankCode,
+  });
+}
+
+// Poll Flutterwave transfer status
+async function flwGetTransfer(transferId) {
+  return flw("GET", `/transfers/${transferId}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 3  PAYSTACK HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ps(method, path, body = null) {
+  const res = await fetch(`${PS_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${PS_SECRET}`,
+      "Content-Type": "application/json",
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return res.json();
+}
+
+async function psInitializePayment({
+  email,
+  amount,
+  reference,
+  currency,
+  bookingId,
+  callbackUrl,
+}) {
+  return ps("POST", "/transaction/initialize", {
+    email,
+    amount: Math.round(amount * 100), // kobo
+    reference,
+    currency,
+    callback_url: callbackUrl,
+    metadata: {
+      booking_id: bookingId,
+      cancel_action: `${CLIENT_URL}/bookings/${bookingId}`,
+    },
+  });
+}
+
+async function psVerifyTransaction(reference) {
+  return ps("GET", `/transaction/verify/${reference}`);
+}
+
+// Create a Paystack Transfer Recipient (required before transfer)
+async function psCreateRecipient({ name, accountNumber, bankCode, currency }) {
+  return ps("POST", "/transferrecipient", {
+    type: "nuban",
+    name,
+    account_number: accountNumber,
+    bank_code: bankCode,
+    currency: currency ?? "NGN",
+  });
+}
+
+// Initiate a Paystack transfer
+async function psInitiateTransfer({
+  amount,
+  recipientCode,
+  reason,
+  reference,
+}) {
+  return ps("POST", "/transfer", {
+    source: "balance",
+    amount: Math.round(amount * 100), // kobo
+    recipient: recipientCode,
+    reason,
+    reference,
+  });
+}
+
+async function psGetBanks() {
+  return ps(
+    "GET",
+    "/bank?currency=NGN&pay_with_bank_transfer=true&perPage=200",
+  );
+}
+
+async function psVerifyAccount(accountNumber, bankCode) {
+  return ps(
+    "GET",
+    `/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
+  );
+}
+
+// Enable Paystack OTP for transfers (only needed if not already enabled in dashboard)
+async function psEnableTransfers(otp) {
+  return ps("POST", "/transfer/enable_otp_finalize", { otp });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 4  ROUTING LOGIC
+// ─────────────────────────────────────────────────────────────────────────────
+
+function shouldUsePaystack(currency) {
+  return PAYSTACK_CURRENCIES.has((currency ?? "").toUpperCase());
+}
+
+function getWithdrawalProvider(countryCode, method) {
+  if (method === "crypto") return "crypto";
+  if (PAYSTACK_COUNTRIES.has((countryCode ?? "").toUpperCase()))
+    return "paystack";
+  return "flutterwave";
+}
+
+function uniqueRef(prefix = "SP") {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 5  HIRER — INITIATE BOOKING PAYMENT  (smart routing)
+// POST /api/payments/initiate/:bookingId
+// ─────────────────────────────────────────────────────────────────────────────
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true },
+    include: {
+      payment: true,
+      hirer: { select: { email: true, firstName: true, lastName: true } },
+    },
   });
 
   if (!booking)
@@ -109,91 +317,209 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== hirerId)
-    return res
-      .status(403)
-      .json({ success: false, message: "Not your booking" });
+    return res.status(403).json({ success: false, message: "Forbidden" });
   if (booking.status !== "ACCEPTED")
-    return res.status(400).json({
-      success: false,
-      message: "Booking must be accepted before payment",
-    });
-
-  // ── If payment exists and is already HELD or RELEASED, block re-initiation ──
-  if (booking.payment) {
-    const { status, provider, providerRef } = booking.payment;
-
-    if (status === "HELD" || status === "RELEASED") {
-      return res.status(400).json({
+    return res
+      .status(400)
+      .json({
         success: false,
-        message:
-          status === "HELD"
-            ? "Payment is already in escrow"
-            : "Payment has already been released",
+        message: "Booking must be ACCEPTED before payment",
       });
-    }
 
-    // ── PENDING Stripe payment — return existing clientSecret instead of creating new ──
-    if (provider === "stripe" && status === "PENDING" && providerRef) {
-      try {
-        const stripe = getStripe();
-        const intent = await stripe.paymentIntents.retrieve(providerRef);
-        if (
-          intent.status === "requires_payment_method" ||
-          intent.status === "requires_confirmation"
-        ) {
-          return res.status(200).json({
-            success: true,
-            message: "Resuming existing payment",
-            data: { clientSecret: intent.client_secret },
-          });
-        }
-      } catch {
-        // Intent not retrievable — delete the stale record and create fresh
-        await prisma.payment.delete({ where: { id: booking.payment.id } });
-      }
-    }
+  // Block if already paid
+  if (booking.payment?.status === "HELD")
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment is already in escrow" });
+  if (booking.payment?.status === "RELEASED")
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment has already been released" });
 
-    // ── PENDING Paystack payment — return existing authorization URL ──
-    if (provider === "paystack" && status === "PENDING" && providerRef) {
-      // Re-verify in case it's already been paid
-      try {
-        const tx = await verifyPaystackPayment(providerRef);
-        if (tx.status === "success") {
-          // Already paid but webhook missed — mark as HELD
-          await prisma.payment.update({
-            where: { id: booking.payment.id },
-            data: { status: "HELD" },
-          });
-          return res.status(200).json({
-            success: true,
-            message: "Payment already verified and held in escrow",
-            data: { alreadyPaid: true, bookingId },
-          });
-        }
-      } catch {}
-
-      // Still pending — delete stale record so we can re-initiate cleanly
-      await prisma.payment.delete({ where: { id: booking.payment.id } });
-    }
-
-    // For any other stale PENDING/FAILED payment, delete and re-initiate
-    if (status === "PENDING" || status === "FAILED") {
-      await prisma.payment.delete({ where: { id: booking.payment.id } });
-    }
+  // Delete stale PENDING / FAILED records so we can re-initiate cleanly
+  if (
+    booking.payment &&
+    ["PENDING", "FAILED"].includes(booking.payment.status)
+  ) {
+    await prisma.payment
+      .delete({ where: { id: booking.payment.id } })
+      .catch(() => {});
   }
 
-  const hirer = await prisma.user.findUnique({ where: { id: hirerId } });
-  const result = await initiatePayment({
-    booking: { ...booking, payment: null },
-    hirer,
+  const currency = (booking.currency ?? "USD").toUpperCase();
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalAmount,
+    workerPayout,
+  } = fees;
+
+  const txRef = uniqueRef("PAY");
+  const hirerName = `${booking.hirer.firstName} ${booking.hirer.lastName}`;
+  const hirerEmail = booking.hirer.email;
+
+  // ── Route: Paystack (NGN) vs Flutterwave (everything else) ───────────────
+  if (shouldUsePaystack(currency)) {
+    // ── PAYSTACK ─────────────────────────────────────────────────────────────
+    const callbackUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=ps_ok&reference=${txRef}`;
+    const psRes = await psInitializePayment({
+      email: hirerEmail,
+      amount: totalAmount,
+      reference: txRef,
+      currency,
+      bookingId,
+      callbackUrl,
+    });
+
+    if (psRes.status !== true) {
+      return res
+        .status(502)
+        .json({ success: false, message: psRes.message ?? "Paystack error" });
+    }
+
+    await prisma.payment.create({
+      data: {
+        bookingId,
+        userId: hirerId,
+        amount: totalAmount,
+        currency,
+        platformFee,
+        workerPayout,
+        status: "PENDING",
+        provider: "paystack",
+        providerRef: txRef,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Paystack payment initiated",
+      data: {
+        provider: "paystack",
+        paymentUrl: psRes.data.authorization_url,
+        reference: txRef,
+        amount: totalAmount,
+        currency,
+      },
+    });
+  }
+
+  // ── FLUTTERWAVE ─────────────────────────────────────────────────────────────
+  const redirectUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
+  const flwRes = await flwInitiatePayment({
+    txRef,
+    amount: totalAmount,
+    currency,
+    email: hirerEmail,
+    name: hirerName,
+    bookingId,
+    redirectUrl,
   });
 
-  res
-    .status(200)
-    .json({ success: true, message: "Payment initiated", data: result });
+  if (flwRes.status !== "success") {
+    return res
+      .status(502)
+      .json({ success: false, message: flwRes.message ?? "Flutterwave error" });
+  }
+
+  await prisma.payment.create({
+    data: {
+      bookingId,
+      userId: hirerId,
+      amount: totalAmount,
+      currency,
+      platformFee,
+      workerPayout,
+      status: "PENDING",
+      provider: "flutterwave",
+      providerRef: txRef,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Flutterwave payment initiated",
+    data: {
+      provider: "flutterwave",
+      paymentUrl: flwRes.data.link,
+      txRef,
+      amount: totalAmount,
+      currency,
+    },
+  });
 });
 
-// ── Verify Paystack ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// § 6  FLUTTERWAVE REDIRECT CALLBACK
+// GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
+// ─────────────────────────────────────────────────────────────────────────────
+export const verifyFlutterwave = asyncHandler(async (req, res) => {
+  const { tx_ref, transaction_id, status } = req.query;
+
+  if (status === "cancelled") {
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment cancelled by user" });
+  }
+
+  if (!tx_ref && !transaction_id) {
+    return res
+      .status(400)
+      .json({ success: false, message: "tx_ref or transaction_id required" });
+  }
+
+  let txData;
+  if (transaction_id) {
+    const result = await flwVerifyTransaction(transaction_id);
+    txData = result.status === "success" ? result.data : null;
+  } else {
+    txData = await flwVerifyByTxRef(tx_ref);
+  }
+
+  if (!txData || txData.status !== "successful") {
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment not successful" });
+  }
+
+  const existing = await prisma.payment.findFirst({
+    where: { providerRef: tx_ref ?? txData.tx_ref },
+  });
+  if (!existing)
+    return res
+      .status(404)
+      .json({ success: false, message: "Payment record not found" });
+  if (existing.status === "HELD") {
+    return res
+      .status(200)
+      .json({
+        success: true,
+        message: "Payment already verified",
+        data: { bookingId: existing.bookingId, status: "HELD" },
+      });
+  }
+
+  await prisma.payment.update({
+    where: { id: existing.id },
+    data: { status: "HELD" },
+  });
+  await prisma.booking.update({
+    where: { id: existing.bookingId },
+    data: { status: "ACCEPTED" },
+  });
+  await _notifyPaymentHeld(existing.bookingId);
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment verified and held in escrow",
+    data: { bookingId: existing.bookingId, status: "HELD" },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 7  PAYSTACK REDIRECT CALLBACK
+// GET /api/payments/verify/paystack?reference=...
+// ─────────────────────────────────────────────────────────────────────────────
 export const verifyPaystack = asyncHandler(async (req, res) => {
   const { reference } = req.query;
   if (!reference)
@@ -201,11 +527,12 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Reference required" });
 
-  const transaction = await verifyPaystackPayment(reference);
-  if (transaction.status !== "success")
+  const result = await psVerifyTransaction(reference);
+  if (result.status !== true || result.data?.status !== "success") {
     return res
       .status(400)
       .json({ success: false, message: "Payment not successful" });
+  }
 
   const existing = await prisma.payment.findFirst({
     where: { providerRef: reference },
@@ -214,187 +541,167 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
     return res
       .status(404)
       .json({ success: false, message: "Payment record not found" });
+  if (existing.status === "HELD") {
+    return res
+      .status(200)
+      .json({
+        success: true,
+        message: "Already verified",
+        data: { bookingId: existing.bookingId },
+      });
+  }
 
-  const payment = await prisma.payment.update({
+  await prisma.payment.update({
     where: { id: existing.id },
     data: { status: "HELD" },
   });
   await prisma.booking.update({
-    where: { id: payment.bookingId },
+    where: { id: existing.bookingId },
     data: { status: "ACCEPTED" },
   });
+  await _notifyPaymentHeld(existing.bookingId);
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Payment verified and held in escrow",
-    data: { bookingId: payment.bookingId, status: "HELD" },
+    data: { bookingId: existing.bookingId, status: "HELD" },
   });
 });
 
-// ── Stripe webhook ────────────────────────────────────────────────────────────
-// export const stripeWebhook = asyncHandler(async (req, res) => {
-//   const sig = req.headers["stripe-signature"];
-//   let event;
-//   try {
-//     event = getStripe().webhooks.constructEvent(
-//       req.rawBody || req.body,
-//       sig,
-//       process.env.STRIPE_WEBHOOK_SECRET,
-//     );
-//   } catch (err) {
-//     return res
-//       .status(400)
-//       .json({ success: false, message: `Webhook error: ${err.message}` });
-//   }
+// ─────────────────────────────────────────────────────────────────────────────
+// § 8  WEBHOOKS
+// ─────────────────────────────────────────────────────────────────────────────
 
-//   switch (event.type) {
-//     case "payment_intent.amount_capturable_updated": {
-//       const payment = await prisma.payment.findFirst({
-//         where: { providerRef: event.data.object.id },
-//       });
-//       if (payment) {
-//         await prisma.payment.update({
-//           where: { id: payment.id },
-//           data: { status: "HELD" },
-//         });
-//         await prisma.booking.update({
-//           where: { id: payment.bookingId },
-//           data: { status: "ACCEPTED" },
-//         });
-//       }
-//       break;
-//     }
-//     case "payment_intent.payment_failed": {
-//       const payment = await prisma.payment.findFirst({
-//         where: { providerRef: event.data.object.id },
-//       });
-//       if (payment)
-//         await prisma.payment.update({
-//           where: { id: payment.id },
-//           data: { status: "FAILED" },
-//         });
-//       break;
-//     }
-//     default:
-//       break;
-//   }
-//   res.status(200).json({ received: true });
-// });
-
-// payment.controller.js — stripeWebhook
-export const stripeWebhook = asyncHandler(async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-  try {
-    event = getStripe().webhooks.constructEvent(
-      req.rawBody || req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET,
-    );
-  } catch (err) {
-    return res
-      .status(400)
-      .json({ success: false, message: `Webhook error: ${err.message}` });
+// POST /api/payments/webhook/flutterwave
+export const flutterwaveWebhook = asyncHandler(async (req, res) => {
+  // Verify signature
+  const hash = req.headers["verif-hash"];
+  if (hash !== process.env.FLW_WEBHOOK_HASH) {
+    return res.status(401).json({ success: false, message: "Unauthorised" });
   }
 
-  const markPaymentHeld = async (paymentIntentId) => {
+  const payload = req.body;
+  const { event, data } = payload;
+
+  // ── Charge (payment) events ──────────────────────────────────────────────
+  if (event === "charge.completed" && data?.status === "successful") {
+    const txRef = data.tx_ref;
     const payment = await prisma.payment.findFirst({
-      where: { providerRef: paymentIntentId },
+      where: { providerRef: txRef },
     });
-    if (!payment) return;
+    if (payment && payment.status !== "HELD") {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      });
+      await prisma.booking.update({
+        where: { id: payment.bookingId },
+        data: { status: "ACCEPTED" },
+      });
+      await _notifyPaymentHeld(payment.bookingId);
+    }
+  }
 
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: "HELD" },
+  // ── Transfer (payout) events ─────────────────────────────────────────────
+  if (event === "transfer.completed") {
+    const ref = data.reference;
+    const withdrawal = await prisma.withdrawal.findFirst({
+      where: { reference: ref },
     });
-
-    // ── This is the key fix: update booking so worker can check in ────────────
-    await prisma.booking.update({
-      where: { id: payment.bookingId },
-      data: { status: "ACCEPTED" }, // stays ACCEPTED — HELD payment unlocks check-in
-    });
-
-    // Notify worker that payment is confirmed
-    const booking = await prisma.booking.findUnique({
-      where: { id: payment.bookingId },
-      select: { workerId: true, title: true },
-    });
-    if (booking) {
+    if (withdrawal) {
+      await prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: data.status === "SUCCESSFUL" ? "COMPLETED" : "FAILED",
+          completedAt: data.status === "SUCCESSFUL" ? new Date() : undefined,
+        },
+      });
       await prisma.notification.create({
         data: {
-          userId: booking.workerId,
-          title: "Payment Received 💳",
-          body: `The hirer has paid for "${booking.title}". You can now check in.`,
-          type: "PAYMENT_HELD",
-          data: { bookingId: payment.bookingId },
+          userId: withdrawal.workerId,
+          title:
+            data.status === "SUCCESSFUL"
+              ? "Withdrawal Successful 💸"
+              : "Withdrawal Failed",
+          body:
+            data.status === "SUCCESSFUL"
+              ? `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been sent.`
+              : "Your withdrawal could not be processed. Contact support.",
+          type: "WITHDRAWAL_UPDATE",
+          data: { withdrawalId: withdrawal.id, status: data.status },
         },
       });
     }
-  };
-
-  switch (event.type) {
-    // Fired when capture_method = "automatic" and payment succeeds
-    case "payment_intent.succeeded":
-      await markPaymentHeld(event.data.object.id);
-      break;
-
-    case "checkout.session.completed": {
-      const session = event.data.object;
-      const bookingId = session.metadata?.booking_id;
-      if (session.payment_status === "paid" && bookingId) {
-        const payment = await prisma.payment.findFirst({
-          where: { bookingId },
-        });
-        if (payment) {
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: { status: "HELD" },
-          });
-          const b = await prisma.booking.findUnique({
-            where: { id: bookingId },
-            select: { workerId: true, title: true },
-          });
-          if (b)
-            await prisma.notification.create({
-              data: {
-                userId: b.workerId,
-                title: "Payment Received 💳",
-                body: `Payment for "${b.title}" is held in escrow. You can now check in.`,
-                type: "PAYMENT_HELD",
-                data: { bookingId },
-              },
-            });
-        }
-      }
-      break;
-    }
-
-    // Fired when capture_method = "manual" (keep for backwards compat)
-    case "payment_intent.amount_capturable_updated":
-      await markPaymentHeld(event.data.object.id);
-      break;
-
-    case "payment_intent.payment_failed": {
-      const payment = await prisma.payment.findFirst({
-        where: { providerRef: event.data.object.id },
-      });
-      if (payment) {
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: { status: "FAILED" },
-        });
-      }
-      break;
-    }
-
-    default:
-      break;
   }
 
   res.status(200).json({ received: true });
 });
 
-// ── Release escrow ────────────────────────────────────────────────────────────
+// POST /api/payments/webhook/paystack
+export const paystackWebhook = asyncHandler(async (req, res) => {
+  // Verify signature
+  const expected = crypto
+    .createHmac("sha512", PS_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
+  if (expected !== req.headers["x-paystack-signature"]) {
+    return res.status(401).json({ success: false, message: "Unauthorised" });
+  }
+
+  const { event, data } = req.body;
+
+  if (event === "charge.success") {
+    const ref = data.reference;
+    const payment = await prisma.payment.findFirst({
+      where: { providerRef: ref },
+    });
+    if (payment && payment.status !== "HELD") {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      });
+      await prisma.booking.update({
+        where: { id: payment.bookingId },
+        data: { status: "ACCEPTED" },
+      });
+      await _notifyPaymentHeld(payment.bookingId);
+    }
+  }
+
+  if (event === "transfer.success" || event === "transfer.failed") {
+    const ref = data.reference;
+    const withdrawal = await prisma.withdrawal.findFirst({
+      where: { reference: ref },
+    });
+    if (withdrawal) {
+      const succeeded = event === "transfer.success";
+      await prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: succeeded ? "COMPLETED" : "FAILED",
+          completedAt: succeeded ? new Date() : undefined,
+        },
+      });
+      await prisma.notification.create({
+        data: {
+          userId: withdrawal.workerId,
+          title: succeeded ? "Withdrawal Successful 💸" : "Withdrawal Failed",
+          body: succeeded
+            ? `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been processed.`
+            : "Your withdrawal failed. Please contact support.",
+          type: "WITHDRAWAL_UPDATE",
+        },
+      });
+    }
+  }
+
+  res.status(200).json({ received: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 9  HIRER — RELEASE ESCROW
+// POST /api/payments/release/:bookingId
+// ─────────────────────────────────────────────────────────────────────────────
 export const releasePayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
@@ -408,35 +715,53 @@ export const releasePayment = asyncHandler(async (req, res) => {
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== hirerId)
-    return res
-      .status(403)
-      .json({ success: false, message: "Not your booking" });
+    return res.status(403).json({ success: false, message: "Forbidden" });
   if (!booking.payment || booking.payment.status !== "HELD")
     return res
       .status(400)
       .json({ success: false, message: "No payment in escrow" });
 
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: { status: "COMPLETED", completedAt: new Date() },
-  });
-  const payment = await releaseEscrow(bookingId);
-  await prisma.workerProfile.update({
-    where: { userId: booking.workerId },
-    data: { completedJobs: { increment: 1 } },
+  const [payment] = await Promise.all([
+    prisma.payment.update({
+      where: { id: booking.payment.id },
+      data: { status: "RELEASED", escrowReleasedAt: new Date() },
+    }),
+    prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    }),
+    prisma.workerProfile.update({
+      where: { userId: booking.workerId },
+      data: { completedJobs: { increment: 1 } },
+    }),
+  ]);
+
+  // Notify worker
+  await prisma.notification.create({
+    data: {
+      userId: booking.workerId,
+      title: "Payment Released 🎉",
+      body: `Payment for "${booking.title}" has been released to you.`,
+      type: "PAYMENT_RELEASED",
+      data: { bookingId },
+    },
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Payment released to worker",
-    data: payment,
-  });
+  return res
+    .status(200)
+    .json({
+      success: true,
+      message: "Payment released to worker",
+      data: payment,
+    });
 });
 
-// ── Refund ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// § 10  REFUND
+// POST /api/payments/refund/:bookingId
+// ─────────────────────────────────────────────────────────────────────────────
 export const refundPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { amount } = req.body;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -447,26 +772,786 @@ export const refundPayment = asyncHandler(async (req, res) => {
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (req.user.role !== "ADMIN" && booking.hirerId !== req.user.id)
-    return res.status(403).json({ success: false, message: "Not authorised" });
+    return res.status(403).json({ success: false, message: "Forbidden" });
   if (!booking.payment)
     return res
       .status(400)
       .json({ success: false, message: "No payment found" });
 
-  const payment = await processRefund(bookingId, amount);
+  const payment = await prisma.payment.update({
+    where: { id: booking.payment.id },
+    data: { status: "REFUNDED", refundedAt: new Date() },
+  });
   await prisma.booking.update({
     where: { id: bookingId },
     data: { status: "CANCELLED" },
   });
 
-  res
+  await prisma.notification.createMany({
+    data: [
+      {
+        userId: booking.hirerId,
+        title: "Refund Issued 💰",
+        body: "Your payment has been refunded.",
+        type: "PAYMENT_REFUNDED",
+        data: { bookingId },
+      },
+      {
+        userId: booking.workerId,
+        title: "Booking Cancelled",
+        body: "The booking was cancelled and the hirer was refunded.",
+        type: "BOOKING_CANCELLED",
+        data: { bookingId },
+      },
+    ],
+  });
+
+  return res
     .status(200)
     .json({ success: true, message: "Refund processed", data: payment });
 });
 
-// ── Single booking payment ────────────────────────────────────────────────────
-export const getPayment = asyncHandler(async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// § 11  WORKER — REQUEST WITHDRAWAL
+// POST /api/payments/withdraw
+//
+// Body (bank transfer):
+//   { amount, currency, method: "bank_transfer",
+//     bankCode, bankName, accountNumber, accountName, country }
+//
+// Body (mobile money):
+//   { amount, currency, method: "mobile_money",
+//     mobileNumber, mobileName, mobileProvider, country }
+//
+// Body (crypto):
+//   { amount, currency, method: "crypto",
+//     cryptoAddress, cryptoCurrency, cryptoNetwork }
+// ─────────────────────────────────────────────────────────────────────────────
+export const requestWithdrawal = asyncHandler(async (req, res) => {
+  const workerId = req.user.id;
+  const {
+    amount,
+    currency = "NGN",
+    method = "bank_transfer",
+    // Bank transfer
+    bankCode,
+    bankName,
+    accountNumber,
+    accountName,
+    // Mobile money
+    mobileNumber,
+    mobileName,
+    mobileProvider,
+    // Crypto
+    cryptoAddress,
+    cryptoCurrency,
+    cryptoNetwork,
+    // Country for routing
+    country = "NG",
+  } = req.body;
+
+  if (!amount || parseFloat(amount) <= 0)
+    return res
+      .status(400)
+      .json({ success: false, message: "Valid amount required" });
+
+  // ── Check available balance ───────────────────────────────────────────────
+  const [earnedAgg, withdrawnAgg] = await Promise.all([
+    prisma.payment.aggregate({
+      where: { booking: { workerId }, status: "RELEASED" },
+      _sum: { workerPayout: true },
+    }),
+    prisma.withdrawal.aggregate({
+      where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const totalEarned = earnedAgg._sum.workerPayout ?? 0;
+  const pendingPayouts = withdrawnAgg._sum.amount ?? 0;
+  const available = totalEarned - pendingPayouts;
+
+  if (parseFloat(amount) > available) {
+    return res.status(400).json({
+      success: false,
+      message: `Insufficient balance. Available: ${available.toFixed(2)} ${currency}`,
+    });
+  }
+
+  // ── Build destination / method-specific data ──────────────────────────────
+  let destination = "";
+  let methodMeta = {};
+
+  if (method === "bank_transfer") {
+    if (!accountNumber || !bankCode)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Bank code and account number required",
+        });
+    destination = accountNumber;
+    methodMeta = { bankCode, bankName, accountNumber, accountName, country };
+  } else if (method === "mobile_money") {
+    if (!mobileNumber || !mobileProvider)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Mobile number and provider required",
+        });
+    destination = mobileNumber;
+    methodMeta = { mobileNumber, mobileName, mobileProvider, country };
+  } else if (method === "crypto") {
+    if (!cryptoAddress || !cryptoCurrency)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Crypto address and currency required",
+        });
+    destination = cryptoAddress;
+    methodMeta = {
+      cryptoAddress,
+      cryptoCurrency: cryptoCurrency.toUpperCase(),
+      cryptoNetwork: cryptoNetwork ?? "BSC",
+    };
+  } else {
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Invalid method. Use: bank_transfer | mobile_money | crypto",
+      });
+  }
+
+  const reference = uniqueRef("WD");
+
+  const withdrawal = await prisma.withdrawal.create({
+    data: {
+      workerId,
+      amount: parseFloat(amount),
+      currency: currency.toUpperCase(),
+      method,
+      destination,
+      reference,
+      status: "PENDING",
+      notes: JSON.stringify({
+        ...methodMeta,
+        requestedAt: new Date().toISOString(),
+      }),
+    },
+  });
+
+  // Notify admins
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { id: true },
+  });
+  await prisma.notification.createMany({
+    data: admins.map((a) => ({
+      userId: a.id,
+      title: "Withdrawal Request 💸",
+      body: `Worker requested ${currency.toUpperCase()} ${amount} via ${method.replace("_", " ")} — Ref: ${reference}`,
+      type: "WITHDRAWAL_REQUESTED",
+      data: { withdrawalId: withdrawal.id, workerId, amount, currency, method },
+    })),
+  });
+
+  return res.status(201).json({
+    success: true,
+    message:
+      "Withdrawal request submitted. Processing within 1–3 business days.",
+    data: { withdrawal },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 12  ADMIN — APPROVE WITHDRAWAL (auto-triggers real payout)
+// PATCH /api/admin/withdrawals/:withdrawalId/approve
+// ─────────────────────────────────────────────────────────────────────────────
+export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
+  const { withdrawalId } = req.params;
+  const { notes } = req.body;
+
+  const withdrawal = await prisma.withdrawal.findUnique({
+    where: { id: withdrawalId },
+    include: { worker: true },
+  });
+  if (!withdrawal)
+    return res
+      .status(404)
+      .json({ success: false, message: "Withdrawal not found" });
+  if (withdrawal.status !== "PENDING")
+    return res
+      .status(400)
+      .json({ success: false, message: "Withdrawal is not pending" });
+
+  const meta = _parseMeta(withdrawal.notes);
+  const method = withdrawal.method;
+  const currency = withdrawal.currency;
+  const provider = getWithdrawalProvider(meta.country ?? "NG", method);
+
+  // ── Apply withdrawal fee config (Phase 1 = 0%, worker gets 100%) ─────────
+  const { fee: withdrawalFee, netAmount: amount } =
+    FEE_CONFIG.computeWithdrawal(parseFloat(withdrawal.amount));
+
+  let transferRef = uniqueRef("TXF");
+  let providerData = {};
+
+  try {
+    // ── PAYSTACK (NGN bank transfer) ────────────────────────────────────────
+    if (provider === "paystack" && method === "bank_transfer") {
+      // 1. Create recipient
+      const recipientRes = await psCreateRecipient({
+        name:
+          meta.accountName ??
+          `${withdrawal.worker.firstName} ${withdrawal.worker.lastName}`,
+        accountNumber: meta.accountNumber,
+        bankCode: meta.bankCode,
+        currency,
+      });
+
+      if (recipientRes.status !== true)
+        throw new Error(
+          recipientRes.message ?? "Failed to create Paystack recipient",
+        );
+
+      const recipientCode = recipientRes.data.recipient_code;
+
+      // 2. Initiate transfer
+      const transferRes = await psInitiateTransfer({
+        amount,
+        recipientCode,
+        reason: notes ?? "SkilledProz earnings payout",
+        reference: transferRef,
+      });
+
+      if (transferRes.status !== true)
+        throw new Error(transferRes.message ?? "Paystack transfer failed");
+
+      providerData = {
+        provider: "paystack",
+        transferCode: transferRes.data.transfer_code,
+      };
+    }
+
+    // ── FLUTTERWAVE (bank transfer — non-NGN or non-NG) ─────────────────────
+    else if (provider === "flutterwave" && method === "bank_transfer") {
+      // International transfers need extra meta
+      const isInternational = ![
+        "NG",
+        "GH",
+        "KE",
+        "ZA",
+        "TZ",
+        "UG",
+        "RW",
+        "SN",
+        "CI",
+        "CM",
+      ].includes((meta.country ?? "NG").toUpperCase());
+
+      const flwMeta = isInternational
+        ? [
+            {
+              AccountNumber: meta.accountNumber,
+              RoutingNumber: meta.routingNumber ?? "",
+              SWIFT: meta.swiftCode ?? "",
+              BankName: meta.bankName ?? "",
+              BankAddress: meta.bankAddress ?? "",
+              BankCity: meta.bankCity ?? "",
+              BankCountry: meta.country ?? "",
+              BeneficiaryName: meta.accountName ?? withdrawal.worker.firstName,
+            },
+          ]
+        : undefined;
+
+      const transferRes = await flwTransfer({
+        accountBank: meta.bankCode,
+        accountNumber: meta.accountNumber,
+        amount,
+        currency,
+        narration: notes ?? "SkilledProz earnings payout",
+        reference: transferRef,
+        meta: flwMeta,
+      });
+
+      if (transferRes.status !== "success")
+        throw new Error(transferRes.message ?? "Flutterwave transfer failed");
+
+      providerData = {
+        provider: "flutterwave",
+        transferId: transferRes.data.id,
+      };
+    }
+
+    // ── FLUTTERWAVE (mobile money) ──────────────────────────────────────────
+    else if (provider === "flutterwave" && method === "mobile_money") {
+      const transferRes = await flwMobileTransfer({
+        accountNumber: meta.mobileNumber,
+        amount,
+        currency,
+        narration: notes ?? "SkilledProz earnings payout",
+        reference: transferRef,
+      });
+
+      if (transferRes.status !== "success")
+        throw new Error(transferRes.message ?? "Mobile money transfer failed");
+
+      providerData = {
+        provider: "flutterwave",
+        transferId: transferRes.data.id,
+      };
+    }
+
+    // ── CRYPTO — mark as processing, admin completes off-chain ─────────────
+    else if (method === "crypto") {
+      // Crypto is manually processed (or via a crypto gateway)
+      providerData = {
+        provider: "crypto",
+        cryptoAddress: meta.cryptoAddress,
+        cryptoCurrency: meta.cryptoCurrency,
+        cryptoNetwork: meta.cryptoNetwork,
+        note: "Admin must send crypto manually and update to COMPLETED",
+      };
+    }
+
+    // ── Update withdrawal to PROCESSING ─────────────────────────────────────
+    await prisma.withdrawal.update({
+      where: { id: withdrawalId },
+      data: {
+        status: method === "crypto" ? "PROCESSING" : "PROCESSING",
+        processedAt: new Date(),
+        notes: JSON.stringify({
+          ...meta,
+          ...providerData,
+          approvedAt: new Date().toISOString(),
+          adminNotes: notes,
+          withdrawalFee,
+          netPayout: amount,
+        }),
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: withdrawal.workerId,
+        title: "Withdrawal Processing 🚀",
+        body:
+          method === "crypto"
+            ? `Your crypto withdrawal is being processed. Address: ${meta.cryptoAddress}`
+            : `Your withdrawal of ${currency} ${withdrawal.amount}${withdrawalFee > 0 ? ` (net: ${currency} ${amount} after ${currency} ${withdrawalFee} fee)` : " (no fee deducted)"} is being sent to your ${method === "mobile_money" ? "mobile" : "bank"} account.`,
+        type: "WITHDRAWAL_PROCESSING",
+        data: { withdrawalId, method, amount, currency },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        method === "crypto"
+          ? "Crypto withdrawal marked as processing. Complete the on-chain transfer."
+          : "Payout initiated successfully",
+      data: { withdrawalId, transferRef, ...providerData },
+    });
+  } catch (err) {
+    // Mark as failed if provider errored
+    await prisma.withdrawal.update({
+      where: { id: withdrawalId },
+      data: {
+        notes: JSON.stringify({
+          ...meta,
+          error: err.message,
+          failedAt: new Date().toISOString(),
+        }),
+      },
+    });
+    return res
+      .status(502)
+      .json({ success: false, message: `Payout failed: ${err.message}` });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 13  WORKER — GET WITHDRAWALS + LIVE BALANCE
+// GET /api/payments/withdrawals
+// ─────────────────────────────────────────────────────────────────────────────
+export const getWithdrawals = asyncHandler(async (req, res) => {
+  const workerId = req.user.id;
+  const { page = 1, limit = 15 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const [earnedAgg, escrowAgg, pendingAgg, withdrawals, total] =
+    await Promise.all([
+      prisma.payment.aggregate({
+        where: { booking: { workerId }, status: "RELEASED" },
+        _sum: { workerPayout: true },
+      }),
+      prisma.payment.aggregate({
+        where: { booking: { workerId }, status: "HELD" },
+        _sum: { workerPayout: true },
+      }),
+      prisma.withdrawal.aggregate({
+        where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
+        _sum: { amount: true },
+      }),
+      prisma.withdrawal.findMany({
+        where: { workerId },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: Number(limit),
+      }),
+      prisma.withdrawal.count({ where: { workerId } }),
+    ]);
+
+  const totalEarned = earnedAgg._sum.workerPayout ?? 0;
+  const inEscrow = escrowAgg._sum.workerPayout ?? 0;
+  const pendingPayout = pendingAgg._sum.amount ?? 0;
+  const available = Math.max(0, totalEarned - pendingPayout);
+
+  // Parse notes back for display
+  const parsed = withdrawals.map((w) => ({
+    ...w,
+    meta: _parseMeta(w.notes),
+  }));
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      balance: {
+        available,
+        totalEarned,
+        inEscrow,
+        pendingPayout,
+        // Fee config — frontend renders dynamically from these, never hardcodes
+        withdrawalFeeRate: FEE_CONFIG.WITHDRAWAL_FEE_RATE, // 0 in Phase 1
+        withdrawalFeeCap: FEE_CONFIG.WITHDRAWAL_FEE_CAP,
+        workerFeeRate: FEE_CONFIG.WORKER_FEE_RATE, // 0 in Phase 1
+        hirerFeeRate: FEE_CONFIG.HIRER_FEE_RATE, // 0.05
+        feePhase: FEE_CONFIG.phase,
+      },
+      withdrawals: parsed,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+    },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 14  WORKER — EARNINGS
+// GET /api/payments/earnings
+// ─────────────────────────────────────────────────────────────────────────────
+export const getWorkerEarnings = asyncHandler(async (req, res) => {
+  const workerId = req.user.id;
+  const { from, to, currency, page = 1, limit = 20 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const where = {
+    booking: { workerId },
+    status: "RELEASED",
+    ...(currency && currency !== "ALL"
+      ? { currency: currency.toUpperCase() }
+      : {}),
+    ...(from || to
+      ? {
+          createdAt: {
+            ...(from ? { gte: new Date(from) } : {}),
+            ...(to ? { lte: new Date(to) } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const [payments, total, aggregate, usedCurrencies] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: parseInt(limit),
+      include: {
+        booking: {
+          select: {
+            title: true,
+            scheduledAt: true,
+            currency: true,
+            category: { select: { name: true, icon: true } },
+            hirer: {
+              select: { firstName: true, lastName: true, avatar: true },
+            },
+          },
+        },
+      },
+    }),
+    prisma.payment.count({ where }),
+    prisma.payment.aggregate({
+      where,
+      _sum: { workerPayout: true, amount: true, platformFee: true },
+    }),
+    prisma.payment.findMany({
+      where: { booking: { workerId }, status: "RELEASED" },
+      select: { currency: true },
+      distinct: ["currency"],
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      payments,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      summary: {
+        totalEarned: aggregate._sum.workerPayout ?? 0,
+        totalJobValue: aggregate._sum.amount ?? 0,
+        totalFees: aggregate._sum.platformFee ?? 0,
+      },
+      availableCurrencies: usedCurrencies.map((c) => c.currency),
+    },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 15  HIRER — PAYMENT HISTORY
+// GET /api/payments/hirer
+// ─────────────────────────────────────────────────────────────────────────────
+export const getHirerPayments = asyncHandler(async (req, res) => {
+  const hirerId = req.user.id;
+  const { status, currency, page = 1, limit = 10 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const where = {
+    booking: { hirerId },
+    ...(status && status !== "ALL" ? { status } : {}),
+    ...(currency && currency !== "ALL"
+      ? { currency: currency.toUpperCase() }
+      : {}),
+  };
+
+  const [
+    payments,
+    total,
+    totalSpentAgg,
+    inEscrowAgg,
+    refundedAgg,
+    usedCurrencies,
+  ] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: Number(limit),
+      include: {
+        booking: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            scheduledAt: true,
+            completedAt: true,
+            currency: true,
+            category: { select: { name: true } },
+            worker: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                avatar: true,
+              },
+            },
+            hirer: { select: { firstName: true, lastName: true, email: true } },
+          },
+        },
+      },
+    }),
+    prisma.payment.count({ where }),
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "RELEASED" },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "HELD" },
+      _sum: { amount: true },
+    }),
+    prisma.payment.aggregate({
+      where: { booking: { hirerId }, status: "REFUNDED" },
+      _sum: { amount: true },
+    }),
+    prisma.payment.findMany({
+      where: { booking: { hirerId } },
+      select: { currency: true },
+      distinct: ["currency"],
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      payments,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+      summary: {
+        totalSpent: totalSpentAgg._sum.amount ?? 0,
+        inEscrow: inEscrowAgg._sum.amount ?? 0,
+        totalRefunds: refundedAgg._sum.amount ?? 0,
+      },
+      availableCurrencies: usedCurrencies.map((c) => c.currency),
+    },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 16  UTILITY — GET BANKS BY COUNTRY
+// GET /api/payments/banks?country=NG
+// ─────────────────────────────────────────────────────────────────────────────
+export const getBanksByCountry = asyncHandler(async (req, res) => {
+  const { country = "NG" } = req.query;
+  const code = country.toUpperCase();
+
+  let banks = [];
+
+  if (code === "NG") {
+    // Paystack has the most comprehensive Nigerian bank list
+    const psRes = await psGetBanks();
+    if (psRes.status === true && Array.isArray(psRes.data)) {
+      banks = psRes.data.map((b) => ({
+        name: b.name,
+        code: b.code,
+        country: "NG",
+        currency: "NGN",
+        provider: "paystack",
+      }));
+    }
+  } else {
+    // Use Flutterwave for all other countries
+    const flwRes = await flwGetBanks(code);
+    if (flwRes.status === "success" && Array.isArray(flwRes.data)) {
+      banks = flwRes.data.map((b) => ({
+        name: b.name,
+        code: b.code,
+        country: code,
+        currency: b.currency,
+        provider: "flutterwave",
+      }));
+    }
+  }
+
+  return res
+    .status(200)
+    .json({ success: true, data: { country: code, banks } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 17  UTILITY — VERIFY BANK ACCOUNT
+// POST /api/payments/verify-account
+// Body: { accountNumber, bankCode, country }
+// ─────────────────────────────────────────────────────────────────────────────
+export const verifyBankAccount = asyncHandler(async (req, res) => {
+  const { accountNumber, bankCode, country = "NG" } = req.body;
+
+  if (!accountNumber || !bankCode)
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Account number and bank code required",
+      });
+
+  let accountName = null;
+
+  if (country.toUpperCase() === "NG") {
+    const psRes = await psVerifyAccount(accountNumber, bankCode);
+    if (psRes.status === true && psRes.data?.account_name) {
+      accountName = psRes.data.account_name;
+    } else {
+      // Fallback to Flutterwave
+      const flwRes = await flwVerifyAccount(accountNumber, bankCode);
+      if (flwRes.status === "success") accountName = flwRes.data?.account_name;
+    }
+  } else {
+    const flwRes = await flwVerifyAccount(accountNumber, bankCode);
+    if (flwRes.status === "success") accountName = flwRes.data?.account_name;
+  }
+
+  if (!accountName)
+    return res
+      .status(404)
+      .json({
+        success: false,
+        message: "Account not found or could not be verified",
+      });
+
+  return res
+    .status(200)
+    .json({ success: true, data: { accountNumber, bankCode, accountName } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 18  MANUAL — BANK TRANSFER (hirer sends manually, admin verifies)
+// ─────────────────────────────────────────────────────────────────────────────
+export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
+  if (booking.status !== "ACCEPTED")
+    return res
+      .status(400)
+      .json({ success: false, message: "Booking must be ACCEPTED" });
+
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+  const reference = uniqueRef("BT");
+
+  return res.status(200).json({
+    success: true,
+    message: "Send the exact amount below, then click 'I have transferred'.",
+    data: {
+      reference,
+      platformFee,
+      workerPayout,
+      totalToSend,
+      bankDetails: {
+        bankName: process.env.PLATFORM_BANK_NAME ?? "First Bank",
+        accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER ?? "0123456789",
+        accountName: process.env.PLATFORM_ACCOUNT_NAME ?? "SkilledProz Ltd",
+        amount: totalToSend,
+        currency: booking.currency,
+        narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
+      },
+    },
+  });
+});
+
+export const confirmBankTransfer = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { reference, proofUrl, senderName, bankName } = req.body;
+
+  if (!reference)
+    return res
+      .status(400)
+      .json({ success: false, message: "Reference required" });
+
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { payment: true },
@@ -475,16 +1560,231 @@ export const getPayment = asyncHandler(async (req, res) => {
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  if (
-    booking.hirerId !== req.user.id &&
-    booking.workerId !== req.user.id &&
-    req.user.role !== "ADMIN"
-  )
-    return res.status(403).json({ success: false, message: "Not authorised" });
-  res.status(200).json({ success: true, data: booking.payment });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
+
+  if (booking.payment?.status === "PENDING")
+    await prisma.payment
+      .delete({ where: { id: booking.payment.id } })
+      .catch(() => {});
+
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+
+  const payment = await prisma.payment.create({
+    data: {
+      bookingId,
+      userId: req.user.id,
+      amount: totalToSend,
+      currency: booking.currency,
+      platformFee,
+      workerPayout,
+      status: "PENDING",
+      provider: "bank_transfer",
+      providerRef: reference,
+      bankTransferProof: proofUrl ?? null,
+      accountName: senderName ?? null,
+      bankName: bankName ?? null,
+    },
+  });
+
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { id: true },
+  });
+  await prisma.notification.createMany({
+    data: admins.map((a) => ({
+      userId: a.id,
+      title: "Bank Transfer Submitted 🏦",
+      body: `Hirer confirmed bank transfer for booking ${bookingId}. Ref: ${reference}`,
+      type: "BANK_TRANSFER_PROOF",
+      data: { bookingId, paymentId: payment.id, proofUrl, reference },
+    })),
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: "Transfer confirmed. We'll verify and activate within 1–2 hours.",
+    data: { payment },
+  });
 });
 
-// ── Admin: all payments ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// § 19  MANUAL — CRYPTO PAYMENT
+// ─────────────────────────────────────────────────────────────────────────────
+const CRYPTO_WALLETS = {
+  USDC: {
+    network: "BSC (BEP20)",
+    address: process.env.CRYPTO_WALLET_USDC ?? "0xPLACEHOLDER",
+  },
+  USDT: {
+    network: "BSC (BEP20)",
+    address: process.env.CRYPTO_WALLET_USDT ?? "0xPLACEHOLDER",
+  },
+  BTC: {
+    network: "Bitcoin",
+    address: process.env.CRYPTO_WALLET_BTC ?? "bc1qPLACEHOLDER",
+  },
+  ETH: {
+    network: "BSC (BEP20)",
+    address: process.env.CRYPTO_WALLET_ETH ?? "0xPLACEHOLDER",
+  },
+};
+
+export const initiateCryptoPayment = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { cryptoCurrency = "USDC" } = req.body;
+
+  const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
+  if (!wallet)
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: `Unsupported crypto: ${cryptoCurrency}`,
+      });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
+  if (booking.status !== "ACCEPTED")
+    return res
+      .status(400)
+      .json({ success: false, message: "Booking must be ACCEPTED" });
+
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+  const reference = uniqueRef("CRYPTO");
+
+  return res.status(200).json({
+    success: true,
+    message: "Send the exact amount below, then click 'I have transferred'.",
+    data: {
+      reference,
+      platformFee,
+      workerPayout,
+      totalToSend,
+      cryptoDetails: {
+        currency: cryptoCurrency.toUpperCase(),
+        network: wallet.network,
+        wallet: wallet.address,
+        amount: totalToSend,
+        note: `Include reference ${reference} in transaction memo`,
+      },
+    },
+  });
+});
+
+export const confirmCryptoPayment = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const { txHash, cryptoAmount, cryptoCurrency, reference } = req.body;
+
+  if (!txHash)
+    return res
+      .status(400)
+      .json({ success: false, message: "Transaction hash required" });
+  if (!reference)
+    return res
+      .status(400)
+      .json({ success: false, message: "Reference required" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { payment: true },
+  });
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== req.user.id)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
+
+  if (booking.payment?.status === "PENDING")
+    await prisma.payment
+      .delete({ where: { id: booking.payment.id } })
+      .catch(() => {});
+
+  const wallet =
+    CRYPTO_WALLETS[(cryptoCurrency ?? "USDC").toUpperCase()] ??
+    CRYPTO_WALLETS.USDC;
+  const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const {
+    platformFeeFromHirer: platformFee,
+    totalToHirer: totalToSend,
+    workerPayout,
+  } = fees;
+
+  const payment = await prisma.payment.create({
+    data: {
+      bookingId,
+      userId: req.user.id,
+      amount: totalToSend,
+      currency: booking.currency,
+      platformFee,
+      workerPayout,
+      status: "PENDING",
+      provider: "crypto",
+      providerRef: reference,
+      cryptoNetwork: wallet.network,
+      cryptoWallet: wallet.address,
+      cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
+      cryptoTxHash: txHash,
+      cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
+    },
+  });
+
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { id: true },
+  });
+  await prisma.notification.createMany({
+    data: admins.map((a) => ({
+      userId: a.id,
+      title: "Crypto TX Submitted ₿",
+      body: `Hirer submitted crypto tx for booking ${bookingId}. Hash: ${txHash}`,
+      type: "CRYPTO_TX_SUBMITTED",
+      data: { bookingId, txHash, cryptoCurrency, cryptoAmount, reference },
+    })),
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: "Transaction submitted. Verification within 30 minutes.",
+    data: { payment },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 20  ADMIN — ALL PAYMENTS
+// GET /api/payments/
+// ─────────────────────────────────────────────────────────────────────────────
 export const getAllPayments = asyncHandler(async (req, res) => {
   const { status, provider, currency, page = 1, limit = 20 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
@@ -517,7 +1817,7 @@ export const getAllPayments = asyncHandler(async (req, res) => {
     prisma.payment.count({ where }),
   ]);
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     data: payments,
     pagination: {
@@ -529,712 +1829,62 @@ export const getAllPayments = asyncHandler(async (req, res) => {
   });
 });
 
-// ── Worker: paginated earnings with currency filter ───────────────────────────
-// GET /api/workers/dashboard/earnings  (used by WorkerEarnings page)
-export const getWorkerEarnings = asyncHandler(async (req, res) => {
-  const { from, to, currency, page = 1, limit = 20 } = req.query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-
-  const where = {
-    booking: { workerId: req.user.id },
-    status: "RELEASED",
-    ...(currency && currency !== "ALL"
-      ? { currency: currency.toUpperCase() }
-      : {}),
-    ...(from || to
-      ? {
-          createdAt: {
-            ...(from ? { gte: new Date(from) } : {}),
-            ...(to ? { lte: new Date(to) } : {}),
-          },
-        }
-      : {}),
-  };
-
-  const [payments, total, aggregate] = await Promise.all([
-    prisma.payment.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: parseInt(limit),
-      include: {
-        booking: {
-          select: {
-            title: true,
-            scheduledAt: true,
-            currency: true,
-            category: { select: { name: true, icon: true } },
-            hirer: {
-              select: { firstName: true, lastName: true, avatar: true },
-            },
-          },
-        },
-      },
-    }),
-    prisma.payment.count({ where }),
-    prisma.payment.aggregate({
-      where,
-      _sum: { workerPayout: true, amount: true, platformFee: true },
-    }),
-  ]);
-
-  // Currencies used by this worker across ALL earnings (for filter dropdown)
-  const usedCurrencies = await prisma.payment.findMany({
-    where: { booking: { workerId: req.user.id }, status: "RELEASED" },
-    select: { currency: true },
-    distinct: ["currency"],
-  });
-
-  res.status(200).json({
-    success: true,
-    data: {
-      payments,
-      total,
-      page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
-      summary: {
-        totalEarned: aggregate._sum.workerPayout ?? 0,
-        totalJobValue: aggregate._sum.amount ?? 0,
-        totalFees: aggregate._sum.platformFee ?? 0,
-      },
-      availableCurrencies: usedCurrencies.map((c) => c.currency),
-    },
-  });
-});
-
-// ── Hirer: full payment history with currency filter ──────────────────────────
-// GET /api/payments/hirer
-export const getHirerPayments = asyncHandler(async (req, res) => {
-  const hirerId = req.user.id;
-  const { status, currency, page = 1, limit = 10 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
-
-  const where = {
-    booking: { hirerId },
-    ...(status && status !== "ALL" ? { status } : {}),
-    ...(currency && currency !== "ALL"
-      ? { currency: currency.toUpperCase() }
-      : {}),
-  };
-
-  const [payments, total] = await Promise.all([
-    prisma.payment.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: Number(limit),
-      include: {
-        booking: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            scheduledAt: true,
-            completedAt: true,
-            currency: true,
-            category: { select: { name: true } },
-            worker: {
-              select: {
-                firstName: true,
-                lastName: true,
-                email: true,
-                avatar: true,
-              },
-            },
-            hirer: { select: { firstName: true, lastName: true, email: true } },
-          },
-        },
-      },
-    }),
-    prisma.payment.count({ where }),
-  ]);
-
-  // Summary totals in ALL currencies (no filter) so summary cards are always accurate
-  const baseWhere = { booking: { hirerId } };
-  const [totalSpentAgg, inEscrowAgg, refundedAgg] = await Promise.all([
-    prisma.payment.aggregate({
-      where: { ...baseWhere, status: "RELEASED" },
-      _sum: { amount: true },
-    }),
-    prisma.payment.aggregate({
-      where: { ...baseWhere, status: "HELD" },
-      _sum: { amount: true },
-    }),
-    prisma.payment.aggregate({
-      where: { ...baseWhere, status: "REFUNDED" },
-      _sum: { amount: true },
-    }),
-  ]);
-
-  // Currencies this hirer has used (for filter dropdown)
-  const usedCurrencies = await prisma.payment.findMany({
-    where: baseWhere,
-    select: { currency: true },
-    distinct: ["currency"],
-  });
-
-  res.status(200).json({
-    success: true,
-    data: {
-      payments,
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
-      summary: {
-        totalSpent: totalSpentAgg._sum.amount ?? 0,
-        inEscrow: inEscrowAgg._sum.amount ?? 0,
-        totalRefunds: refundedAgg._sum.amount ?? 0,
-      },
-      availableCurrencies: usedCurrencies.map((c) => c.currency),
-    },
-  });
-});
-
-// ── Worker: Request a payout withdrawal ──────────────────────────────────────
-// POST /api/payments/withdraw
-export const requestWithdrawal = asyncHandler(async (req, res) => {
-  const workerId = req.user.id;
-  const {
-    amount,
-    method,
-    bankName,
-    accountNumber,
-    accountName,
-    mobileNumber,
-    mobileProvider,
-  } = req.body;
-
-  if (!amount || parseFloat(amount) <= 0) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Valid amount is required" });
-  }
-
-  // Check available balance (released payments)
-  const balanceAgg = await prisma.payment.aggregate({
-    where: { booking: { workerId }, status: "RELEASED" },
-    _sum: { workerPayout: true },
-  });
-
-  const totalEarned = balanceAgg._sum.workerPayout || 0;
-
-  // Get sum of previous withdrawals
-  const withdrawnAgg = (await prisma.notification.aggregate) ? null : null; // Withdrawal tracking via notifications since no Withdrawal model
-
-  if (parseFloat(amount) > totalEarned) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Insufficient balance" });
-  }
-
-  // Store withdrawal request as notification record (no Withdrawal model in schema)
-  const withdrawal = await prisma.notification.create({
-    data: {
-      userId: workerId,
-      title: "Withdrawal Requested",
-      body: `Withdrawal of ₦${parseFloat(amount).toLocaleString()} via ${method === "mobile" ? mobileProvider : bankName} requested.`,
-      type: "WITHDRAWAL_REQUEST",
-      data: {
-        amount: parseFloat(amount),
-        method: method || "bank",
-        bankName: bankName || null,
-        accountNumber: accountNumber || null,
-        accountName: accountName || null,
-        mobileNumber: mobileNumber || null,
-        mobileProvider: mobileProvider || null,
-        status: "PENDING",
-        requestedAt: new Date().toISOString(),
-      },
-    },
-  });
-
-  res.status(201).json({
-    success: true,
-    message:
-      "Withdrawal request submitted. Processing within 1–3 business days.",
-    data: { withdrawal },
-  });
-});
-
-// ── Worker: Get withdrawal history + live balance ─────────────────────────────
-// GET /api/payments/withdrawals
-export const getWithdrawals = asyncHandler(async (req, res) => {
-  const workerId = req.user.id;
-  const { page = 1, limit = 15 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
-
-  // Live balance from released payments
-  const [balanceAgg, escrowAgg, withdrawalNotifs, total] = await Promise.all([
-    prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "RELEASED" },
-      _sum: { workerPayout: true },
-    }),
-    prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "HELD" },
-      _sum: { workerPayout: true },
-    }),
-    prisma.notification.findMany({
-      where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: Number(limit),
-    }),
-    prisma.notification.count({
-      where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
-    }),
-  ]);
-
-  const totalEarned = balanceAgg._sum.workerPayout || 0;
-  const inEscrow = escrowAgg._sum.workerPayout || 0;
-
-  // Calculate total withdrawn (approved withdrawals)
-  const allWithdrawals = await prisma.notification.findMany({
-    where: { userId: workerId, type: "WITHDRAWAL_REQUEST" },
-    select: { data: true },
-  });
-
-  const totalWithdrawn = allWithdrawals.reduce((sum, w) => {
-    const d = w.data;
-    if (d && (d.status === "APPROVED" || d.status === "PENDING")) {
-      return sum + (d.amount || 0);
-    }
-    return sum;
-  }, 0);
-
-  const availableBalance = Math.max(0, totalEarned - totalWithdrawn);
-
-  res.status(200).json({
-    success: true,
-    data: {
-      balance: {
-        available: availableBalance,
-        totalEarned,
-        inEscrow,
-        totalWithdrawn,
-      },
-      withdrawals: withdrawalNotifs.map((n) => ({
-        id: n.id,
-        createdAt: n.createdAt,
-        ...n.data,
-      })),
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
-    },
-  });
-});
-
-// NOTE: The following functions from hirer.controller.js are REDUNDANT and should be removed:
-// - postJob (replaced by createJobPost in job.controller.js — never saved to DB)
-// - getHirerProfile (basic version replaced by getHirerPublicProfile in job.controller.js)
-// The duplicate EarningsPage.jsx (identical files in docs 46 and 47) — keep only one.
-// The old getWorkerEarnings in payment.controller.js (basic/non-paginated) is now unified above.
-
-// ── Bank transfer ─────────────────────────────────────────────────────────────
-
-// ── Bank transfer — GET details only, no DB record ───────────────────────────
-export const initiateBankTransfer = asyncHandler(async (req, res) => {
-  const { bookingId } = req.params;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// § 21  SINGLE BOOKING PAYMENT
+// GET /api/payments/:bookingId
+// ─────────────────────────────────────────────────────────────────────────────
+export const getPayment = asyncHandler(async (req, res) => {
   const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
+    where: { id: req.params.bookingId },
     include: { payment: true },
   });
-
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
-  if (booking.hirerId !== req.user.id)
+  if (
+    booking.hirerId !== req.user.id &&
+    booking.workerId !== req.user.id &&
+    req.user.role !== "ADMIN"
+  )
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
-  if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({ success: false, message: "Booking must be ACCEPTED" });
 
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
-
-  const reference = `BT-${bookingId}-${Date.now()}`;
-
-  // ── Return bank details ONLY — no DB write yet ────────────────────────────
-  return res.status(200).json({
-    success: true,
-    message:
-      "Bank transfer details. Complete the transfer then click 'I have transferred'.",
-    data: {
-      reference,
-      platformFee,
-      workerPayout,
-      totalToSend,
-      bankDetails: {
-        bankName: process.env.PLATFORM_BANK_NAME || "First Bank",
-        accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER || "0123456789",
-        accountName: process.env.PLATFORM_ACCOUNT_NAME || "SkilledPro Ltd",
-        amount: totalToSend,
-        currency: booking.currency,
-        narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
-      },
-    },
-  });
+  return res.status(200).json({ success: true, data: booking.payment });
 });
 
-// ── Bank transfer confirm — creates DB record when hirer says they paid ───────
-export const confirmBankTransfer = asyncHandler(async (req, res) => {
-  const { bookingId } = req.params;
-  const { reference, proofUrl, senderName, bankName } = req.body;
-
-  if (!reference)
-    return res
-      .status(400)
-      .json({ success: false, message: "Reference is required" });
-
+// ─────────────────────────────────────────────────────────────────────────────
+// § 22  INTERNAL HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+async function _notifyPaymentHeld(bookingId) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true },
+    select: { workerId: true, hirerId: true, title: true },
   });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-  if (booking.hirerId !== req.user.id)
-    return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
-
-  // Delete any previous stale PENDING bank transfer record for this booking
-  if (booking.payment && booking.payment.status === "PENDING") {
-    await prisma.payment.delete({ where: { id: booking.payment.id } });
-  }
-
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
-
-  // ── NOW create the payment record — hirer has confirmed they transferred ──
-  const payment = await prisma.payment.create({
-    data: {
-      bookingId,
-      userId: req.user.id,
-      amount: totalToSend,
-      currency: booking.currency,
-      platformFee,
-      workerPayout,
-      status: "PENDING", // Admin reviews before marking HELD
-      provider: "bank_transfer",
-      providerRef: reference,
-      bankTransferProof: proofUrl || null,
-      accountName: senderName || null,
-      bankName: bankName || null,
-    },
-  });
-
-  // Notify admins
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true },
-    select: { id: true },
-  });
-  await Promise.all(
-    admins.map((admin) =>
-      prisma.notification.create({
-        data: {
-          userId: admin.id,
-          title: "Bank Transfer Submitted",
-          body: `Hirer confirmed bank transfer for booking ${bookingId}. Ref: ${reference}`,
-          type: "BANK_TRANSFER_PROOF",
-          data: { bookingId, paymentId: payment.id, proofUrl, reference },
-        },
-      }),
-    ),
-  );
-
-  return res.status(201).json({
-    success: true,
-    message:
-      "Transfer confirmed. We'll verify and activate your booking within 1–2 hours.",
-    data: { payment },
-  });
-});
-
-// ── Crypto — GET wallet details only, no DB record ────────────────────────────
-const CRYPTO_WALLETS = {
-  USDC: {
-    network: "BSC (BEP20)",
-    address:
-      process.env.CRYPTO_WALLET_USDC ||
-      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
-  },
-  USDT: {
-    network: "BSC (BEP20)",
-    address:
-      process.env.CRYPTO_WALLET_USDT ||
-      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
-  },
-  BTC: {
-    network: "Bitcoin",
-    address:
-      process.env.CRYPTO_WALLET_BTC ||
-      "bc1q06xe25nfy7ys3x5rxk67xdh48dx3qqy4scnu8z",
-  },
-  ETH: {
-    network: "BSC (BEP20)",
-    address:
-      process.env.CRYPTO_WALLET_ETH ||
-      "0xb0a8f120ee00D566bbcBE1eDACc88C34F5e7CE6c",
-  },
-};
-
-export const initiateCryptoPayment = asyncHandler(async (req, res) => {
-  const { bookingId } = req.params;
-  const { cryptoCurrency = "USDC" } = req.body;
-
-  const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
-  if (!wallet)
-    return res.status(400).json({
-      success: false,
-      message: `Unsupported crypto: ${cryptoCurrency}`,
-    });
-
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-  if (booking.hirerId !== req.user.id)
-    return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
-  if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({ success: false, message: "Booking must be ACCEPTED" });
-
-  // ── 10% platform fee — hirer sends agreedRate + 10% ──────────────────────
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
-
-  const reference = `CRYPTO-${bookingId}-${Date.now()}`;
-
-  // ── Return wallet details ONLY — no DB write yet ─────────────────────────
-  return res.status(200).json({
-    success: true,
-    message: "Send the exact amount below then click 'I have transferred'.",
-    data: {
-      reference,
-      platformFee,
-      workerPayout,
-      totalToSend,
-      cryptoDetails: {
-        currency: cryptoCurrency.toUpperCase(),
-        network: wallet.network,
-        wallet: wallet.address,
-        amountFiat: totalToSend,
-        currency: booking.currency,
-        note: `Include reference ${reference} in transaction memo`,
-      },
-    },
-  });
-});
-
-// ── Crypto confirm — creates DB record when hirer says they paid ──────────────
-export const confirmCryptoPayment = asyncHandler(async (req, res) => {
-  const { bookingId } = req.params;
-  const { txHash, cryptoAmount, cryptoCurrency, reference } = req.body;
-
-  if (!txHash)
-    return res
-      .status(400)
-      .json({ success: false, message: "Transaction hash required" });
-  if (!reference)
-    return res
-      .status(400)
-      .json({ success: false, message: "Reference required" });
-
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-  if (booking.hirerId !== req.user.id)
-    return res.status(403).json({ success: false, message: "Forbidden" });
-  if (booking.payment && ["HELD", "RELEASED"].includes(booking.payment.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
-
-  // Delete any previous stale PENDING crypto record
-  if (booking.payment && booking.payment.status === "PENDING") {
-    await prisma.payment.delete({ where: { id: booking.payment.id } });
-  }
-
-  const wallet =
-    CRYPTO_WALLETS[(cryptoCurrency || "USDC").toUpperCase()] ||
-    CRYPTO_WALLETS.USDC;
-  const platformFee = parseFloat((booking.agreedRate * 0.1).toFixed(2));
-  const totalToSend = parseFloat((booking.agreedRate + platformFee).toFixed(2));
-  const workerPayout = booking.agreedRate;
-
-  // ── NOW create payment record ─────────────────────────────────────────────
-  const payment = await prisma.payment.create({
-    data: {
-      bookingId,
-      userId: req.user.id,
-      amount: totalToSend,
-      currency: booking.currency,
-      platformFee,
-      workerPayout,
-      status: "PENDING", // Admin verifies on-chain before marking HELD
-      provider: "crypto",
-      providerRef: reference,
-      cryptoNetwork: wallet.network,
-      cryptoWallet: wallet.address,
-      cryptoCurrency: (cryptoCurrency || "USDC").toUpperCase(),
-      cryptoTxHash: txHash,
-      cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-    },
-  });
-
-  // Notify admins
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true },
-    select: { id: true },
-  });
-  await Promise.all(
-    admins.map((admin) =>
-      prisma.notification.create({
-        data: {
-          userId: admin.id,
-          title: "Crypto Transfer Submitted",
-          body: `Hirer submitted crypto tx for booking ${bookingId}. Hash: ${txHash}`,
-          type: "CRYPTO_TX_SUBMITTED",
-          data: { bookingId, txHash, cryptoCurrency, cryptoAmount, reference },
-        },
-      }),
-    ),
-  );
-
-  return res.status(201).json({
-    success: true,
-    message:
-      "Transaction submitted. We'll verify on-chain and confirm within 30 minutes.",
-    data: { payment },
-  });
-});
-
-// ── ADD TO src/controllers/payment.controller.js ─────────────────────────────
-// One extra export — Stripe Checkout Session URL for mobile (no Elements SDK needed)
-
-export const initiateStripeCheckout = asyncHandler(async (req, res) => {
-  const { bookingId } = req.params;
-
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: {
-      payment: true,
-      hirer: { select: { email: true } },
-      category: true,
-    },
-  });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-  if (booking.hirerId !== req.user.id)
-    return res
-      .status(403)
-      .json({ success: false, message: "Not your booking" });
-  if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({ success: false, message: "Booking must be ACCEPTED" });
-  if (["HELD", "RELEASED"].includes(booking.payment?.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
-
-  // Clean up any stale PENDING record for this booking
-  if (booking.payment?.status === "PENDING") {
-    await prisma.payment
-      .delete({ where: { id: booking.payment.id } })
-      .catch(() => {});
-  }
-
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
-  const currency = (booking.currency ?? "USD").toLowerCase();
-
-  const session = await getStripe().checkout.sessions.create({
-    payment_method_types: ["card"],
-    mode: "payment",
-    customer_email: booking.hirer.email,
-    line_items: [
+  if (!booking) return;
+  await prisma.notification.createMany({
+    data: [
       {
-        price_data: {
-          currency,
-          unit_amount: Math.round(totalToSend * 100),
-          product_data: {
-            name: booking.title,
-            description: `${booking.category?.name ?? "Service"} via SkilledProz`,
-          },
-        },
-        quantity: 1,
+        userId: booking.workerId,
+        title: "Payment Received 💳",
+        body: `Payment for "${booking.title}" is held in escrow. You can now check in.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId },
+      },
+      {
+        userId: booking.hirerId,
+        title: "Payment Confirmed ✅",
+        body: `Your payment for "${booking.title}" is secured in escrow.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId },
       },
     ],
-    success_url: `${process.env.CLIENT_URL}/bookings/${bookingId}?payment=stripe_ok&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.CLIENT_URL}/bookings/${bookingId}?payment=cancelled`,
-    metadata: { booking_id: bookingId, hirer_id: req.user.id },
   });
+}
 
-  await prisma.payment.create({
-    data: {
-      bookingId,
-      userId: req.user.id,
-      amount: totalToSend,
-      currency: currency.toUpperCase(),
-      platformFee,
-      workerPayout,
-      status: "PENDING",
-      provider: "stripe_checkout",
-      providerRef: session.id,
-    },
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: "Stripe checkout session created",
-    data: { url: session.url, sessionId: session.id },
-  });
-});
+function _parseMeta(notes) {
+  try {
+    return notes ? JSON.parse(notes) : {};
+  } catch {
+    return {};
+  }
+}
