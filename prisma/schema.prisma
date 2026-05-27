@@ -287,6 +287,9 @@ insurancePlan     String?
 insurancePaidAt   DateTime?
   estimatedUnit     String?   @default("hours")
   estimatedValue  String?
+  isNegotiated    Boolean  @default(false)
+negotiatedRate  Float?
+negotiationNote String?
 }
 
 model Payment {

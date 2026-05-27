@@ -24,6 +24,9 @@ export const createBooking = async (req, res) => {
       estimatedHours,
       estimatedUnit, // ← new
       estimatedValue, // ← new
+      isNegotiated, // ← ADD
+      negotiatedRate, // ← ADD
+      negotiationNote, // ← ADD
       agreedRate,
       currency,
       notes,
@@ -43,9 +46,18 @@ export const createBooking = async (req, res) => {
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
         estimatedUnit: estimatedUnit || "hours", // ← saved
         estimatedValue: estimatedValue || null, // ← saved
-        agreedRate: parseFloat(agreedRate),
+        agreedRate:
+          isNegotiated && negotiatedRate
+            ? parseFloat(negotiatedRate)
+            : parseFloat(agreedRate),
+
         currency: currency || "USD",
         notes,
+        isNegotiated: isNegotiated === true || isNegotiated === "true",
+        negotiatedRate:
+          isNegotiated && negotiatedRate ? parseFloat(negotiatedRate) : null,
+        negotiationNote:
+          isNegotiated && negotiationNote ? negotiationNote.trim() : null,
       },
       include: {
         hirer: {
