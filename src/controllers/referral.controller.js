@@ -36,6 +36,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
+import { FEE_CONFIG } from "../config/fees.js";
 
 // ── Tier & reward configuration ───────────────────────────────────────────────
 
@@ -86,9 +87,9 @@ export const REFEREE_PERKS = {
   HIRER: {
     type: "FIRST_BOOKING_DISCOUNT",
     discountRate: 0.05, // 5% off first booking
-    maxDiscountAmount: 5_000, // cap at ₦5,000
-    cashBonus: 500, // ₦500 wallet credit on signup
-    description: "5% off first booking (up to ₦5,000) + ₦500 wallet credit",
+    maxDiscountAmount: 2_500, // cap at ₦2_500
+    cashBonus: 150, // ₦500 wallet credit on signup
+    description: "5% off first booking (up to ₦2,500) + ₦150 wallet credit",
   },
 };
 

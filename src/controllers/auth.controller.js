@@ -22,6 +22,8 @@ import {
   qualifyReferral,
 } from "./referral.controller.js";
 
+import { registerCampaignReferral } from "./campaign.controller.js";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
   return jwt.sign({ id }, secret, { expiresIn });
@@ -103,6 +105,7 @@ export const register = asyncHandler(async (req, res) => {
 
   if (req.body.referralCode) {
     await applyReferralOnSignup(user.id, req.body.referralCode);
+    await registerCampaignReferral(user.id, req.body.referralCode);
   }
   // ── Create role profile ─────────────────────────────────────────────────────
   if (role === "WORKER") {

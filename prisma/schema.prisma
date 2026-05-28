@@ -74,6 +74,21 @@ enum ReferralStatus {
   FLAGGED
 }
 
+enum CampaignReferralStatus {
+  PENDING
+  TASKS_DONE
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum CampaignSubmissionStatus {
+  PENDING
+  REVIEWING
+  APPROVED
+  PARTIAL
+  REJECTED
+}
 model User {
   id                  String             @id @default(uuid())
   email               String             @unique
@@ -157,6 +172,14 @@ successfulReferrals Int           @default(0)
 referralsGiven     Referral[]          @relation("ReferrerReferrals")
 referralReceived   Referral?           @relation("ReferredReferral")
 walletTransactions WalletTransaction[]
+
+  campaignWalletBalance       Float  @default(0)
+   campaignWalletLifetimeTotal Float  @default(0)
+   campaignReferralsGiven      CampaignReferral[] @relation("CampaignReferrer")
+   campaignReferralReceived    CampaignReferral?  @relation("CampaignReferred")
+   campaignSubmissions         CampaignSubmission[]
+   campaignTransactions        CampaignTransaction[]
+   campaignWithdrawals         CampaignWithdrawal[]
 }
 
   model Referral {
@@ -178,6 +201,95 @@ walletTransactions WalletTransaction[]
     createdAt     DateTime       @default(now())
     updatedAt     DateTime       @updatedAt
   }
+
+  model CampaignReferral {
+  id                 String                 @id @default(uuid())
+  referrerId         String
+  referrer           User                   @relation("CampaignReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId         String                 @unique
+  referred           User                   @relation("CampaignReferred", fields: [referredId], references: [id], onDelete: Cascade)
+  code               String
+  submissionId       String?
+  submission         CampaignSubmission?    @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  hasDownloadedApp   Boolean                @default(true)
+  hasSetupProfile    Boolean                @default(false)
+  hasFollowedFb      Boolean                @default(false)
+  hasFollowedIg      Boolean                @default(false)
+  hasFollowedTt      Boolean                @default(false)
+
+  fbScreenshotUrl    String?
+  igScreenshotUrl    String?
+  ttScreenshotUrl    String?
+
+  status             CampaignReferralStatus @default(PENDING)
+  adminNote          String?
+  rewardAmount       Float                  @default(100)
+  currency           String                 @default("NGN")
+
+  tasksCompletedAt   DateTime?
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  reviewedById       String?
+
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+}
+
+model CampaignSubmission {
+  id               String                    @id @default(uuid())
+  referrerId       String
+  referrer         User                      @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+  submissionDate   String
+  referrals        CampaignReferral[]
+
+  totalSubmitted   Int                       @default(0)
+  totalApproved    Int                       @default(0)
+  totalRejected    Int                       @default(0)
+  grossAmount      Float                     @default(0)
+  netAmount        Float                     @default(0)
+
+  status           CampaignSubmissionStatus  @default(PENDING)
+  adminNote        String?
+  reviewedAt       DateTime?
+  reviewedById     String?
+  creditedAt       DateTime?
+
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([referrerId, submissionDate])
+}
+
+model CampaignTransaction {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         String
+  amount       Float
+  currency     String   @default("NGN")
+  description  String
+  referralId   String?
+  submissionId String?
+  meta         Json?
+  createdAt    DateTime @default(now())
+}
+
+model CampaignWithdrawal {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float
+  currency      String   @default("NGN")
+  bankName      String
+  accountNumber String
+  accountName   String
+  status        String   @default("PENDING")
+  adminNote     String?
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
 
   model WalletTransaction {
   id          String   @id @default(uuid())

@@ -1,6 +1,8 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
+import { markProfileSetupComplete } from "./campaign.controller.js";
+
 // user.controller.js — getProfile, change only the hirerProfile line in the select
 export const getProfile = async (req, res) => {
   try {
@@ -122,6 +124,8 @@ export const updateProfile = async (req, res) => {
         updatedAt: true,
       },
     });
+
+    await markProfileSetupComplete(req.user.id);
 
     return sendResponse(res, { message: "Profile updated", data: { user } });
   } catch (err) {
