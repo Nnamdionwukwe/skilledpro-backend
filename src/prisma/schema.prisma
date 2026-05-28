@@ -108,6 +108,15 @@ featuredListings FeaturedListing[]
 posts         Post[]         @relation("UserPosts")
 postReactions PostReaction[] @relation("UserReactions")
 postComments  PostComment[]  @relation("UserComments")
+referralCode        String?       @unique
+referredById        String?
+referredBy          User?         @relation("UserReferrals", fields: [referredById], references: [id])
+referrals           User[]        @relation("UserReferrals")
+walletBalance       Float         @default(0)
+walletLifetimeTotal Float         @default(0)
+referralTier        ReferralTier  @default(BRONZE)
+totalReferrals      Int           @default(0)
+successfulReferrals Int           @default(0)
 }
 
 model WorkerProfile {

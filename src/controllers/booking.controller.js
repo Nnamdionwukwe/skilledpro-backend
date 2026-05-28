@@ -9,6 +9,8 @@ import {
   sendReviewRequestEmail,
 } from "../services/email.service.js";
 
+import { convertReferral } from "./referral.controller.js";
+
 // ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
   try {
@@ -344,7 +346,9 @@ export const updateBookingStatus = async (req, res) => {
           otherPartyName: `${booking.hirer.firstName} ${booking.hirer.lastName}`,
           booking: { id: booking.id, title: booking.title },
         }),
-      ]);
+        convertReferral(booking.workerId),
+        convertReferral(booking.hirerId),
+      ]).catch((err) => console.error("convertReferral error:", err));
     }
 
     return sendResponse(res, {
@@ -454,6 +458,10 @@ export const checkOut = async (req, res) => {
         },
       },
     });
+
+    convertReferral(booking.workerId).catch((err) =>
+      console.error("convertReferral (checkout) error:", err),
+    );
 
     // Email hirer to release payment
     await sendJobCompletedEmail({

@@ -18,6 +18,10 @@ import crypto from "crypto";
 import prisma from "../config/database.js";
 import { asyncHandler } from "../middleware/error.middleware.js";
 import { FEE_CONFIG } from "../config/fees.js";
+import {
+  convertReferral as _convertReferral,
+  getHirerFirstBookingDiscount,
+} from "./referral.controller.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
@@ -319,12 +323,10 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   if (booking.hirerId !== hirerId)
     return res.status(403).json({ success: false, message: "Forbidden" });
   if (booking.status !== "ACCEPTED")
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Booking must be ACCEPTED before payment",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Booking must be ACCEPTED before payment",
+    });
 
   // Block if already paid
   if (booking.payment?.status === "HELD")
@@ -348,11 +350,16 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 
   const currency = (booking.currency ?? "USD").toUpperCase();
   const fees = FEE_CONFIG.compute(booking.agreedRate);
+  const referralDiscount = await getHirerFirstBookingDiscount(
+    hirerId,
+    booking.agreedRate,
+  );
   const {
     platformFeeFromHirer: platformFee,
-    totalToHirer: totalAmount,
+    totalToHirer,
     workerPayout,
   } = fees;
+  const totalAmount = parseFloat((totalToHirer - referralDiscount).toFixed(2));
 
   const txRef = uniqueRef("PAY");
   const hirerName = `${booking.hirer.firstName} ${booking.hirer.lastName}`;
@@ -490,13 +497,11 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
       .status(404)
       .json({ success: false, message: "Payment record not found" });
   if (existing.status === "HELD") {
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Payment already verified",
-        data: { bookingId: existing.bookingId, status: "HELD" },
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Payment already verified",
+      data: { bookingId: existing.bookingId, status: "HELD" },
+    });
   }
 
   await prisma.payment.update({
@@ -542,13 +547,11 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
       .status(404)
       .json({ success: false, message: "Payment record not found" });
   if (existing.status === "HELD") {
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Already verified",
-        data: { bookingId: existing.bookingId },
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Already verified",
+      data: { bookingId: existing.bookingId },
+    });
   }
 
   await prisma.payment.update({
@@ -734,6 +737,10 @@ export const releasePayment = asyncHandler(async (req, res) => {
       where: { userId: booking.workerId },
       data: { completedJobs: { increment: 1 } },
     }),
+    // Trigger referral conversion for the worker — non-blocking
+    _convertReferral(booking.workerId).catch((err) =>
+      console.error("convertReferral (release) error:", err),
+    ),
   ]);
 
   // Notify worker
@@ -747,13 +754,11 @@ export const releasePayment = asyncHandler(async (req, res) => {
     },
   });
 
-  return res
-    .status(200)
-    .json({
-      success: true,
-      message: "Payment released to worker",
-      data: payment,
-    });
+  return res.status(200).json({
+    success: true,
+    message: "Payment released to worker",
+    data: payment,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -884,32 +889,26 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
 
   if (method === "bank_transfer") {
     if (!accountNumber || !bankCode)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Bank code and account number required",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Bank code and account number required",
+      });
     destination = accountNumber;
     methodMeta = { bankCode, bankName, accountNumber, accountName, country };
   } else if (method === "mobile_money") {
     if (!mobileNumber || !mobileProvider)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Mobile number and provider required",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number and provider required",
+      });
     destination = mobileNumber;
     methodMeta = { mobileNumber, mobileName, mobileProvider, country };
   } else if (method === "crypto") {
     if (!cryptoAddress || !cryptoCurrency)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Crypto address and currency required",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Crypto address and currency required",
+      });
     destination = cryptoAddress;
     methodMeta = {
       cryptoAddress,
@@ -917,12 +916,10 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
       cryptoNetwork: cryptoNetwork ?? "BSC",
     };
   } else {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Invalid method. Use: bank_transfer | mobile_money | crypto",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Invalid method. Use: bank_transfer | mobile_money | crypto",
+    });
   }
 
   const reference = uniqueRef("WD");
@@ -1453,12 +1450,10 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
   const { accountNumber, bankCode, country = "NG" } = req.body;
 
   if (!accountNumber || !bankCode)
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Account number and bank code required",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Account number and bank code required",
+    });
 
   let accountName = null;
 
@@ -1477,12 +1472,10 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
   }
 
   if (!accountName)
-    return res
-      .status(404)
-      .json({
-        success: false,
-        message: "Account not found or could not be verified",
-      });
+    return res.status(404).json({
+      success: false,
+      message: "Account not found or could not be verified",
+    });
 
   return res
     .status(200)
@@ -1645,12 +1638,10 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
   const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
   if (!wallet)
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `Unsupported crypto: ${cryptoCurrency}`,
-      });
+    return res.status(400).json({
+      success: false,
+      message: `Unsupported crypto: ${cryptoCurrency}`,
+    });
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },

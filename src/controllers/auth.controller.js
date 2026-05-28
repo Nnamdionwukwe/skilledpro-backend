@@ -17,6 +17,11 @@ import {
   notifyNewDevice,
 } from "../services/notification.service.js";
 
+import {
+  applyReferralOnSignup,
+  qualifyReferral,
+} from "./referral.controller.js";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
   return jwt.sign({ id }, secret, { expiresIn });
@@ -96,6 +101,9 @@ export const register = asyncHandler(async (req, res) => {
     },
   });
 
+  if (req.body.referralCode) {
+    await applyReferralOnSignup(user.id, req.body.referralCode);
+  }
   // ── Create role profile ─────────────────────────────────────────────────────
   if (role === "WORKER") {
     const wp = await prisma.workerProfile.create({
@@ -224,6 +232,9 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     where: { id: user.id },
     data: { isEmailVerified: true, emailVerifyToken: null },
   });
+
+  // ✅ ADD: qualify the referral now that this user has verified their email
+  await qualifyReferral(user.id);
 
   // Send welcome email
   await sendWelcomeEmail({

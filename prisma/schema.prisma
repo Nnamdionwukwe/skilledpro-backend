@@ -58,6 +58,22 @@ enum WithdrawalStatus {
   CANCELLED
 }
 
+enum ReferralTier {
+  BRONZE
+  SILVER
+  GOLD
+  DIAMOND
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  CONVERTED
+  REWARDED
+  EXPIRED
+  FLAGGED
+}
+
 model User {
   id                  String             @id @default(uuid())
   email               String             @unique
@@ -128,7 +144,54 @@ defaultEstUnit    String?
 defaultEstValue   String?
 
   gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
+
+  referralCode        String?       @unique
+referredById        String?
+referredBy          User?         @relation("UserReferrals", fields: [referredById], references: [id])
+referrals           User[]        @relation("UserReferrals")
+walletBalance       Float         @default(0)
+walletLifetimeTotal Float         @default(0)
+referralTier        ReferralTier  @default(BRONZE)
+totalReferrals      Int           @default(0)
+successfulReferrals Int           @default(0)
+referralsGiven     Referral[]          @relation("ReferrerReferrals")
+referralReceived   Referral?           @relation("ReferredReferral")
+walletTransactions WalletTransaction[]
 }
+
+  model Referral {
+    id            String         @id @default(uuid())
+    referrerId    String
+    referrer      User           @relation("ReferrerReferrals", fields:[referrerId], references:[id])
+    referredId    String         @unique
+    referred      User           @relation("ReferredReferral",  fields:[referredId],  references:[id])
+    code          String
+    status        ReferralStatus @default(PENDING)
+    referredRole  Role
+    referrerBonus Float          @default(0)
+    refereePerk   String
+    currency      String         @default("NGN")
+    paidAt        DateTime?
+    qualifiedAt   DateTime?
+    convertedAt   DateTime?
+    expiresAt     DateTime
+    createdAt     DateTime       @default(now())
+    updatedAt     DateTime       @updatedAt
+  }
+
+  model WalletTransaction {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // "REFERRAL_BONUS" | "WITHDRAWAL" | "ADJUSTMENT" | "EXPIRED"
+  amount      Float
+  currency    String   @default("NGN")
+  description String
+  referralId  String?  // soft ref — no FK to avoid cascade issues
+  meta        Json?
+  createdAt   DateTime @default(now())
+}
+
 
 model WorkerProfile {
   id                 String             @id @default(uuid())
@@ -499,6 +562,8 @@ model FeaturedListing {
   reference  String    @unique
   stripeSessionId String?
   createdAt  DateTime  @default(now())
+  isPaid     Boolean  @default(false)
+  source     String?  // "PURCHASE" | "REFERRAL" | "ADMIN"
 }
 
 enum PostType {
