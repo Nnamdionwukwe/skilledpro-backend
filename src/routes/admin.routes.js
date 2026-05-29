@@ -82,6 +82,10 @@ import {
 
   // Video Calls
   getAllVideoCalls,
+
+  // Manual Payments
+  verifyManualPayment,
+  rejectManualPayment,
 } from "../controllers/admin.controller.js";
 
 const router = Router();
@@ -121,6 +125,10 @@ router.get("/payments", getAllPayments);
 router.get("/payments/:paymentId", getPaymentDetail);
 router.post("/payments/:bookingId/release", adminReleasePayment);
 router.post("/payments/:bookingId/refund", adminRefundPayment);
+
+// Manual payment verification (for bank transfers, etc.)
+router.patch("/payments/:bookingId/verify", verifyManualPayment);
+router.patch("/payments/:bookingId/reject-manual", rejectManualPayment);
 
 // ─── Withdrawals ──────────────────────────────────────────────────────────────
 router.get("/withdrawals", getAllWithdrawals);

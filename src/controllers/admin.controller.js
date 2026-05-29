@@ -1951,3 +1951,138 @@ export const getAllVideoCalls = async (req, res) => {
     return sendError(res, "Failed to fetch video calls");
   }
 };
+
+// ─── ADD TO src/controllers/admin.controller.js ──────────────────────────────
+// Two new exports at the bottom of admin.controller.js
+
+// PATCH /api/admin/payments/:bookingId/verify
+// Confirms a pending manual bank-transfer or crypto payment → sets to HELD
+export const verifyManualPayment = async (req, res) => {
+  try {
+    const { notes } = req.body;
+
+    const payment = await prisma.payment.findFirst({
+      where: { bookingId: req.params.bookingId },
+      include: {
+        booking: {
+          include: {
+            hirer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+            worker: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+
+    if (!payment) return sendError(res, "Payment not found", 404);
+    if (payment.status !== "PENDING")
+      return sendError(
+        res,
+        `Payment is already ${payment.status} — cannot verify`,
+        400,
+      );
+    if (!["bank_transfer", "crypto"].includes(payment.provider))
+      return sendError(
+        res,
+        "This endpoint is only for manual payments (bank_transfer / crypto)",
+        400,
+      );
+
+    // Mark payment as held + booking as accepted
+    await prisma.$transaction([
+      prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      }),
+      prisma.booking.update({
+        where: { id: req.params.bookingId },
+        data: { status: "ACCEPTED" },
+      }),
+      prisma.notification.createMany({
+        data: [
+          {
+            userId: payment.booking.workerId,
+            title: "Payment Verified — Job is Active ✅",
+            body: `Admin has confirmed payment for "${payment.booking.title}". The funds are now in escrow. You can check in when you're ready.`,
+            type: "PAYMENT_HELD",
+            data: { bookingId: payment.bookingId },
+          },
+          {
+            userId: payment.booking.hirerId,
+            title: "Payment Confirmed ✅",
+            body: `Your ${payment.provider === "crypto" ? "crypto" : "bank"} payment for "${payment.booking.title}" has been verified and secured in escrow.`,
+            type: "PAYMENT_HELD",
+            data: { bookingId: payment.bookingId },
+          },
+        ],
+      }),
+    ]);
+
+    return sendResponse(res, {
+      message: `Payment verified — funds held in escrow. ${notes ? "Note: " + notes : ""}`,
+      data: { bookingId: req.params.bookingId, status: "HELD" },
+    });
+  } catch (err) {
+    console.error("verifyManualPayment:", err);
+    return sendError(res, "Failed to verify payment");
+  }
+};
+
+// PATCH /api/admin/payments/:bookingId/reject-manual
+// Rejects a pending manual payment — notifies hirer to re-submit
+export const rejectManualPayment = async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    const payment = await prisma.payment.findFirst({
+      where: { bookingId: req.params.bookingId },
+      include: {
+        booking: {
+          include: {
+            hirer: { select: { id: true, firstName: true } },
+          },
+        },
+      },
+    });
+
+    if (!payment) return sendError(res, "Payment not found", 404);
+    if (payment.status !== "PENDING")
+      return sendError(
+        res,
+        `Payment is ${payment.status} — cannot reject`,
+        400,
+      );
+
+    await prisma.$transaction([
+      prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: "FAILED" },
+      }),
+      prisma.notification.create({
+        data: {
+          userId: payment.booking.hirerId,
+          title: "Payment Not Verified ❌",
+          body: reason
+            ? `Your payment for "${payment.booking.title}" could not be verified. Reason: ${reason}. Please re-submit with correct details.`
+            : `Your payment for "${payment.booking.title}" could not be verified. Please contact support or re-submit.`,
+          type: "PAYMENT_FAILED",
+          data: { bookingId: payment.bookingId, reason },
+        },
+      }),
+    ]);
+
+    return sendResponse(res, {
+      message: "Payment rejected and hirer notified",
+      data: { bookingId: req.params.bookingId, status: "FAILED" },
+    });
+  } catch (err) {
+    console.error("rejectManualPayment:", err);
+    return sendError(res, "Failed to reject payment");
+  }
+};
