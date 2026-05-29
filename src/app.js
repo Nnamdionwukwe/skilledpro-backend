@@ -28,6 +28,8 @@ import settingsRoutes from "./routes/settings.routes.js";
 import translateRoutes from "./routes/translate.routes.js";
 import referralRoutes from "./routes/referral.routes.js";
 import campaignRoutes from "./routes/campaign.routes.js";
+import reportRoutes from "./routes/report.routes.js";
+import auditRoutes from "./routes/audit.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
 // before this file is imported.
@@ -115,6 +117,8 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/campaign", campaignRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/audit", auditRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);

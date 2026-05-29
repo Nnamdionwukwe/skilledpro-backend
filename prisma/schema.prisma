@@ -89,6 +89,122 @@ enum CampaignSubmissionStatus {
   PARTIAL
   REJECTED
 }
+
+enum ReportType {
+  USER
+  JOB_POST
+  POST
+  REVIEW
+  BOOKING
+  MESSAGE
+}
+
+enum ReportReason {
+  SPAM
+  FAKE_PROFILE
+  INAPPROPRIATE_CONTENT
+  FRAUD
+  HARASSMENT
+  SCAM
+  MISLEADING_INFORMATION
+  FAKE_REVIEWS
+  UNDERAGE_USER
+  HATE_SPEECH
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportAction {
+  NO_ACTION
+  WARNING_ISSUED
+  CONTENT_REMOVED
+  USER_SUSPENDED
+  USER_BANNED
+}
+
+enum AuditAction {
+  // ── User management ──────────────────────────────────────────────────────
+  USER_BANNED
+  USER_UNBANNED
+  USER_DELETED
+  USER_ROLE_CHANGED
+  USER_VERIFIED
+  USER_VERIFICATION_REJECTED
+  USER_SUSPENDED           // from report resolution
+  // ── Payment management ───────────────────────────────────────────────────
+  PAYMENT_RELEASED
+  PAYMENT_REFUNDED
+  PAYMENT_MANUAL_VERIFIED  // bank transfer / crypto confirmed
+  PAYMENT_MANUAL_REJECTED  // bank transfer / crypto rejected
+  // ── Withdrawal management ────────────────────────────────────────────────
+  WITHDRAWAL_APPROVED
+  WITHDRAWAL_REJECTED
+  // ── Report management ────────────────────────────────────────────────────
+  REPORT_REVIEWED
+  REPORT_RESOLVED
+  REPORT_DISMISSED
+  REPORT_BULK_DISMISSED
+  // ── Content management ───────────────────────────────────────────────────
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  CATEGORY_DELETED
+  REVIEW_DELETED
+  JOB_DELETED
+  JOB_STATUS_CHANGED
+  POST_DELETED
+  COMMENT_DELETED
+  FEATURED_REMOVED
+  // ── Booking & disputes ───────────────────────────────────────────────────
+  BOOKING_STATUS_CHANGED
+  DISPUTE_RESOLVED
+  // ── Campaign ─────────────────────────────────────────────────────────────
+  CAMPAIGN_SUBMISSION_REVIEWED
+  CAMPAIGN_WITHDRAWAL_APPROVED
+  CAMPAIGN_WITHDRAWAL_REJECTED
+  // ── Referral ─────────────────────────────────────────────────────────────
+  REFERRAL_PAYOUT_PROCESSED
+  REFERRAL_FLAGGED
+  // ── Subscription ─────────────────────────────────────────────────────────
+  SUBSCRIPTION_CANCELLED
+  // ── Notifications ────────────────────────────────────────────────────────
+  NOTIFICATION_BROADCAST
+  // ── System ───────────────────────────────────────────────────────────────
+  ADMIN_LOGIN
+  SETTINGS_CHANGED
+}
+
+enum AuditTargetType {
+  USER
+  PAYMENT
+  WITHDRAWAL
+  BOOKING
+  JOB_POST
+  POST
+  COMMENT
+  REVIEW
+  CATEGORY
+  REPORT
+  CAMPAIGN_SUBMISSION
+  CAMPAIGN_WITHDRAWAL
+  REFERRAL
+  SUBSCRIPTION
+  FEATURED_LISTING
+  DISPUTE
+  SYSTEM
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
 model User {
   id                  String             @id @default(uuid())
   email               String             @unique
@@ -180,6 +296,10 @@ walletTransactions WalletTransaction[]
    campaignSubmissions         CampaignSubmission[]
    campaignTransactions        CampaignTransaction[]
    campaignWithdrawals         CampaignWithdrawal[]
+
+   reportsGiven     Report[] @relation("ReportsGiven")
+   reportsReviewed  Report[] @relation("ReportsReviewed")
+   auditLogs    AuditLog[]  @relation("AuditLogs")
 }
 
   model Referral {
@@ -302,6 +422,59 @@ model CampaignWithdrawal {
   referralId  String?  // soft ref — no FK to avoid cascade issues
   meta        Json?
   createdAt   DateTime @default(now())
+}
+
+model Report {
+  id           String        @id @default(uuid())
+  reporterId   String
+  targetType   ReportType
+  targetId     String
+  reason       ReportReason
+  description  String?
+  evidence     String[]      @default([])   // screenshot / proof URLs
+  status       ReportStatus  @default(PENDING)
+  adminNote    String?
+  actionTaken  ReportAction?
+  reviewedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  reporter   User  @relation("ReportsGiven",    fields: [reporterId],   references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReportsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // One report per user per target — prevents spam-reporting the same thing
+  @@unique([reporterId, targetType, targetId])
+
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([reporterId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AuditLog {
+  id           String          @id @default(uuid())
+  adminId      String
+  action       AuditAction
+  targetType   AuditTargetType
+  targetId     String?                        // nullable — system actions have no target
+  description  String                         // plain-English summary e.g. "Banned user john@example.com"
+  before       Json?                          // snapshot of state before the action
+  after        Json?                          // snapshot of state after the action
+  meta         Json?                          // extra context (reason, amount, role, etc.)
+  result       AuditResult     @default(SUCCESS)
+  errorMessage String?                        // populated when result = FAILED
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime        @default(now())
+
+  admin        User            @relation("AuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt(sort: Desc)])
+  @@index([result])
 }
 
 

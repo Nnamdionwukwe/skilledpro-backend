@@ -23,6 +23,8 @@ import {
   getHirerFirstBookingDiscount,
 } from "./referral.controller.js";
 
+import { logAdminAction } from "../utils/auditLog.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
 // ─────────────────────────────────────────────────────────────────────────────

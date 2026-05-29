@@ -334,6 +334,17 @@ export const login = asyncHandler(async (req, res) => {
     },
   });
 
+  if (user.role === "ADMIN") {
+    await logAdminAction({
+      req,
+      adminId: user.id,
+      action: "ADMIN_LOGIN",
+      targetType: "SYSTEM",
+      description: `Admin ${user.email} logged in`,
+      meta: { email: user.email },
+    });
+  }
+
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const device = req.headers["user-agent"]?.slice(0, 80) || "Unknown device";
   sendLoginAlertEmail({
