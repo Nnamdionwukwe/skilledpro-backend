@@ -207,6 +207,7 @@ export const register = asyncHandler(async (req, res) => {
         email: user.email,
         role: user.role,
         isEmailVerified: user.isEmailVerified,
+        referralCode: user.referralCode ?? null, // ← ADD THIS
       },
     },
   });
@@ -328,6 +329,7 @@ export const login = asyncHandler(async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         isEmailVerified: user.isEmailVerified,
+        referralCode: user.referralCode,
       },
     },
   });
@@ -419,6 +421,7 @@ export const getMe = asyncHandler(async (req, res) => {
       isEmailVerified: true,
       isPhoneVerified: true,
       createdAt: true,
+      referralCode: true,
       workerProfile: true,
       hirerProfile: true,
     },
