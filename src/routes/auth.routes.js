@@ -12,19 +12,45 @@ import {
   forgotPassword,
   resetPassword,
 } from "../controllers/auth.controller.js";
+import {
+  loginLimiter,
+  registerLimiter,
+  forgotPasswordLimiter,
+  resetPasswordLimiter,
+  resendVerificationLimiter,
+  refreshTokenLimiter,
+} from "../middleware/rateLimit.middleware.js";
 
 const router = express.Router();
 
-// Public
-router.post("/register", register);
-router.post("/login", login);
-router.get("/verify-email", verifyEmail);
-router.post("/resend-verification", resendVerification);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
-router.post("/refresh", refreshToken);
+// ─── Public — with rate limiting ─────────────────────────────────────────────
 
-// Protected
+// 5 registrations / hour / IP
+router.post("/register", registerLimiter, register);
+
+// 10 attempts / 15 min / IP+email combo
+router.post("/login", loginLimiter, login);
+
+// No rate limit needed — one-time token link
+router.get("/verify-email", verifyEmail);
+
+// 3 emails / hour / IP
+router.post(
+  "/resend-verification",
+  resendVerificationLimiter,
+  resendVerification,
+);
+
+// 3 requests / hour / IP
+router.post("/forgot-password", forgotPasswordLimiter, forgotPassword);
+
+// 5 attempts / hour / IP
+router.post("/reset-password", resetPasswordLimiter, resetPassword);
+
+// 30 refreshes / 15 min / IP
+router.post("/refresh", refreshTokenLimiter, refreshToken);
+
+// ─── Protected ───────────────────────────────────────────────────────────────
 router.post("/logout", protect, logout);
 router.get("/me", protect, getMe);
 

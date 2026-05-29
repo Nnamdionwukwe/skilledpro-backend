@@ -11,20 +11,18 @@ import {
   sendPasswordChangedEmail,
   sendLoginAlertEmail,
 } from "../services/email.service.js";
-
 import {
   notifyPasswordChanged,
   notifyNewDevice,
 } from "../services/notification.service.js";
-
 import {
   applyReferralOnSignup,
   qualifyReferral,
 } from "./referral.controller.js";
-
 import { registerCampaignReferral } from "./campaign.controller.js";
+import { logAdminAction } from "../utils/auditLog.js"; // ← FIXED: was missing
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Token helpers ─────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
   return jwt.sign({ id }, secret, { expiresIn });
 }
@@ -43,9 +41,8 @@ function generateTokens(userId) {
   return { accessToken, refreshToken };
 }
 
-// ── Register ──────────────────────────────────────────────────────────────────
+// ─── Register ──────────────────────────────────────────────────────────────────
 // POST /api/auth/register
-// src/controllers/auth.controller.js — replace the register export only
 export const register = asyncHandler(async (req, res) => {
   const {
     firstName,
@@ -56,11 +53,11 @@ export const register = asyncHandler(async (req, res) => {
     phone,
     country,
     city,
-    workerProfile: workerProfileData, // nested worker data from frontend
-    categories, // [{categoryId, isPrimary}]
+    workerProfile: workerProfileData,
+    categories,
   } = req.body;
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  // ── Validation ───────────────────────────────────────────────────────────────
   if (!firstName || !lastName || !email || !password || !role) {
     return res
       .status(400)
@@ -72,10 +69,12 @@ export const register = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Role must be HIRER or WORKER" });
   }
   if (password.length < 8) {
-    return res.status(400).json({
-      success: false,
-      message: "Password must be at least 8 characters",
-    });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Password must be at least 8 characters",
+      });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -88,7 +87,7 @@ export const register = asyncHandler(async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 12);
   const emailVerifyToken = crypto.randomBytes(32).toString("hex");
 
-  // ── Create user ─────────────────────────────────────────────────────────────
+  // ── Create user ──────────────────────────────────────────────────────────────
   const user = await prisma.user.create({
     data: {
       firstName,
@@ -107,7 +106,8 @@ export const register = asyncHandler(async (req, res) => {
     await applyReferralOnSignup(user.id, req.body.referralCode);
     await registerCampaignReferral(user.id, req.body.referralCode);
   }
-  // ── Create role profile ─────────────────────────────────────────────────────
+
+  // ── Create role profile ──────────────────────────────────────────────────────
   if (role === "WORKER") {
     const wp = await prisma.workerProfile.create({
       data: {
@@ -124,7 +124,6 @@ export const register = asyncHandler(async (req, res) => {
         serviceRadius: workerProfileData?.serviceRadius
           ? parseInt(workerProfileData.serviceRadius)
           : 25,
-        // Multi-rate pricing
         dailyRate: workerProfileData?.dailyRate
           ? parseFloat(workerProfileData.dailyRate)
           : null,
@@ -142,7 +141,6 @@ export const register = asyncHandler(async (req, res) => {
       },
     });
 
-    // ── Attach categories ────────────────────────────────────────────────────
     if (categories?.length > 0) {
       const validCats = await prisma.category.findMany({
         where: { id: { in: categories.map((c) => c.categoryId) } },
@@ -156,7 +154,6 @@ export const register = asyncHandler(async (req, res) => {
           categoryId: c.categoryId,
           isPrimary: c.isPrimary ?? false,
         }));
-
       if (catData.length > 0) {
         await prisma.workerCategory.createMany({
           data: catData,
@@ -168,7 +165,7 @@ export const register = asyncHandler(async (req, res) => {
     await prisma.hirerProfile.create({ data: { userId: user.id } });
   }
 
-  // ── Email verification ──────────────────────────────────────────────────────
+  // ── Verification email ───────────────────────────────────────────────────────
   try {
     await sendVerificationEmail({
       to: email,
@@ -177,21 +174,10 @@ export const register = asyncHandler(async (req, res) => {
     });
   } catch (emailErr) {
     console.error("Verification email failed:", emailErr.message);
-    // Don't block registration if email fails
   }
 
-  // ── Tokens ──────────────────────────────────────────────────────────────────
-  const accessToken = generateToken(
-    user.id,
-    process.env.JWT_SECRET,
-    process.env.JWT_EXPIRES_IN || "7d",
-  );
-  const refreshToken = generateToken(
-    user.id,
-    process.env.JWT_REFRESH_SECRET,
-    process.env.JWT_REFRESH_EXPIRES_IN || "30d",
-  );
-
+  // ── Tokens ───────────────────────────────────────────────────────────────────
+  const { accessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
 
   return res.status(201).json({
@@ -207,13 +193,13 @@ export const register = asyncHandler(async (req, res) => {
         email: user.email,
         role: user.role,
         isEmailVerified: user.isEmailVerified,
-        referralCode: user.referralCode ?? null, // ← ADD THIS
+        referralCode: user.referralCode ?? null,
       },
     },
   });
 });
 
-// ── Verify email ──────────────────────────────────────────────────────────────
+// ─── Verify email ──────────────────────────────────────────────────────────────
 // GET /api/auth/verify-email?token=xxx
 export const verifyEmail = asyncHandler(async (req, res) => {
   const { token } = req.query;
@@ -225,7 +211,6 @@ export const verifyEmail = asyncHandler(async (req, res) => {
   const user = await prisma.user.findFirst({
     where: { emailVerifyToken: token },
   });
-
   if (!user) {
     return res
       .status(400)
@@ -237,10 +222,8 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     data: { isEmailVerified: true, emailVerifyToken: null },
   });
 
-  // ✅ ADD: qualify the referral now that this user has verified their email
   await qualifyReferral(user.id);
 
-  // Send welcome email
   await sendWelcomeEmail({
     to: user.email,
     firstName: user.firstName,
@@ -252,7 +235,7 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     .json({ success: true, message: "Email verified successfully" });
 });
 
-// ── Resend verification ───────────────────────────────────────────────────────
+// ─── Resend verification ───────────────────────────────────────────────────────
 // POST /api/auth/resend-verification
 export const resendVerification = asyncHandler(async (req, res) => {
   const { email } = req.body;
@@ -260,24 +243,22 @@ export const resendVerification = asyncHandler(async (req, res) => {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user)
     return res.status(404).json({ success: false, message: "User not found" });
-  if (user.isEmailVerified) {
+  if (user.isEmailVerified)
     return res
       .status(400)
       .json({ success: false, message: "Email already verified" });
-  }
 
   const token = crypto.randomBytes(32).toString("hex");
   await prisma.user.update({
     where: { id: user.id },
     data: { emailVerifyToken: token },
   });
-
   await sendVerificationEmail({ to: email, firstName: user.firstName, token });
 
   res.status(200).json({ success: true, message: "Verification email resent" });
 });
 
-// ── Login ─────────────────────────────────────────────────────────────────────
+// ─── Login ─────────────────────────────────────────────────────────────────────
 // POST /api/auth/login
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -294,7 +275,6 @@ export const login = asyncHandler(async (req, res) => {
       .status(401)
       .json({ success: false, message: "Invalid credentials" });
   }
-
   if (user.isBanned) {
     return res
       .status(403)
@@ -309,12 +289,12 @@ export const login = asyncHandler(async (req, res) => {
   }
 
   const { accessToken, refreshToken } = generateTokens(user.id);
-
   await prisma.user.update({
     where: { id: user.id },
     data: { refreshToken, lastSeen: new Date() },
   });
 
+  // ── FIXED: send response first, then fire-and-forget side effects ────────────
   res.status(200).json({
     success: true,
     message: "Login successful",
@@ -334,19 +314,25 @@ export const login = asyncHandler(async (req, res) => {
     },
   });
 
+  // ── Fire-and-forget: none of these should delay the login response ────────────
+  const ip =
+    req.headers["x-real-ip"] ||
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress;
+  const device = req.headers["user-agent"]?.slice(0, 80) || "Unknown device";
+
+  // Audit log — admin logins only (fire-and-forget, no await needed here)
   if (user.role === "ADMIN") {
-    await logAdminAction({
+    logAdminAction({
       req,
       adminId: user.id,
       action: "ADMIN_LOGIN",
       targetType: "SYSTEM",
       description: `Admin ${user.email} logged in`,
-      meta: { email: user.email },
-    });
+      meta: { email: user.email, ip, device },
+    }).catch(() => {}); // logAdminAction catches internally, this is extra safety
   }
 
-  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-  const device = req.headers["user-agent"]?.slice(0, 80) || "Unknown device";
   sendLoginAlertEmail({
     to: user.email,
     name: user.firstName,
@@ -357,7 +343,7 @@ export const login = asyncHandler(async (req, res) => {
   notifyNewDevice(user.id, ip, device).catch(() => {});
 });
 
-// ── Refresh token ─────────────────────────────────────────────────────────────
+// ─── Refresh token ─────────────────────────────────────────────────────────────
 // POST /api/auth/refresh
 export const refreshToken = asyncHandler(async (req, res) => {
   const { refreshToken: token } = req.body;
@@ -387,30 +373,30 @@ export const refreshToken = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken: newRefreshToken } = generateTokens(
     user.id,
   );
-
   await prisma.user.update({
     where: { id: user.id },
     data: { refreshToken: newRefreshToken },
   });
 
-  res.status(200).json({
-    success: true,
-    data: { accessToken, refreshToken: newRefreshToken },
-  });
+  res
+    .status(200)
+    .json({
+      success: true,
+      data: { accessToken, refreshToken: newRefreshToken },
+    });
 });
 
-// ── Logout ────────────────────────────────────────────────────────────────────
+// ─── Logout ────────────────────────────────────────────────────────────────────
 // POST /api/auth/logout
 export const logout = asyncHandler(async (req, res) => {
   await prisma.user.update({
     where: { id: req.user.id },
     data: { refreshToken: null },
   });
-
   res.status(200).json({ success: true, message: "Logged out successfully" });
 });
 
-// ── Get current user ──────────────────────────────────────────────────────────
+// ─── Get current user ──────────────────────────────────────────────────────────
 // GET /api/auth/me
 export const getMe = asyncHandler(async (req, res) => {
   const user = await prisma.user.findUnique({
@@ -432,7 +418,7 @@ export const getMe = asyncHandler(async (req, res) => {
       isEmailVerified: true,
       isPhoneVerified: true,
       createdAt: true,
-      referralCode: true,
+      referralCode: true, // ← included (fixed in earlier session)
       workerProfile: true,
       hirerProfile: true,
     },
@@ -441,19 +427,21 @@ export const getMe = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: user });
 });
 
-// ── Forgot password ───────────────────────────────────────────────────────────
+// ─── Forgot password ───────────────────────────────────────────────────────────
 // POST /api/auth/forgot-password
 export const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
   const user = await prisma.user.findUnique({ where: { email } });
 
-  // Always return success to prevent email enumeration
+  // Always return success — prevents email enumeration attacks
   if (!user) {
-    return res.status(200).json({
-      success: true,
-      message: "If that email exists, a reset link has been sent",
-    });
+    return res
+      .status(200)
+      .json({
+        success: true,
+        message: "If that email exists, a reset link has been sent",
+      });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -466,13 +454,15 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
   await sendPasswordResetEmail({ to: email, firstName: user.firstName, token });
 
-  res.status(200).json({
-    success: true,
-    message: "If that email exists, a reset link has been sent",
-  });
+  res
+    .status(200)
+    .json({
+      success: true,
+      message: "If that email exists, a reset link has been sent",
+    });
 });
 
-// ── Reset password ────────────────────────────────────────────────────────────
+// ─── Reset password ────────────────────────────────────────────────────────────
 // POST /api/auth/reset-password
 export const resetPassword = asyncHandler(async (req, res) => {
   const { token, password } = req.body;
@@ -482,12 +472,13 @@ export const resetPassword = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Token and new password required" });
   }
-
   if (password.length < 8) {
-    return res.status(400).json({
-      success: false,
-      message: "Password must be at least 8 characters",
-    });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: "Password must be at least 8 characters",
+      });
   }
 
   const user = await prisma.user.findFirst({
@@ -496,7 +487,6 @@ export const resetPassword = asyncHandler(async (req, res) => {
       passwordResetExpiry: { gt: new Date() },
     },
   });
-
   if (!user) {
     return res
       .status(400)
@@ -504,22 +494,24 @@ export const resetPassword = asyncHandler(async (req, res) => {
   }
 
   const hashed = await bcrypt.hash(password, 12);
-
   await prisma.user.update({
     where: { id: user.id },
     data: {
       password: hashed,
       passwordResetToken: null,
       passwordResetExpiry: null,
-      refreshToken: null, // invalidate all sessions
+      refreshToken: null,
     },
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Password reset successful. Please log in.",
-  });
+  res
+    .status(200)
+    .json({
+      success: true,
+      message: "Password reset successful. Please log in.",
+    });
 
+  // Fire-and-forget notifications
   sendPasswordChangedEmail({ to: user.email, name: user.firstName }).catch(
     () => {},
   );

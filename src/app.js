@@ -31,6 +31,8 @@ import campaignRoutes from "./routes/campaign.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
 
+import { apiLimiter } from "./middleware/rateLimit.middleware.js";
+
 // NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
 // before this file is imported.
 
@@ -87,6 +89,8 @@ app.use(morgan("dev"));
 // ── Body parsers ──────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use("/api", apiLimiter);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));
