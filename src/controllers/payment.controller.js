@@ -24,7 +24,19 @@ import {
 } from "./referral.controller.js";
 
 import { logAdminAction } from "../utils/auditLog.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
@@ -736,7 +748,7 @@ export const releasePayment = asyncHandler(async (req, res) => {
       data: { completedJobs: { increment: 1 } },
     }),
     // Trigger referral conversion for the worker — non-blocking
-    _convertReferral(booking.workerId).catch((err) =>
+    _convertReferral(booking.workerId, booking.payment.amount).catch((err) =>
       console.error("convertReferral (release) error:", err),
     ),
   ]);

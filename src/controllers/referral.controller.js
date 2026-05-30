@@ -37,70 +37,99 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
 import { FEE_CONFIG } from "../config/fees.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ── Tier & reward configuration ───────────────────────────────────────────────
+
+// ── Tier base bonuses (Phase-1 amounts — scale via getBonusForPhase) ──────────
+const TIER_BASE_BONUSES = {
+  BRONZE: { workerBonus: 800, hirerBonus: 600 },
+  SILVER: { workerBonus: 1_200, hirerBonus: 900 },
+  GOLD: { workerBonus: 2_000, hirerBonus: 1_500 },
+  DIAMOND: { workerBonus: 3_500, hirerBonus: 2_500 },
+};
+
+const PHASE_MULTIPLIERS = { 1: 1.0, 2: 1.6, 3: 2.2 };
+
+export function getBonusForPhase(tierKey) {
+  const base = TIER_BASE_BONUSES[tierKey] || TIER_BASE_BONUSES.BRONZE;
+  const mult = PHASE_MULTIPLIERS[FEE_CONFIG.phase] || 1.0;
+  return {
+    workerBonus: Math.round((base.workerBonus * mult) / 50) * 50,
+    hirerBonus: Math.round((base.hirerBonus * mult) / 50) * 50,
+  };
+}
 
 export const TIERS = {
   BRONZE: {
     label: "🥉 Bronze",
     min: 0,
     max: 5,
-    workerBonus: 2_000, // ₦ referrer earns per converted worker referral
-    hirerBonus: 1_500, // ₦ referrer earns per converted hirer referral
+    ...getBonusForPhase("BRONZE"),
     badge: "bronze",
   },
   SILVER: {
     label: "🥈 Silver",
     min: 6,
     max: 20,
-    workerBonus: 3_500,
-    hirerBonus: 2_500,
+    ...getBonusForPhase("SILVER"),
     badge: "silver",
   },
   GOLD: {
     label: "🥇 Gold",
     min: 21,
     max: 50,
-    workerBonus: 5_500,
-    hirerBonus: 4_000,
+    ...getBonusForPhase("GOLD"),
     badge: "gold",
   },
   DIAMOND: {
     label: "💎 Diamond",
     min: 51,
     max: Infinity,
-    workerBonus: 9_000,
-    hirerBonus: 7_000,
+    ...getBonusForPhase("DIAMOND"),
     badge: "diamond",
   },
 };
 
-// What the REFERRED USER gets (one-time perk on conversion)
 export const REFEREE_PERKS = {
   WORKER: {
     type: "BOOST_PLUS_FEE_WAIVER",
-    featuredBoostDays: 30, // free featured listing for 30 days
-    platformFeeWaiverJobs: 3, // platform fee waived on first 3 jobs
+    featuredBoostDays: 30,
+    platformFeeWaiverJobs: 3,
     cashBonus: 0,
-    description: "30-day profile boost + platform fee waived on first 3 jobs",
+    description: "30-day profile boost + fee waived on your first 3 jobs",
   },
   HIRER: {
     type: "FIRST_BOOKING_DISCOUNT",
-    discountRate: 0.05, // 5% off first booking
-    maxDiscountAmount: 2_500, // cap at ₦2_500
-    cashBonus: 150, // ₦500 wallet credit on signup
+    discountRate: 0.05,
+    maxDiscountAmount: 2_500,
+    cashBonus: 150,
     description: "5% off first booking (up to ₦2,500) + ₦150 wallet credit",
   },
 };
 
 export const REFERRAL_CONFIG = {
   CURRENCY: "NGN",
-  CONVERSION_WINDOW_DAYS: 90, // referee must convert within 90 days
-  REWARD_EXPIRY_DAYS: 180, // earnings expire in 180 days if unused
-  CODE_LENGTH: 8, // e.g. "SP-A3F2B8C1"
-  MIN_WITHDRAWAL: 5_000, // minimum ₦5,000 to initiate withdrawal
-  MAX_PENDING_REFERRALS: 50, // fraud guard — max open referrals per user
+  CONVERSION_WINDOW_DAYS: 90,
+  REWARD_EXPIRY_DAYS: 180,
+  CODE_LENGTH: 8,
+  MIN_WITHDRAWAL: 5_000,
+  MAX_PENDING_REFERRALS: 50,
   APP_URL: process.env.APP_BASE_URL || "https://skilledproz.com",
+  // ── Sustainability guardrails ─────────────────────────────────────────────
+  MIN_FIRST_BOOKING_VALUE: 5_000,
+  MAX_SINGLE_BOOKING_PAYOUT_PCT: 0.85,
 };
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -369,7 +398,10 @@ export const qualifyReferral = async (userId) => {
 //    OR from booking.controller when first booking reaches COMPLETED)
 //    Pass the userId of the referred user.
 // ─────────────────────────────────────────────────────────────────────────────
-export const convertReferral = async (referredUserId) => {
+export const convertReferral = async (
+  referredUserId,
+  firstBookingAmount = null,
+) => {
   try {
     const referral = await prisma.referral.findUnique({
       where: { referredId: referredUserId },
@@ -400,15 +432,35 @@ export const convertReferral = async (referredUserId) => {
 
     const { referrer, referred } = referral;
 
-    // Recalculate bonus based on referrer's CURRENT tier at conversion time
+    // Base bonus for referrer's current tier at conversion time
     const currentTier = resolveTier(referrer.successfulReferrals);
-    const earnedBonus = tierBonus(currentTier, referred.role);
+    let earnedBonus = tierBonus(currentTier, referred.role);
+
+    // ── Sustainability cap ────────────────────────────────────────────────────
+    // Cap the payout to 85% of the platform revenue earned on this specific booking
+    // so we never pay out more than we earned from it.
+    if (
+      firstBookingAmount &&
+      firstBookingAmount >= REFERRAL_CONFIG.MIN_FIRST_BOOKING_VALUE
+    ) {
+      const fees = FEE_CONFIG.compute(firstBookingAmount);
+      const maxFromBook = Math.floor(
+        fees.totalPlatformRevenue *
+          REFERRAL_CONFIG.MAX_SINGLE_BOOKING_PAYOUT_PCT,
+      );
+      if (maxFromBook < earnedBonus) {
+        earnedBonus = Math.max(maxFromBook, 200); // floor at ₦200 to keep payout meaningful
+      }
+    }
+
+    // Round to nearest ₦50 for cleaner display
+    earnedBonus = Math.round(earnedBonus / 50) * 50;
+
     const rewardExpiry = new Date(
-      Date.now() + REFERRAL_CONFIG.REWARD_EXPIRY_DAYS * 86400000,
+      Date.now() + REFERRAL_CONFIG.REWARD_EXPIRY_DAYS * 86_400_000,
     );
 
     await prisma.$transaction(async (tx) => {
-      // ── Update referral record ──
       await tx.referral.update({
         where: { id: referral.id },
         data: {
@@ -419,7 +471,6 @@ export const convertReferral = async (referredUserId) => {
         },
       });
 
-      // ── Credit referrer's wallet ──
       await tx.user.update({
         where: { id: referrer.id },
         data: {
@@ -430,7 +481,6 @@ export const convertReferral = async (referredUserId) => {
         },
       });
 
-      // ── Wallet transaction log ──
       await tx.walletTransaction.create({
         data: {
           userId: referrer.id,
@@ -442,18 +492,17 @@ export const convertReferral = async (referredUserId) => {
           meta: {
             tier: currentTier,
             referredRole: referred.role,
+            feePhase: FEE_CONFIG.phase, // ← NEW: tracks which phase paid this
+            firstBookingAmount: firstBookingAmount || null, // ← NEW: for audit trail
             expiresAt: rewardExpiry,
           },
         },
       });
 
-      // ── Apply referee perks ──
       const perk = REFEREE_PERKS[referred.role];
-
       if (referred.role === "WORKER" && perk.featuredBoostDays > 0) {
-        // Grant free featured listing
         const boostExpiry = new Date(
-          Date.now() + perk.featuredBoostDays * 86400000,
+          Date.now() + perk.featuredBoostDays * 86_400_000,
         );
         await tx.featuredListing
           .create({
@@ -466,16 +515,15 @@ export const convertReferral = async (referredUserId) => {
               source: "REFERRAL",
             },
           })
-          .catch(() => {}); // graceful if FeaturedListing schema differs
+          .catch(() => {});
       }
 
-      // ── Notifications ──
       await tx.notification.createMany({
         data: [
           {
             userId: referrer.id,
             title: `You earned ₦${earnedBonus.toLocaleString()}! 💰`,
-            body: `${referred.firstName} completed their first booking. Your referral bonus is now in your wallet. Tier: ${TIERS[currentTier]?.label}.`,
+            body: `${referred.firstName} completed their first booking. Bonus credited to your wallet. Tier: ${TIERS[currentTier]?.label}.`,
             type: "REFERRAL_CONVERTED",
             data: {
               referralId: referral.id,
@@ -488,8 +536,8 @@ export const convertReferral = async (referredUserId) => {
             title: "Your referral perks are now active! 🎁",
             body:
               perk.type === "BOOST_PLUS_FEE_WAIVER"
-                ? `Your profile is now featured for ${perk.featuredBoostDays} days and platform fees are waived on your first ${perk.platformFeeWaiverJobs} jobs.`
-                : `Congratulations! Your 5% discount is active on your next booking.`,
+                ? `Your profile is featured for ${perk.featuredBoostDays} days and fees waived on your first ${perk.platformFeeWaiverJobs} jobs.`
+                : `Your 5% discount is active on your next booking.`,
             type: "REFERRAL_PERK_ACTIVATED",
             data: { perk, referralId: referral.id },
           },

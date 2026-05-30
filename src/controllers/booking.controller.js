@@ -10,7 +10,19 @@ import {
 } from "../services/email.service.js";
 
 import { convertReferral } from "./referral.controller.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
   try {
@@ -346,8 +358,8 @@ export const updateBookingStatus = async (req, res) => {
           otherPartyName: `${booking.hirer.firstName} ${booking.hirer.lastName}`,
           booking: { id: booking.id, title: booking.title },
         }),
-        convertReferral(booking.workerId),
-        convertReferral(booking.hirerId),
+        convertReferral(booking.workerId, booking.agreedRate), // ← pass agreedRate
+        convertReferral(booking.hirerId, booking.agreedRate),
       ]).catch((err) => console.error("convertReferral error:", err));
     }
 
@@ -459,7 +471,7 @@ export const checkOut = async (req, res) => {
       },
     });
 
-    convertReferral(booking.workerId).catch((err) =>
+    convertReferral(booking.workerId, booking.agreedRate).catch((err) =>
       console.error("convertReferral (checkout) error:", err),
     );
 
