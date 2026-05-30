@@ -1,9 +1,6 @@
+// src/routes/post.routes.js
 import { Router } from "express";
-import { protect } from "../middleware/auth.middleware.js";
-import {
-  uploadMultiple,
-  normaliseFile,
-} from "../middleware/upload.middleware.js";
+import { protect, optionalProtect } from "../middleware/auth.middleware.js";
 import {
   getFeed,
   getMyPosts,
@@ -19,36 +16,68 @@ import {
   getComments,
   deleteComment,
 } from "../controllers/post.controller.js";
+import {
+  validateCreatePost,
+  validateUpdatePost,
+  validateCreateComment,
+  validateReactToPost,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
-// Feed — optionally authenticated (shows myReaction if logged in)
-router.get("/feed", protect, getFeed);
+// ── Feed & browsing ───────────────────────────────────────────────────────────
+router.get("/feed", validatePagination, getFeed);
+router.get("/my", validatePagination, getMyPosts);
+router.get(
+  "/user/:userId",
+  ...validateUUIDParam("userId"),
+  validatePagination,
+  getUserPosts,
+);
+router.get("/:id", ...validateUUIDParam("id"), getPost);
 
-// My posts
-router.get("/my", protect, getMyPosts);
+// ── Post CRUD ─────────────────────────────────────────────────────────────────
+router.post("/", validateCreatePost, createPost);
+router.put("/:id", ...validateUUIDParam("id"), validateUpdatePost, updatePost);
+router.delete("/:id", ...validateUUIDParam("id"), deletePost);
 
-// User posts
-router.get("/user/:userId", protect, getUserPosts);
+// ── Repost ────────────────────────────────────────────────────────────────────
+router.post("/:id/repost", ...validateUUIDParam("id"), repost);
 
-// Single post
-router.get("/:id", protect, getPost);
+// ── Reactions ─────────────────────────────────────────────────────────────────
+router.post(
+  "/:id/react",
+  ...validateUUIDParam("id"),
+  validateReactToPost,
+  reactToPost,
+);
+router.get(
+  "/:id/reactions",
+  ...validateUUIDParam("id"),
+  validatePagination,
+  getReactions,
+);
 
-// Create / Update / Delete post
-router.post("/", protect, uploadMultiple, normaliseFile, createPost);
-router.put("/:id", protect, updatePost);
-router.delete("/:id", protect, deletePost);
-
-// Repost
-router.post("/:id/repost", protect, repost);
-
-// Reactions
-router.post("/:id/react", protect, reactToPost);
-router.get("/:id/reactions", protect, getReactions);
-
-// Comments
-router.post("/:id/comments", protect, addComment);
-router.get("/:id/comments", protect, getComments);
-router.delete("/comments/:commentId", protect, deleteComment);
+// ── Comments ──────────────────────────────────────────────────────────────────
+router.post(
+  "/:id/comments",
+  ...validateUUIDParam("id"),
+  validateCreateComment,
+  addComment,
+);
+router.get(
+  "/:id/comments",
+  ...validateUUIDParam("id"),
+  validatePagination,
+  getComments,
+);
+router.delete(
+  "/comments/:commentId",
+  ...validateUUIDParam("commentId"),
+  deleteComment,
+);
 
 export default router;

@@ -1,5 +1,5 @@
+// src/routes/subscription.routes.js
 import { Router } from "express";
-import { json, raw } from "express"; // ← import raw directly
 import { protect } from "../middleware/auth.middleware.js";
 import {
   getPlans,
@@ -10,20 +10,38 @@ import {
   getInvoice,
   paystackWebhook,
 } from "../controllers/subscription.controller.js";
+import {
+  validateSubscriptionCheckout,
+  validateSubscriptionVerify,
+  validateUUIDParam,
+} from "../utils/validators.js";
 
 const router = Router();
 
-// ── Webhook — raw body BEFORE json parsing, no auth ──────────────────────────
-router.post("/webhook", raw({ type: "application/json" }), paystackWebhook);
+// ── Public webhook (no auth — Paystack sends these) ───────────────────────────
+router.post("/webhook", paystackWebhook);
 
-// ── Public ────────────────────────────────────────────────────────────────────
+// ── Protected from here down ──────────────────────────────────────────────────
+router.use(protect);
+
+// GET  /api/subscriptions/plans    — available plans (WORKER or HIRER)
 router.get("/plans", getPlans);
 
-// ── Authenticated ─────────────────────────────────────────────────────────────
-router.get("/my", protect, getMySubscription);
-router.post("/checkout", protect, createCheckout);
-router.post("/verify", protect, verifyCheckout);
-router.post("/cancel", protect, cancelSubscription);
-router.get("/invoice/:reference", protect, getInvoice); // ← :reference not :sessionId
+// GET  /api/subscriptions/my       — active subscription for logged-in user
+router.get("/my", getMySubscription);
+
+// POST /api/subscriptions/checkout — initiate Paystack subscription checkout
+// Body: { tier, billingPeriod?, callbackUrl? }
+router.post("/checkout", validateSubscriptionCheckout, createCheckout);
+
+// POST /api/subscriptions/verify   — verify after Paystack redirect
+// Body: { reference }
+router.post("/verify", validateSubscriptionVerify, verifyCheckout);
+
+// POST /api/subscriptions/cancel   — cancel active subscription
+router.post("/cancel", cancelSubscription);
+
+// GET  /api/subscriptions/invoice/:reference — download invoice
+router.get("/invoice/:reference", getInvoice);
 
 export default router;

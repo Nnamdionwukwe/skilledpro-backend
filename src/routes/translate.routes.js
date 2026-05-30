@@ -1,31 +1,75 @@
+// src/routes/translate.routes.js
 import { Router } from "express";
 import { protect } from "../middleware/auth.middleware.js";
+import { validateTranslate } from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
 // POST /api/translate
-router.post("/", protect, async (req, res) => {
+// Body: { text, targetLanguage, sourceLanguage? }
+router.post("/", validateTranslate, async (req, res) => {
+  const { text, targetLanguage, sourceLanguage } = req.body;
+
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) {
+    return res
+      .status(503)
+      .json({ success: false, message: "Translation service unavailable" });
+  }
+
   try {
-    const { text, targetLang } = req.body;
-    if (!text || !targetLang) {
+    const systemPrompt = [
+      `You are a professional translator.`,
+      `Translate the user's text to ${targetLanguage}${sourceLanguage ? ` from ${sourceLanguage}` : ""}.`,
+      `Return ONLY the translated text. No explanations, no preamble, no quotes.`,
+      `Preserve the original tone, formatting (line breaks, bullet points), and intent exactly.`,
+    ].join(" ");
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001", // fast + cheap for translation
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: text }],
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error("Translation API error:", err);
       return res
-        .status(400)
-        .json({ success: false, message: "text and targetLang required" });
+        .status(502)
+        .json({ success: false, message: "Translation failed" });
     }
 
-    // Use Google Translate free endpoint (same one GT widget uses)
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    const result = await response.json();
+    const translated = result.content?.[0]?.text?.trim();
 
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Translation API failed");
+    if (!translated) {
+      return res
+        .status(502)
+        .json({ success: false, message: "Empty translation response" });
+    }
 
-    const data = await response.json();
-    // GT returns nested arrays: [[["translated", "original", null, null, null]...]]
-    const translated = data[0]?.map((chunk) => chunk[0]).join("") || text;
-    const detectedLang = data[2] || "en";
-
-    return res.json({ success: true, data: { translated, detectedLang } });
+    return res.json({
+      success: true,
+      data: {
+        original: text,
+        translated,
+        targetLanguage,
+        sourceLanguage: sourceLanguage || "auto",
+        characters: text.length,
+      },
+    });
   } catch (err) {
+    console.error("translate route error:", err.message);
     return res
       .status(500)
       .json({ success: false, message: "Translation failed" });

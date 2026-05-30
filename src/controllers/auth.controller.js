@@ -22,6 +22,22 @@ import {
 import { registerCampaignReferral } from "./campaign.controller.js";
 import { logAdminAction } from "../utils/auditLog.js"; // ← FIXED: was missing
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  generateTokenPair,
+  generateAccessToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  tryVerifyRefreshToken,
+  clearRefreshToken,
+  generateEmailVerifyToken,
+  consumeEmailVerifyToken,
+  generatePasswordResetToken,
+  verifyPasswordResetToken,
+  clearPasswordResetToken,
+  verifyStoredRefreshToken,
+  setTokenCookies,
+  clearTokenCookies
+} from "../services/auth.service.js";
 // ─── Token helpers ─────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
   return jwt.sign({ id }, secret, { expiresIn });
