@@ -1,66 +1,116 @@
+// src/routes/job.routes.js
 import { Router } from "express";
+import {
+  protect,
+  requireRole,
+  optionalProtect,
+} from "../middleware/auth.middleware.js";
 import {
   createJobPost,
   getJobPosts,
-  getJobPost,
   getMyJobPosts,
+  getMyApplications,
+  getJobPost,
   updateJobPostStatus,
-  applyToJob,
   getJobApplications,
   updateApplicationStatus,
-  getMyApplications,
-  getHirerPublicProfile,
+  applyToJob,
+  // Saved jobs (NEW)
+  getSavedJobs,
+  saveJob,
+  unsaveJob,
 } from "../controllers/job.controller.js";
-import { protect, requireRole } from "../middleware/auth.middleware.js";
+import {
+  validateCreateJob,
+  validateJobStatus,
+  validateJobApplication,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
 
-// ── Static routes FIRST — must all come before /:id ───────────────────────────
+// ── Public — browse all open jobs ─────────────────────────────────────────────
+router.get("/", optionalProtect, validatePagination, getJobPosts);
 
-// Public
-router.get("/", getJobPosts);
+// ── Protected from here down ──────────────────────────────────────────────────
+router.use(protect);
 
-// Hirer: view own job posts
-// ⚠️ Must be before /:id — otherwise "hirer" is matched as an id param
-router.get("/hirer/me", protect, requireRole("HIRER"), getMyJobPosts);
+// ── NAMED routes MUST come before /:id to avoid UUID validator catching them ──
 
-// Worker: view own applications
-// ⚠️ Must be before /:id — otherwise "worker" is matched as an id param
+// Hirer: my job posts
 router.get(
-  "/worker/my-applications",
-  protect,
+  "/hirer/me",
+  requireRole("HIRER"),
+  validatePagination,
+  getMyJobPosts,
+);
+
+// Worker: my applications
+router.get(
+  "/my/applications",
   requireRole("WORKER"),
+  validatePagination,
   getMyApplications,
 );
 
-// ── Wildcard /:id routes — always after static routes ─────────────────────────
+// Worker: saved/bookmarked jobs  ← NEW (must be before /:id)
+router.get("/saved", requireRole("WORKER"), validatePagination, getSavedJobs);
 
-// Public — single job detail (protect optional: adds hasApplied if logged in)
-router.get("/:id", protect, getJobPost);
+// ── Parameterised routes ──────────────────────────────────────────────────────
+
+// Single job detail (optional auth — shows hasApplied + isSaved when logged in)
+router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
 
 // Hirer: create job post
-router.post("/", protect, requireRole("HIRER"), createJobPost);
+router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
 
-// Hirer: update job status
-router.patch("/:id/status", protect, requireRole("HIRER"), updateJobPostStatus);
+// Hirer: change status
+router.patch(
+  "/:id/status",
+  requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  validateJobStatus,
+  updateJobPostStatus,
+);
 
-// Hirer: view applications for a job
+// Hirer: view + action on applications
 router.get(
   "/:id/applications",
-  protect,
   requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  validatePagination,
   getJobApplications,
 );
 
-// Hirer: accept or reject an application
 router.patch(
-  "/:id/applications/:applicationId",
-  protect,
+  "/:id/applications/:appId/status",
   requireRole("HIRER"),
+  ...validateUUIDParam("id"),
   updateApplicationStatus,
 );
 
-// Worker: apply to a job
-router.post("/:id/apply", protect, requireRole("WORKER"), applyToJob);
+// Worker: apply to job
+router.post(
+  "/:id/apply",
+  requireRole("WORKER"),
+  ...validateUUIDParam("id"),
+  validateJobApplication,
+  applyToJob,
+);
+
+// Worker: save / unsave a job  ← NEW
+router.post(
+  "/:id/save",
+  requireRole("WORKER"),
+  ...validateUUIDParam("id"),
+  saveJob,
+);
+router.delete(
+  "/:id/save",
+  requireRole("WORKER"),
+  ...validateUUIDParam("id"),
+  unsaveJob,
+);
 
 export default router;

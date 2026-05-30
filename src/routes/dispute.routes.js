@@ -1,28 +1,37 @@
+// src/routes/dispute.routes.js
 import { Router } from "express";
+import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
-  raiseDispute,
+  raiseDispute, // was: createDispute     ← FIXED
   getMyDisputes,
-  getDisputeDetail,
-  resolveDispute,
+  getDisputeDetail, // was: getDispute        ← FIXED
   cancelDispute,
   getAllDisputes,
+  resolveDispute,
 } from "../controllers/dispute.controller.js";
-import { protect, requireRole } from "../middleware/auth.middleware.js";
+import {
+  validateCreateDispute,
+  validateResolveDispute,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
-// Authenticated users
-router.post("/", protect, raiseDispute);
-router.get("/my", protect, getMyDisputes);
-router.get("/:bookingId", protect, getDisputeDetail);
-router.patch("/:bookingId/cancel", protect, cancelDispute);
-
-// Admin only
-router.get("/", protect, requireRole("ADMIN"), getAllDisputes);
+router.post("/", validateCreateDispute, raiseDispute);
+router.get("/my", validatePagination, getMyDisputes);
+router.get("/:bookingId", ...validateUUIDParam("bookingId"), getDisputeDetail);
+router.patch(
+  "/:bookingId/cancel",
+  ...validateUUIDParam("bookingId"),
+  cancelDispute,
+);
+router.get("/", requireRole("ADMIN"), validatePagination, getAllDisputes);
 router.patch(
   "/:bookingId/resolve",
-  protect,
   requireRole("ADMIN"),
+  validateResolveDispute,
   resolveDispute,
 );
 

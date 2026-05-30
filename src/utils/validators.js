@@ -1,35 +1,18 @@
 // src/utils/validators.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Input validation for all SkilledProz API endpoints.
-// Uses express-validator (already in package.json as ^7.3.1).
+// Uses express-validator (^7.3.1).
 //
-// Usage in routes:
-//   import { validateRegister, validateCreateBooking, validate } from "../utils/validators.js";
-//
-//   router.post("/register", validateRegister, register);
-//   router.post("/",         validateCreateBooking, createBooking);
-//
-// Each named export is an array of validation chains + the `validate` handler
-// as the final element, so you can spread them directly into router.post().
+// CRASH FIX: `isUUID` is NOT a named export of express-validator.
+//            Removed from import. Use .isUUID(4) as a chain method instead
+//            (that is already how it is used everywhere in this file).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import {
-  body,
-  param,
-  query,
-  validationResult,
-  isUUID,
-} from "express-validator";
+import { body, param, query, validationResult } from "express-validator"; // ← fixed
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 0  CORE RESULT HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Drop this as the last item in any validator array.
- * Returns 400 with the first error message + a full errors array.
- * In development the invalid value is included for easier debugging.
- */
 export const validate = (req, res, next) => {
   const result = validationResult(req);
   if (result.isEmpty()) return next();
@@ -42,17 +25,15 @@ export const validate = (req, res, next) => {
 
   return res.status(400).json({
     success: false,
-    message: errors[0].message, // most relevant error as the top-level message
+    message: errors[0].message,
     errors,
   });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 0.1  SHARED REUSABLE FIELD RULES
+// § 0.1  SHARED REUSABLE FIELD RULES (internal helpers)
 // ─────────────────────────────────────────────────────────────────────────────
-
 const r = {
-  // UUID param / body field
   uuid: (field, location = body) =>
     location(field)
       .trim()
@@ -61,7 +42,6 @@ const r = {
       .isUUID(4)
       .withMessage(`${field} must be a valid UUID`),
 
-  // Generic required string
   str: (field, min = 1, max = 500, location = body) =>
     location(field)
       .trim()
@@ -70,7 +50,6 @@ const r = {
       .isLength({ min, max })
       .withMessage(`${field} must be between ${min} and ${max} characters`),
 
-  // Optional string (only validate if present)
   optStr: (field, max = 500, location = body) =>
     location(field)
       .optional({ nullable: true, checkFalsy: true })
@@ -78,7 +57,6 @@ const r = {
       .isLength({ max })
       .withMessage(`${field} must not exceed ${max} characters`),
 
-  // Positive amount (financial)
   amount: (field = "amount", min = 0.01) =>
     body(field)
       .notEmpty()
@@ -86,7 +64,6 @@ const r = {
       .isFloat({ min })
       .withMessage(`${field} must be a positive number greater than ${min}`),
 
-  // Integer with range
   int: (field, min = 1, max = 2147483647) =>
     body(field)
       .notEmpty()
@@ -94,7 +71,6 @@ const r = {
       .isInt({ min, max })
       .withMessage(`${field} must be an integer between ${min} and ${max}`),
 
-  // Enum value
   oneOf: (field, values, location = body) =>
     location(field)
       .notEmpty()
@@ -102,14 +78,12 @@ const r = {
       .isIn(values)
       .withMessage(`${field} must be one of: ${values.join(", ")}`),
 
-  // Optional enum
   optOneOf: (field, values, location = body) =>
     location(field)
       .optional({ nullable: true })
       .isIn(values)
       .withMessage(`${field} must be one of: ${values.join(", ")}`),
 
-  // Pagination query params
   page: query("page")
     .optional()
     .isInt({ min: 1 })
@@ -121,10 +95,8 @@ const r = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 1  AUTH VALIDATORS
+// § 1  AUTH
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/auth/register
 export const validateRegister = [
   body("firstName")
     .trim()
@@ -136,7 +108,6 @@ export const validateRegister = [
     .withMessage(
       "First name may only contain letters, spaces, hyphens, and apostrophes",
     ),
-
   body("lastName")
     .trim()
     .notEmpty()
@@ -147,7 +118,6 @@ export const validateRegister = [
     .withMessage(
       "Last name may only contain letters, spaces, hyphens, and apostrophes",
     ),
-
   body("email")
     .trim()
     .notEmpty()
@@ -155,7 +125,6 @@ export const validateRegister = [
     .isEmail()
     .withMessage("Please provide a valid email address")
     .normalizeEmail(),
-
   body("password")
     .notEmpty()
     .withMessage("Password is required")
@@ -167,31 +136,26 @@ export const validateRegister = [
     .withMessage("Password must contain at least one letter")
     .matches(/[0-9]/)
     .withMessage("Password must contain at least one number"),
-
   body("role")
     .notEmpty()
     .withMessage("Role is required")
     .isIn(["HIRER", "WORKER"])
     .withMessage("Role must be HIRER or WORKER"),
-
   body("phone")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 20 })
     .withMessage("Phone number must not exceed 20 characters"),
-
   body("country")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Country must not exceed 100 characters"),
-
   body("city")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("City must not exceed 100 characters"),
-
   body("referralCode")
     .optional({ nullable: true, checkFalsy: true })
     .trim()
@@ -199,11 +163,9 @@ export const validateRegister = [
     .withMessage("Referral code must be alphanumeric")
     .isLength({ min: 4, max: 20 })
     .withMessage("Referral code must be 4–20 characters"),
-
   validate,
 ];
 
-// POST /api/auth/login
 export const validateLogin = [
   body("email")
     .trim()
@@ -212,17 +174,14 @@ export const validateLogin = [
     .isEmail()
     .withMessage("Please provide a valid email address")
     .normalizeEmail(),
-
   body("password")
     .notEmpty()
     .withMessage("Password is required")
     .isLength({ max: 128 })
     .withMessage("Invalid credentials"),
-
   validate,
 ];
 
-// POST /api/auth/forgot-password
 export const validateForgotPassword = [
   body("email")
     .trim()
@@ -231,11 +190,9 @@ export const validateForgotPassword = [
     .isEmail()
     .withMessage("Please provide a valid email address")
     .normalizeEmail(),
-
   validate,
 ];
 
-// POST /api/auth/reset-password
 export const validateResetPassword = [
   body("token")
     .trim()
@@ -243,7 +200,6 @@ export const validateResetPassword = [
     .withMessage("Reset token is required")
     .isLength({ min: 60, max: 70 })
     .withMessage("Invalid reset token format"),
-
   body("password")
     .notEmpty()
     .withMessage("Password is required")
@@ -255,15 +211,12 @@ export const validateResetPassword = [
     .withMessage("Password must contain at least one letter")
     .matches(/[0-9]/)
     .withMessage("Password must contain at least one number"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 2  USER / PROFILE VALIDATORS
+// § 2  USER / PROFILE
 // ─────────────────────────────────────────────────────────────────────────────
-
-// PUT /api/users/me  |  PATCH /api/settings/profile
 export const validateUpdateProfile = [
   body("firstName")
     .optional()
@@ -272,7 +225,6 @@ export const validateUpdateProfile = [
     .withMessage("First name must be 1–50 characters")
     .matches(/^[a-zA-Z\s'\-]+$/)
     .withMessage("First name contains invalid characters"),
-
   body("lastName")
     .optional()
     .trim()
@@ -280,58 +232,48 @@ export const validateUpdateProfile = [
     .withMessage("Last name must be 1–50 characters")
     .matches(/^[a-zA-Z\s'\-]+$/)
     .withMessage("Last name contains invalid characters"),
-
   body("phone")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 20 })
     .withMessage("Phone number is too long"),
-
   body("bio")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Bio must not exceed 1000 characters"),
-
   body("country")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Country is too long"),
-
   body("city")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("City is too long"),
-
   body("state")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("State is too long"),
-
   body("language")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 50 })
     .withMessage("Language is too long"),
-
   body("currency")
     .optional({ nullable: true })
     .trim()
     .isLength({ min: 3, max: 4 })
     .withMessage("Currency must be a 3–4 character code"),
-
   validate,
 ];
 
-// PATCH /api/settings/password
 export const validateChangePassword = [
   body("currentPassword")
     .notEmpty()
     .withMessage("Current password is required"),
-
   body("newPassword")
     .notEmpty()
     .withMessage("New password is required")
@@ -345,63 +287,51 @@ export const validateChangePassword = [
     .withMessage("New password must contain at least one number")
     .custom((val, { req }) => val !== req.body.currentPassword)
     .withMessage("New password must be different from your current password"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 3  WORKER PROFILE VALIDATORS
+// § 3  WORKER PROFILE
 // ─────────────────────────────────────────────────────────────────────────────
-
-// PUT /api/workers/profile  |  PATCH /api/settings/worker-profile
 export const validateUpdateWorkerProfile = [
   body("title")
     .optional()
     .trim()
     .isLength({ min: 3, max: 150 })
     .withMessage("Professional title must be 3–150 characters"),
-
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 3000 })
     .withMessage("Description must not exceed 3000 characters"),
-
   body("hourlyRate")
     .optional()
     .isFloat({ min: 0, max: 1000000 })
     .withMessage("Hourly rate must be a positive number up to 1,000,000"),
-
   body("currency")
     .optional()
     .trim()
     .isLength({ min: 3, max: 4 })
     .withMessage("Currency must be a valid 3–4 character code"),
-
   body("yearsExperience")
     .optional()
     .isInt({ min: 0, max: 70 })
     .withMessage("Years of experience must be 0–70"),
-
   body("serviceRadius")
     .optional()
     .isInt({ min: 1, max: 5000 })
     .withMessage("Service radius must be 1–5000 km"),
-
   body("pricingNote")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 300 })
     .withMessage("Pricing note must not exceed 300 characters"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 4  BOOKING VALIDATORS
+// § 4  BOOKINGS
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/bookings
 export const validateCreateBooking = [
   body("workerId")
     .trim()
@@ -409,39 +339,33 @@ export const validateCreateBooking = [
     .withMessage("Worker ID is required")
     .isUUID(4)
     .withMessage("Worker ID must be a valid UUID"),
-
   body("categoryId")
     .trim()
     .notEmpty()
     .withMessage("Category is required")
     .isUUID(4)
     .withMessage("Category ID must be a valid UUID"),
-
   body("title")
     .trim()
     .notEmpty()
     .withMessage("Booking title is required")
     .isLength({ min: 3, max: 200 })
     .withMessage("Title must be 3–200 characters"),
-
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 3000 })
     .withMessage("Description must not exceed 3000 characters"),
-
   body("agreedRate")
     .notEmpty()
     .withMessage("Agreed rate is required")
     .isFloat({ min: 1 })
     .withMessage("Agreed rate must be at least 1"),
-
   body("currency")
     .optional()
     .trim()
     .isLength({ min: 3, max: 4 })
     .withMessage("Currency must be a valid 3–4 character code"),
-
   body("scheduledAt")
     .notEmpty()
     .withMessage("Scheduled date is required")
@@ -449,26 +373,21 @@ export const validateCreateBooking = [
     .withMessage("Scheduled date must be a valid ISO 8601 date")
     .custom((val) => new Date(val) > new Date())
     .withMessage("Scheduled date must be in the future"),
-
   body("address")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 300 })
     .withMessage("Address must not exceed 300 characters"),
-
   body("notes")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Notes must not exceed 1000 characters"),
-
   validate,
 ];
 
-// PATCH /api/bookings/:id/status
 export const validateBookingStatus = [
   param("id").isUUID(4).withMessage("Booking ID must be a valid UUID"),
-
   body("status")
     .notEmpty()
     .withMessage("Status is required")
@@ -476,14 +395,12 @@ export const validateBookingStatus = [
     .withMessage(
       "Status must be ACCEPTED, REJECTED, IN_PROGRESS, COMPLETED, or CANCELLED",
     ),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 5  JOB POST VALIDATORS
+// § 5  JOB POSTS
 // ─────────────────────────────────────────────────────────────────────────────
-
 const JOB_TYPES = [
   "ONE_TIME",
   "PART_TIME",
@@ -502,7 +419,6 @@ const BUDGET_TYPES = [
 ];
 const DURATION_TYPES = ["HOURS", "DAYS", "WEEKS", "MONTHS", "CUSTOM"];
 
-// POST /api/jobs
 export const validateCreateJob = [
   body("title")
     .trim()
@@ -510,92 +426,76 @@ export const validateCreateJob = [
     .withMessage("Job title is required")
     .isLength({ min: 5, max: 200 })
     .withMessage("Title must be 5–200 characters"),
-
   body("description")
     .trim()
     .notEmpty()
     .withMessage("Job description is required")
     .isLength({ min: 20, max: 5000 })
     .withMessage("Description must be 20–5000 characters"),
-
   body("categoryId")
     .trim()
     .notEmpty()
     .withMessage("Category is required")
     .isUUID(4)
     .withMessage("Category ID must be a valid UUID"),
-
   body("budget")
     .notEmpty()
     .withMessage("Budget is required")
     .isFloat({ min: 1 })
     .withMessage("Budget must be a positive number"),
-
   body("currency")
     .optional()
     .trim()
     .isLength({ min: 3, max: 4 })
     .withMessage("Currency must be a valid 3–4 character code"),
-
   body("scheduledAt")
     .notEmpty()
     .withMessage("Scheduled date is required")
     .isISO8601()
     .withMessage("Scheduled date must be a valid ISO 8601 date"),
-
   body("jobType")
     .optional({ nullable: true })
     .isIn(JOB_TYPES)
     .withMessage(`Job type must be one of: ${JOB_TYPES.join(", ")}`),
-
   body("locationType")
     .optional({ nullable: true })
     .isIn(LOCATION_TYPES)
     .withMessage(`Location type must be one of: ${LOCATION_TYPES.join(", ")}`),
-
   body("budgetType")
     .optional({ nullable: true })
     .isIn(BUDGET_TYPES)
     .withMessage(`Budget type must be one of: ${BUDGET_TYPES.join(", ")}`),
-
   body("durationType")
     .optional({ nullable: true })
     .isIn(DURATION_TYPES)
     .withMessage(`Duration type must be one of: ${DURATION_TYPES.join(", ")}`),
-
   body("durationValue")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Duration value must not exceed 100 characters"),
-
   body("address")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 300 })
     .withMessage("Address must not exceed 300 characters"),
-
   body("skills")
     .optional({ nullable: true })
     .isArray({ max: 20 })
     .withMessage("Skills must be an array with at most 20 items"),
-
   body("skills.*")
     .optional()
     .trim()
     .isLength({ min: 1, max: 80 })
     .withMessage("Each skill must be 1–80 characters"),
-
   body("notes")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Notes must not exceed 1000 characters"),
-
   validate,
 ];
 
-// PATCH /api/jobs/:id/status
 export const validateJobStatus = [
   param("id").isUUID(4).withMessage("Job ID must be a valid UUID"),
   body("status")
@@ -606,28 +506,23 @@ export const validateJobStatus = [
   validate,
 ];
 
-// POST /api/jobs/:id/apply
 export const validateJobApplication = [
   param("id").isUUID(4).withMessage("Job ID must be a valid UUID"),
-
   body("coverLetter")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 2000 })
     .withMessage("Cover letter must not exceed 2000 characters"),
-
   body("proposedRate")
     .optional({ nullable: true })
     .isFloat({ min: 1 })
     .withMessage("Proposed rate must be a positive number"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 6  PAYMENT VALIDATORS
+// § 6  PAYMENTS
 // ─────────────────────────────────────────────────────────────────────────────
-
 const VALID_CURRENCIES = [
   "USD",
   "EUR",
@@ -665,34 +560,28 @@ const VALID_CURRENCIES = [
   "USDT",
 ];
 
-// POST /api/payments/withdraw
 export const validateWithdrawal = [
   body("amount")
     .notEmpty()
     .withMessage("Amount is required")
     .isFloat({ min: 0.01 })
     .withMessage("Amount must be a positive number"),
-
   body("currency")
     .optional()
     .trim()
     .toUpperCase()
     .isIn(VALID_CURRENCIES)
     .withMessage("Invalid currency code"),
-
   body("method")
     .notEmpty()
     .withMessage("Payment method is required")
     .isIn(["bank_transfer", "mobile_money", "crypto"])
     .withMessage("Method must be bank_transfer, mobile_money, or crypto"),
-
-  // Bank transfer fields
   body("bankCode")
     .if(body("method").equals("bank_transfer"))
     .notEmpty()
     .withMessage("Bank code is required for bank transfers")
     .trim(),
-
   body("accountNumber")
     .if(body("method").equals("bank_transfer"))
     .notEmpty()
@@ -700,22 +589,18 @@ export const validateWithdrawal = [
     .trim()
     .isLength({ min: 8, max: 20 })
     .withMessage("Account number must be 8–20 digits"),
-
   body("accountName")
     .if(body("method").equals("bank_transfer"))
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 150 })
     .withMessage("Account name must not exceed 150 characters"),
-
   body("bankName")
     .if(body("method").equals("bank_transfer"))
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Bank name must not exceed 100 characters"),
-
-  // Mobile money fields
   body("mobileNumber")
     .if(body("method").equals("mobile_money"))
     .notEmpty()
@@ -723,15 +608,12 @@ export const validateWithdrawal = [
     .trim()
     .isLength({ min: 8, max: 20 })
     .withMessage("Mobile number must be 8–20 digits"),
-
   body("mobileProvider")
     .if(body("method").equals("mobile_money"))
     .notEmpty()
     .withMessage("Mobile provider is required for mobile money")
     .isIn(["paystack", "mpesa", "mtnmomo", "opay", "gcash", "bkash"])
     .withMessage("Invalid mobile provider"),
-
-  // Crypto fields
   body("cryptoAddress")
     .if(body("method").equals("crypto"))
     .notEmpty()
@@ -739,81 +621,66 @@ export const validateWithdrawal = [
     .trim()
     .isLength({ min: 25, max: 150 })
     .withMessage("Wallet address must be 25–150 characters"),
-
   body("cryptoCurrency")
     .if(body("method").equals("crypto"))
     .notEmpty()
     .withMessage("Crypto currency is required")
     .isIn(["USDC", "USDT", "BTC", "ETH"])
     .withMessage("Crypto currency must be USDC, USDT, BTC, or ETH"),
-
   validate,
 ];
 
-// PATCH /api/payments/bank-transfer/:bookingId/confirm
 export const validateConfirmBankTransfer = [
   param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
-
   body("reference")
     .trim()
     .notEmpty()
     .withMessage("Transfer reference is required")
     .isLength({ max: 100 })
     .withMessage("Reference must not exceed 100 characters"),
-
   body("proofUrl")
     .optional({ nullable: true })
     .trim()
     .isURL()
     .withMessage("Proof must be a valid URL"),
-
   body("senderName")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 150 })
     .withMessage("Sender name must not exceed 150 characters"),
-
   body("bankName")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Bank name must not exceed 100 characters"),
-
   validate,
 ];
 
-// PATCH /api/payments/crypto/:bookingId/confirm
 export const validateConfirmCrypto = [
   param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
-
   body("txHash")
     .trim()
     .notEmpty()
     .withMessage("Transaction hash is required")
     .isLength({ min: 20, max: 150 })
     .withMessage("Transaction hash must be 20–150 characters"),
-
   body("reference")
     .trim()
     .notEmpty()
     .withMessage("Reference is required")
     .isLength({ max: 100 })
     .withMessage("Reference must not exceed 100 characters"),
-
   body("cryptoCurrency")
     .optional({ nullable: true })
     .isIn(["USDC", "USDT", "BTC", "ETH"])
     .withMessage("Crypto currency must be USDC, USDT, BTC, or ETH"),
-
   body("cryptoAmount")
     .optional({ nullable: true })
     .isFloat({ min: 0 })
     .withMessage("Crypto amount must be a positive number"),
-
   validate,
 ];
 
-// POST /api/payments/verify-account
 export const validateVerifyAccount = [
   body("accountNumber")
     .trim()
@@ -821,28 +688,23 @@ export const validateVerifyAccount = [
     .withMessage("Account number is required")
     .isLength({ min: 8, max: 20 })
     .withMessage("Account number must be 8–20 digits"),
-
   body("bankCode")
     .trim()
     .notEmpty()
     .withMessage("Bank code is required")
     .isLength({ min: 2, max: 20 })
     .withMessage("Bank code must be 2–20 characters"),
-
   body("country")
     .optional()
     .trim()
     .isLength({ min: 2, max: 2 })
     .withMessage("Country must be a 2-letter code (e.g. NG, GH)"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 7  REVIEW VALIDATORS
+// § 7  REVIEWS
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/reviews
 export const validateCreateReview = [
   body("bookingId")
     .trim()
@@ -850,32 +712,27 @@ export const validateCreateReview = [
     .withMessage("Booking ID is required")
     .isUUID(4)
     .withMessage("Booking ID must be a valid UUID"),
-
   body("rating")
     .notEmpty()
     .withMessage("Rating is required")
     .isInt({ min: 1, max: 5 })
     .withMessage("Rating must be between 1 and 5"),
-
   body("comment")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Review comment must not exceed 1000 characters"),
-
   body("type")
     .notEmpty()
     .withMessage("Review type is required")
     .isIn(["WORKER", "HIRER"])
     .withMessage("Review type must be WORKER or HIRER"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 8  REPORT VALIDATORS
+// § 8  REPORTS
 // ─────────────────────────────────────────────────────────────────────────────
-
 const REPORT_TYPES = [
   "USER",
   "JOB_POST",
@@ -898,51 +755,42 @@ const REPORT_REASONS = [
   "OTHER",
 ];
 
-// POST /api/reports
 export const validateCreateReport = [
   body("targetType")
     .notEmpty()
     .withMessage("Target type is required")
     .isIn(REPORT_TYPES)
     .withMessage(`Target type must be one of: ${REPORT_TYPES.join(", ")}`),
-
   body("targetId")
     .trim()
     .notEmpty()
     .withMessage("Target ID is required")
     .isLength({ min: 1, max: 150 })
     .withMessage("Target ID is invalid"),
-
   body("reason")
     .notEmpty()
     .withMessage("Report reason is required")
     .isIn(REPORT_REASONS)
     .withMessage(`Reason must be one of: ${REPORT_REASONS.join(", ")}`),
-
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Description must not exceed 1000 characters"),
-
   body("evidence")
     .optional({ nullable: true })
     .isArray({ max: 5 })
     .withMessage("Evidence must be an array of up to 5 URLs"),
-
   body("evidence.*")
     .optional()
     .trim()
     .isURL()
     .withMessage("Each evidence item must be a valid URL"),
-
   validate,
 ];
 
-// PATCH /api/reports/admin/:id/resolve
 export const validateResolveReport = [
   param("id").isUUID(4).withMessage("Report ID must be a valid UUID"),
-
   body("action")
     .notEmpty()
     .withMessage("Action is required")
@@ -954,42 +802,34 @@ export const validateResolveReport = [
       "USER_BANNED",
     ])
     .withMessage("Invalid action"),
-
   body("adminNote")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 500 })
     .withMessage("Admin note must not exceed 500 characters"),
-
   validate,
 ];
 
-// PATCH /api/reports/admin/bulk-dismiss
 export const validateBulkDismiss = [
   body("reportIds")
     .isArray({ min: 1, max: 50 })
     .withMessage("reportIds must be an array of 1–50 IDs"),
-
   body("reportIds.*")
     .isUUID(4)
     .withMessage("Each report ID must be a valid UUID"),
-
   body("adminNote")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 300 })
     .withMessage("Admin note must not exceed 300 characters"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 9  SEARCH VALIDATORS
+// § 9  SEARCH
 // ─────────────────────────────────────────────────────────────────────────────
-
 const SEARCH_TYPES = ["workers", "categories", "locations", "suggest"];
 
-// GET /api/search
 export const validateSearch = [
   query("q")
     .trim()
@@ -997,108 +837,88 @@ export const validateSearch = [
     .withMessage("Search query is required")
     .isLength({ min: 2, max: 200 })
     .withMessage("Search query must be 2–200 characters"),
-
   query("type")
     .optional()
     .isIn(SEARCH_TYPES)
     .withMessage(`Search type must be one of: ${SEARCH_TYPES.join(", ")}`),
-
   query("minRate")
     .optional()
     .isFloat({ min: 0 })
     .withMessage("Min rate must be a positive number"),
-
   query("maxRate")
     .optional()
     .isFloat({ min: 0 })
     .withMessage("Max rate must be a positive number"),
-
   query("rating")
     .optional()
     .isFloat({ min: 1, max: 5 })
     .withMessage("Rating filter must be 1–5"),
-
   query("lat")
     .optional()
     .isFloat({ min: -90, max: 90 })
     .withMessage("Latitude must be between -90 and 90"),
-
   query("lng")
     .optional()
     .isFloat({ min: -180, max: 180 })
     .withMessage("Longitude must be between -180 and 180"),
-
   query("radius")
     .optional()
     .isFloat({ min: 1, max: 2000 })
     .withMessage("Radius must be 1–2000 km"),
-
   r.page,
   r.limit,
   validate,
 ];
 
-// GET /api/search/nearby
 export const validateNearby = [
   query("lat")
     .notEmpty()
     .withMessage("Latitude is required")
     .isFloat({ min: -90, max: 90 })
     .withMessage("Latitude must be between -90 and 90"),
-
   query("lng")
     .notEmpty()
     .withMessage("Longitude is required")
     .isFloat({ min: -180, max: 180 })
     .withMessage("Longitude must be between -180 and 180"),
-
   query("radius")
     .optional()
     .isFloat({ min: 1, max: 2000 })
     .withMessage("Radius must be 1–2000 km"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 10  MESSAGE VALIDATORS
+// § 10  MESSAGES
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/messages
 export const validateSendMessage = [
   body("receiverId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Receiver ID must be a valid UUID"),
-
   body("conversationId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Conversation ID must be a valid UUID"),
-
   body("content")
     .trim()
     .notEmpty()
     .withMessage("Message content is required")
     .isLength({ min: 1, max: 5000 })
     .withMessage("Message must be 1–5000 characters"),
-
   body("bookingId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Booking ID must be a valid UUID"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 11  DISPUTE VALIDATORS
+// § 11  DISPUTES
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/disputes
 export const validateCreateDispute = [
   body("bookingId")
     .trim()
@@ -1106,72 +926,59 @@ export const validateCreateDispute = [
     .withMessage("Booking ID is required")
     .isUUID(4)
     .withMessage("Booking ID must be a valid UUID"),
-
   body("reason")
     .trim()
     .notEmpty()
     .withMessage("Dispute reason is required")
     .isLength({ min: 10, max: 500 })
     .withMessage("Reason must be 10–500 characters"),
-
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 3000 })
     .withMessage("Description must not exceed 3000 characters"),
-
   body("evidence")
     .optional({ nullable: true })
     .isArray({ max: 10 })
     .withMessage("Evidence must be an array of up to 10 URLs"),
-
   body("evidence.*")
     .optional()
     .trim()
     .isURL()
     .withMessage("Each evidence item must be a valid URL"),
-
   validate,
 ];
 
-// PATCH /api/disputes/:bookingId/resolve (admin)
 export const validateResolveDispute = [
   param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
-
   body("resolution")
     .notEmpty()
     .withMessage("Resolution is required")
     .isIn(["REFUND", "RELEASE", "SPLIT"])
     .withMessage("Resolution must be REFUND, RELEASE, or SPLIT"),
-
   body("notes")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 500 })
     .withMessage("Notes must not exceed 500 characters"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 12  REFERRAL VALIDATORS
+// § 12  REFERRAL
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/referral/withdraw
 export const validateReferralWithdraw = [
   body("amount")
     .notEmpty()
     .withMessage("Amount is required")
     .isFloat({ min: 500 })
     .withMessage("Minimum withdrawal amount is ₦500"),
-
   body("bankName")
     .trim()
     .notEmpty()
     .withMessage("Bank name is required")
     .isLength({ min: 2, max: 100 })
     .withMessage("Bank name must be 2–100 characters"),
-
   body("accountNumber")
     .trim()
     .notEmpty()
@@ -1180,18 +987,15 @@ export const validateReferralWithdraw = [
     .withMessage("Account number must be exactly 10 digits")
     .isNumeric()
     .withMessage("Account number must contain only digits"),
-
   body("accountName")
     .trim()
     .notEmpty()
     .withMessage("Account name is required")
     .isLength({ min: 2, max: 150 })
     .withMessage("Account name must be 2–150 characters"),
-
   validate,
 ];
 
-// GET /api/referral/validate/:code
 export const validateReferralCode = [
   param("code")
     .trim()
@@ -1201,46 +1005,38 @@ export const validateReferralCode = [
     .withMessage("Referral code must be alphanumeric")
     .isLength({ min: 4, max: 20 })
     .withMessage("Referral code must be 4–20 characters"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 13  CAMPAIGN VALIDATORS
+// § 13  CAMPAIGN
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/campaign/my-tasks/social
 export const validateSocialFollow = [
   body("platform")
     .notEmpty()
     .withMessage("Platform is required")
     .isIn(["facebook", "instagram", "tiktok"])
     .withMessage("Platform must be facebook, instagram, or tiktok"),
-
   body("screenshotUrl")
     .optional({ nullable: true, checkFalsy: true })
     .trim()
     .isURL()
     .withMessage("Screenshot must be a valid URL"),
-
   validate,
 ];
 
-// POST /api/campaign/withdraw
 export const validateCampaignWithdraw = [
   body("amount")
     .notEmpty()
     .withMessage("Amount is required")
     .isFloat({ min: 500 })
     .withMessage("Minimum withdrawal amount is ₦500"),
-
   body("bankName")
     .trim()
     .notEmpty()
     .withMessage("Bank name is required")
     .isLength({ min: 2, max: 100 })
     .withMessage("Bank name must be 2–100 characters"),
-
   body("accountNumber")
     .trim()
     .notEmpty()
@@ -1249,22 +1045,18 @@ export const validateCampaignWithdraw = [
     .withMessage("Account number must be exactly 10 digits")
     .isNumeric()
     .withMessage("Account number must contain only digits"),
-
   body("accountName")
     .trim()
     .notEmpty()
     .withMessage("Account name is required")
     .isLength({ min: 2, max: 150 })
     .withMessage("Account name must be 2–150 characters"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 14  CATEGORY VALIDATORS (admin)
+// § 14  CATEGORIES (admin)
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/admin/categories
 export const validateCreateCategory = [
   body("name")
     .trim()
@@ -1272,7 +1064,6 @@ export const validateCreateCategory = [
     .withMessage("Category name is required")
     .isLength({ min: 2, max: 100 })
     .withMessage("Name must be 2–100 characters"),
-
   body("slug")
     .trim()
     .notEmpty()
@@ -1283,33 +1074,27 @@ export const validateCreateCategory = [
     .withMessage(
       "Slug may only contain lowercase letters, numbers, and hyphens",
     ),
-
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 500 })
     .withMessage("Description must not exceed 500 characters"),
-
   body("icon")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 10 })
     .withMessage("Icon must not exceed 10 characters"),
-
   body("parentId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Parent category ID must be a valid UUID"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 15  NOTIFICATION VALIDATORS
+// § 15  NOTIFICATIONS (admin broadcast)
 // ─────────────────────────────────────────────────────────────────────────────
-
-// POST /api/admin/broadcast
 export const validateBroadcast = [
   body("title")
     .trim()
@@ -1317,36 +1102,30 @@ export const validateBroadcast = [
     .withMessage("Notification title is required")
     .isLength({ min: 3, max: 100 })
     .withMessage("Title must be 3–100 characters"),
-
   body("body")
     .trim()
     .notEmpty()
     .withMessage("Notification body is required")
     .isLength({ min: 5, max: 500 })
     .withMessage("Body must be 5–500 characters"),
-
   body("role")
     .optional({ nullable: true })
     .isIn(["HIRER", "WORKER", "ADMIN"])
     .withMessage("Role must be HIRER, WORKER, or ADMIN"),
-
   body("userIds")
     .optional({ nullable: true })
     .isArray()
     .withMessage("userIds must be an array"),
-
   body("userIds.*")
     .optional()
     .isUUID(4)
     .withMessage("Each user ID must be a valid UUID"),
-
   validate,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 16  COMMON PARAM VALIDATORS (reuse in any route)
+// § 16  COMMON PARAM / PAGINATION VALIDATORS
 // ─────────────────────────────────────────────────────────────────────────────
-
 export const validateUUIDParam = (paramName = "id") => [
   param(paramName)
     .trim()
@@ -1358,3 +1137,415 @@ export const validateUUIDParam = (paramName = "id") => [
 ];
 
 export const validatePagination = [r.page, r.limit, validate];
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  NEW VALIDATORS BELOW — sections 17–22 added in this update
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 17  SUBSCRIPTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  IMPORTANT: open prisma/schema.prisma, find the SubscriptionTier enum,
+//     and update SUBSCRIPTION_TIERS below to match your exact values.
+//     e.g. if your enum is  BASIC | PRO | ELITE  →  ["BASIC","PRO","ELITE"]
+
+const SUBSCRIPTION_TIERS = ["BASIC", "PRO", "ELITE"]; // ← update to match your enum
+const SUBSCRIPTION_BILLING = ["MONTHLY", "ANNUALLY"];
+
+// POST /api/subscriptions/checkout
+// Body: { tier, billingPeriod?, callbackUrl? }
+export const validateSubscriptionCheckout = [
+  body("tier")
+    .notEmpty()
+    .withMessage("Subscription tier is required")
+    .isIn(SUBSCRIPTION_TIERS)
+    .withMessage(`tier must be one of: ${SUBSCRIPTION_TIERS.join(", ")}`),
+
+  body("billingPeriod")
+    .optional({ nullable: true })
+    .isIn(SUBSCRIPTION_BILLING)
+    .withMessage(`billingPeriod must be ${SUBSCRIPTION_BILLING.join(" or ")}`),
+
+  body("callbackUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isURL()
+    .withMessage("callbackUrl must be a valid URL"),
+
+  validate,
+];
+
+// POST /api/subscriptions/verify
+// Body: { reference }
+export const validateSubscriptionVerify = [
+  body("reference")
+    .trim()
+    .notEmpty()
+    .withMessage("Payment reference is required")
+    .isLength({ min: 5, max: 200 })
+    .withMessage("reference must be 5–200 characters"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 18  FEATURED LISTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+// Allowed durations (days). Add/remove values to match your pricing packages.
+const FEATURED_DURATIONS = [7, 14, 30, 60, 90];
+const FEATURED_TYPES = ["WORKER_PROFILE", "JOB_POST"];
+
+// POST /api/featured/checkout
+// Body: { type, duration, targetId? }
+export const validateFeaturedCheckout = [
+  body("type")
+    .notEmpty()
+    .withMessage("Listing type is required")
+    .isIn(FEATURED_TYPES)
+    .withMessage(`type must be one of: ${FEATURED_TYPES.join(", ")}`),
+
+  body("duration")
+    .notEmpty()
+    .withMessage("Duration is required")
+    .isInt({ min: 1, max: 365 })
+    .withMessage("duration must be a number of days between 1 and 365")
+    .custom((val) => FEATURED_DURATIONS.includes(Number(val)))
+    .withMessage(
+      `duration must be one of: ${FEATURED_DURATIONS.join(", ")} days`,
+    ),
+
+  // Optional: link the featured slot to a specific job post or worker profile
+  body("targetId")
+    .optional({ nullable: true })
+    .trim()
+    .isUUID(4)
+    .withMessage("targetId must be a valid UUID"),
+
+  body("callbackUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isURL()
+    .withMessage("callbackUrl must be a valid URL"),
+
+  validate,
+];
+
+// POST /api/featured/verify
+// Body: { sessionId }
+export const validateFeaturedVerify = [
+  body("sessionId")
+    .trim()
+    .notEmpty()
+    .withMessage("Session ID is required")
+    .isLength({ max: 200 })
+    .withMessage("sessionId must not exceed 200 characters"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 19  COMMUNITY POSTS
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  Update POST_TYPES to match your PostType enum in schema.prisma.
+//     Check with:  grep 'PostType' prisma/schema.prisma
+
+const POST_TYPES = ["POST", "JOB_TIP", "SHOWCASE", "QUESTION", "ANNOUNCEMENT"];
+const REACTION_TYPES = ["LIKE", "LOVE", "INSIGHTFUL", "FUNNY", "SUPPORT"];
+
+// POST /api/posts
+// Body: { content, type, media?: string[], jobId? }
+export const validateCreatePost = [
+  body("content")
+    .trim()
+    .notEmpty()
+    .withMessage("Post content is required")
+    .isLength({ min: 1, max: 5000 })
+    .withMessage("Post content must be 1–5000 characters"),
+
+  body("type")
+    .notEmpty()
+    .withMessage("Post type is required")
+    .isIn(POST_TYPES)
+    .withMessage(`type must be one of: ${POST_TYPES.join(", ")}`),
+
+  body("media")
+    .optional({ nullable: true })
+    .isArray({ max: 10 })
+    .withMessage("media must be an array of up to 10 URLs"),
+
+  body("media.*")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Each media item must be a valid URL"),
+
+  body("jobId")
+    .optional({ nullable: true })
+    .trim()
+    .isUUID(4)
+    .withMessage("jobId must be a valid UUID"),
+
+  validate,
+];
+
+// PUT /api/posts/:id
+// Body: { content?, media? }
+export const validateUpdatePost = [
+  param("id").isUUID(4).withMessage("Post ID must be a valid UUID"),
+
+  body("content")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 5000 })
+    .withMessage("Post content must be 1–5000 characters"),
+
+  body("media")
+    .optional({ nullable: true })
+    .isArray({ max: 10 })
+    .withMessage("media must be an array of up to 10 URLs"),
+
+  body("media.*")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Each media item must be a valid URL"),
+
+  validate,
+];
+
+// POST /api/posts/:id/comments
+// Body: { content, parentId? }
+export const validateCreateComment = [
+  param("id").isUUID(4).withMessage("Post ID must be a valid UUID"),
+
+  body("content")
+    .trim()
+    .notEmpty()
+    .withMessage("Comment content is required")
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Comment must be 1–1000 characters"),
+
+  // parentId enables threaded replies
+  body("parentId")
+    .optional({ nullable: true })
+    .trim()
+    .isUUID(4)
+    .withMessage("parentId must be a valid UUID"),
+
+  validate,
+];
+
+// POST /api/posts/:id/react
+// Body: { type }
+export const validateReactToPost = [
+  param("id").isUUID(4).withMessage("Post ID must be a valid UUID"),
+
+  body("type")
+    .notEmpty()
+    .withMessage("Reaction type is required")
+    .isIn(REACTION_TYPES)
+    .withMessage(`type must be one of: ${REACTION_TYPES.join(", ")}`),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 20  INSURANCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/insurance/plans  (purchase / initiate checkout for a plan)
+// Body: { planId, bookingId?, callbackUrl? }
+export const validatePurchaseInsurance = [
+  body("planId")
+    .trim()
+    .notEmpty()
+    .withMessage("Insurance plan ID is required")
+    .isUUID(4)
+    .withMessage("planId must be a valid UUID"),
+
+  // Optional: tie the policy to an existing booking
+  body("bookingId")
+    .optional({ nullable: true })
+    .trim()
+    .isUUID(4)
+    .withMessage("bookingId must be a valid UUID"),
+
+  body("callbackUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isURL()
+    .withMessage("callbackUrl must be a valid URL"),
+
+  validate,
+];
+
+// POST /api/insurance/verify
+// Body: { reference }
+export const validateInsuranceVerify = [
+  body("reference")
+    .trim()
+    .notEmpty()
+    .withMessage("Payment reference is required")
+    .isLength({ min: 5, max: 200 })
+    .withMessage("reference must be 5–200 characters"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 21  VIDEO CALLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/video-calls/:bookingId/initiate
+// Body is empty — only the URL param needs validating.
+export const validateInitiateVideoCall = [
+  param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 22  TRANSLATION
+// ─────────────────────────────────────────────────────────────────────────────
+// Full ISO 639-1 code list so the validator rejects garbage inputs while
+// remaining flexible enough for all the languages you may need.
+const ISO_LANGUAGE_CODES = [
+  "af",
+  "sq",
+  "am",
+  "ar",
+  "hy",
+  "az",
+  "eu",
+  "be",
+  "bn",
+  "bs",
+  "bg",
+  "ca",
+  "ceb",
+  "zh",
+  "co",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "eo",
+  "et",
+  "fi",
+  "fr",
+  "fy",
+  "gl",
+  "ka",
+  "de",
+  "el",
+  "gu",
+  "ht",
+  "ha",
+  "haw",
+  "he",
+  "hi",
+  "hmn",
+  "hu",
+  "is",
+  "ig",
+  "id",
+  "ga",
+  "it",
+  "ja",
+  "jv",
+  "kn",
+  "kk",
+  "km",
+  "ko",
+  "ku",
+  "ky",
+  "lo",
+  "la",
+  "lv",
+  "lt",
+  "lb",
+  "mk",
+  "mg",
+  "ms",
+  "ml",
+  "mt",
+  "mi",
+  "mr",
+  "mn",
+  "my",
+  "ne",
+  "no",
+  "ny",
+  "or",
+  "ps",
+  "fa",
+  "pl",
+  "pt",
+  "pa",
+  "ro",
+  "ru",
+  "sm",
+  "gd",
+  "sr",
+  "st",
+  "sn",
+  "sd",
+  "si",
+  "sk",
+  "sl",
+  "so",
+  "es",
+  "su",
+  "sw",
+  "sv",
+  "tl",
+  "tg",
+  "ta",
+  "tt",
+  "te",
+  "th",
+  "tr",
+  "tk",
+  "uk",
+  "ur",
+  "ug",
+  "uz",
+  "vi",
+  "cy",
+  "xh",
+  "yi",
+  "yo",
+  "zu",
+];
+
+// POST /api/translate
+// Body: { text, targetLanguage, sourceLanguage? }
+export const validateTranslate = [
+  body("text")
+    .trim()
+    .notEmpty()
+    .withMessage("Text to translate is required")
+    .isLength({ min: 1, max: 5000 })
+    .withMessage("text must be 1–5000 characters"),
+
+  body("targetLanguage")
+    .trim()
+    .notEmpty()
+    .withMessage("Target language is required")
+    .toLowerCase()
+    .isIn(ISO_LANGUAGE_CODES)
+    .withMessage(
+      "targetLanguage must be a valid ISO 639-1 code (e.g. 'fr', 'es', 'ar', 'yo')",
+    ),
+
+  body("sourceLanguage")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .toLowerCase()
+    .isIn(ISO_LANGUAGE_CODES)
+    .withMessage(
+      "sourceLanguage must be a valid ISO 639-1 code — omit it to auto-detect",
+    ),
+
+  validate,
+];

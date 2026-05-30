@@ -5,6 +5,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import {
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
   logAdminAction,
   logAdminFailure,
   userSnapshot,
@@ -289,7 +290,7 @@ export const getAllUsers = async (req, res) => {
       page = 1,
       limit = 20,
     } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
 
     if (role) where.role = role;
@@ -310,7 +311,7 @@ export const getAllUsers = async (req, res) => {
       prisma.user.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         select: {
           id: true,
           email: true,
@@ -354,7 +355,7 @@ export const getAllUsers = async (req, res) => {
         users,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -650,13 +651,13 @@ export const verifyWorker = async (req, res) => {
 export const getPendingVerifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [workers, total] = await Promise.all([
       prisma.workerProfile.findMany({
         where: { verificationStatus: "PENDING" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           user: {
             select: {
@@ -680,7 +681,7 @@ export const getPendingVerifications = async (req, res) => {
         verifications: workers,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -713,7 +714,7 @@ export const getVerificationStats = async (req, res) => {
 export const getAllBookings = async (req, res) => {
   try {
     const { status, search, from, to, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
 
     if (status) where.status = status;
@@ -734,7 +735,7 @@ export const getAllBookings = async (req, res) => {
       prisma.booking.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: {
@@ -767,7 +768,7 @@ export const getAllBookings = async (req, res) => {
         bookings,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -886,7 +887,7 @@ export const adminUpdateBookingStatus = async (req, res) => {
 export const getDisputes = async (req, res) => {
   try {
     const { page = 1, limit = 20, resolved } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
 
     if (resolved === "true") where.status = { not: "DISPUTED" };
@@ -897,7 +898,7 @@ export const getDisputes = async (req, res) => {
       prisma.booking.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: {
@@ -930,7 +931,7 @@ export const getDisputes = async (req, res) => {
         disputes,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -977,7 +978,7 @@ export const resolveDispute = async (req, res) => {
 export const getAllPayments = async (req, res) => {
   try {
     const { status, provider, from, to, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
 
     if (status) where.status = status;
@@ -992,7 +993,7 @@ export const getAllPayments = async (req, res) => {
       prisma.payment.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           booking: {
             select: {
@@ -1018,7 +1019,7 @@ export const getAllPayments = async (req, res) => {
         payments,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         summary: {
           totalGMV: summary._sum.amount || 0,
           totalFees: summary._sum.platformFee || 0,
@@ -1163,7 +1164,7 @@ export const adminRefundPayment = async (req, res) => {
 export const getAllWithdrawals = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (status) where.status = status;
 
@@ -1171,7 +1172,7 @@ export const getAllWithdrawals = async (req, res) => {
       prisma.withdrawal.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           worker: {
             select: {
@@ -1198,7 +1199,7 @@ export const getAllWithdrawals = async (req, res) => {
         withdrawals,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         pendingTotal: pendingSum._sum.amount || 0,
         pendingCount: pendingSum._count || 0,
       },
@@ -1347,7 +1348,7 @@ export const deleteCategory = async (req, res) => {
 export const getAllCategories = async (req, res) => {
   try {
     const { search, page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (search) where.name = { contains: search, mode: "insensitive" };
 
@@ -1355,7 +1356,7 @@ export const getAllCategories = async (req, res) => {
       prisma.category.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           parent: true,
           _count: { select: { workers: true, bookings: true, jobPosts: true } },
@@ -1370,7 +1371,7 @@ export const getAllCategories = async (req, res) => {
         categories,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1385,7 +1386,7 @@ export const getAllCategories = async (req, res) => {
 export const getAllReviews = async (req, res) => {
   try {
     const { rating, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (rating) where.rating = parseInt(rating);
 
@@ -1393,7 +1394,7 @@ export const getAllReviews = async (req, res) => {
       prisma.review.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: { id: true, firstName: true, lastName: true, avatar: true },
@@ -1413,7 +1414,7 @@ export const getAllReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1441,7 +1442,7 @@ export const deleteReview = async (req, res) => {
 export const getAllJobPosts = async (req, res) => {
   try {
     const { status, search, categoryId, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
 
     if (status) where.status = status;
@@ -1452,7 +1453,7 @@ export const getAllJobPosts = async (req, res) => {
       prisma.jobPost.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: {
@@ -1476,7 +1477,7 @@ export const getAllJobPosts = async (req, res) => {
         jobs,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1575,7 +1576,7 @@ export const adminUpdateJobStatus = async (req, res) => {
 export const getAllSubscriptions = async (req, res) => {
   try {
     const { status, tier, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (status) where.status = status;
     if (tier) where.tier = tier;
@@ -1584,7 +1585,7 @@ export const getAllSubscriptions = async (req, res) => {
       prisma.subscription.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           user: {
             select: {
@@ -1611,7 +1612,7 @@ export const getAllSubscriptions = async (req, res) => {
         subscriptions,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         summary,
       },
     });
@@ -1656,7 +1657,7 @@ export const adminCancelSubscription = async (req, res) => {
 export const getAllFeaturedListings = async (req, res) => {
   try {
     const { type, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (type) where.type = type;
 
@@ -1664,7 +1665,7 @@ export const getAllFeaturedListings = async (req, res) => {
       prisma.featuredListing.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           user: {
             select: {
@@ -1688,7 +1689,7 @@ export const getAllFeaturedListings = async (req, res) => {
         listings,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1730,7 +1731,7 @@ export const adminRemoveFeaturedListing = async (req, res) => {
 export const getAllPosts = async (req, res) => {
   try {
     const { type, search, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (type) where.type = type;
     if (search) where.content = { contains: search, mode: "insensitive" };
@@ -1739,7 +1740,7 @@ export const getAllPosts = async (req, res) => {
       prisma.post.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           author: {
             select: {
@@ -1762,7 +1763,7 @@ export const getAllPosts = async (req, res) => {
         posts,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1816,12 +1817,12 @@ export const adminDeleteComment = async (req, res) => {
 export const getAllConversations = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [conversations, total] = await Promise.all([
       prisma.conversation.findMany({
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           users: {
             include: {
@@ -1849,7 +1850,7 @@ export const getAllConversations = async (req, res) => {
         conversations,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1860,7 +1861,7 @@ export const getAllConversations = async (req, res) => {
 export const getConversationMessages = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: req.params.conversationId },
@@ -1885,7 +1886,7 @@ export const getConversationMessages = async (req, res) => {
       prisma.message.findMany({
         where: { conversationId: req.params.conversationId },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           sender: {
             select: { id: true, firstName: true, lastName: true, avatar: true },
@@ -1904,7 +1905,7 @@ export const getConversationMessages = async (req, res) => {
         messages,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -1970,12 +1971,12 @@ export const broadcastNotification = async (req, res) => {
 export const getAllVideoCalls = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [calls, total] = await Promise.all([
       prisma.videoCall.findMany({
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           booking: { select: { id: true, title: true, status: true } },
           initiator: { select: { id: true, firstName: true, lastName: true } },
@@ -1991,7 +1992,7 @@ export const getAllVideoCalls = async (req, res) => {
         calls,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {

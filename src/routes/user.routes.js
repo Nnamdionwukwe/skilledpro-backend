@@ -1,18 +1,26 @@
+// src/routes/user.routes.js
 import { Router } from "express";
+import { protect, optionalProtect } from "../middleware/auth.middleware.js";
 import {
-  getProfile,
   updateProfile,
   updateAvatar,
   deleteAccount,
+  getProfile,
 } from "../controllers/user.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
-import { uploadSingle } from "../middleware/upload.middleware.js";
-const router = Router();
-// ✅ /me routes MUST come before /:id
-router.put("/me", protect, updateProfile);
-router.put("/me/avatar", protect, uploadSingle, updateAvatar);
-router.delete("/me", protect, deleteAccount);
+import {
+  uploadSingle, // was: upload.single("avatar")  ← FIXED
+  normaliseFile,
+} from "../middleware/upload.middleware.js";
+import {
+  validateUpdateProfile,
+  validateUUIDParam,
+} from "../utils/validators.js";
 
-// /:id MUST come last
-router.get("/:id", getProfile);
+const router = Router();
+
+router.put("/me", protect, validateUpdateProfile, updateProfile);
+router.put("/me/avatar", protect, uploadSingle, normaliseFile, updateAvatar);
+router.delete("/me", protect, deleteAccount);
+router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getProfile);
+
 export default router;

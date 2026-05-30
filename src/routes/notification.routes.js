@@ -1,60 +1,55 @@
+// src/routes/notification.routes.js
 import { Router } from "express";
+import { protect } from "../middleware/auth.middleware.js";
+import { notificationRequestLimiter } from "../middleware/rateLimit.middleware.js";
 import {
+  // In-app notifications
   getNotifications,
   markAsRead,
   markAllAsRead,
   deleteNotification,
   clearAllNotifications,
+  // Device token management (push notifications)
+  registerDeviceToken,
+  removeDeviceToken,
+  removeAllDeviceTokens,
+  getDeviceTokens,
+  // Support request
+  submitNotificationRequest,
 } from "../controllers/notification.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
 
 const router = Router();
-
 router.use(protect);
 
+// ── In-app notifications ──────────────────────────────────────────────────────
 router.get("/", getNotifications);
 router.patch("/read-all", markAllAsRead);
-// POST /api/notifications/request
-router.post("/request", protect, async (req, res) => {
-  try {
-    const { type, details } = req.body;
-    await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        title: `${type} Request Submitted`,
-        body: `Your ${type} request has been received. Our team will follow up within 24 hours.`,
-        type: `${type}_REQUEST`,
-        data: details || {},
-      },
-    });
-
-    // Notify all admins
-    const admins = await prisma.user.findMany({
-      where: { role: "ADMIN", isActive: true },
-      select: { id: true },
-    });
-
-    for (const admin of admins) {
-      await prisma.notification.create({
-        data: {
-          userId: admin.id,
-          title: `New ${type} Request`,
-          body: `Worker ID: ${req.user.id} has requested ${type}.`,
-          type: `${type}_REQUEST_ADMIN`,
-          data: { requesterId: req.user.id, ...details },
-        },
-      });
-    }
-
-    return res.json({ success: true, message: "Request submitted" });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to submit request" });
-  }
-});
 router.patch("/:id/read", markAsRead);
 router.delete("/clear-all", clearAllNotifications);
 router.delete("/:id", deleteNotification);
+
+// ── Support / custom requests ─────────────────────────────────────────────────
+// Rate limited — prevents users from spamming support requests
+router.post("/request", notificationRequestLimiter, submitNotificationRequest);
+
+// ── Device token management (mobile push notifications) ───────────────────────
+//
+// Register a push token (call on every app launch after login):
+//   POST /api/notifications/token
+//   Body: { token: "ExponentPushToken[...]", platform: "ios" | "android" }
+router.post("/token", registerDeviceToken);
+
+// Remove a specific token (call on logout):
+//   DELETE /api/notifications/token
+//   Body: { token: "ExponentPushToken[...]" }
+router.delete("/token", removeDeviceToken);
+
+// Remove all tokens for this user (logout from all devices):
+//   DELETE /api/notifications/tokens
+router.delete("/tokens", removeAllDeviceTokens);
+
+// View registered tokens (useful for debugging):
+//   GET /api/notifications/tokens
+router.get("/tokens", getDeviceTokens);
 
 export default router;

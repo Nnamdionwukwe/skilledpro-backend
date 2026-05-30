@@ -18,6 +18,7 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─── Readable labels for the UI ──────────────────────────────────────────────
 const ACTION_LABELS = {
@@ -132,7 +133,7 @@ export const getAuditLogs = async (req, res) => {
       limit = 25,
     } = req.query;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     // Build severity filter (action-level — convert to action list)
     const severityActions = severity
@@ -174,7 +175,7 @@ export const getAuditLogs = async (req, res) => {
         where,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           admin: {
             select: {
@@ -195,7 +196,7 @@ export const getAuditLogs = async (req, res) => {
         logs: logs.map(enrichLog),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -353,7 +354,7 @@ export const getMyAuditTrail = async (req, res) => {
   try {
     const adminId = req.user.id;
     const { page = 1, limit = 20, action } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = { adminId, ...(action ? { action } : {}) };
 
@@ -362,7 +363,7 @@ export const getMyAuditTrail = async (req, res) => {
         where,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.auditLog.count({ where }),
       prisma.auditLog.groupBy({
@@ -377,7 +378,7 @@ export const getMyAuditTrail = async (req, res) => {
         logs: logs.map(enrichLog),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         summary: summary.reduce(
           (a, s) => ({
             ...a,

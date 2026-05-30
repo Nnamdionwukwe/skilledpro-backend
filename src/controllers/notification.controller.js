@@ -1,11 +1,22 @@
+// src/controllers/notification.controller.js
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { getIO } from "../socket/index.js";
+import {
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+  upsertDeviceToken,
+  deactivateDeviceToken,
+  deactivateAllUserTokens,
+} from "../services/push.service.js";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 1  IN-APP NOTIFICATION CRUD (unchanged from original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const getNotifications = async (req, res) => {
   try {
     const { page = 1, limit = 30, unreadOnly } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = { userId: req.user.id };
     if (unreadOnly === "true") where.isRead = false;
 
@@ -13,7 +24,7 @@ export const getNotifications = async (req, res) => {
       prisma.notification.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         orderBy: { createdAt: "desc" },
       }),
       prisma.notification.count({ where }),
@@ -28,7 +39,7 @@ export const getNotifications = async (req, res) => {
         total,
         unreadCount,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -88,6 +99,7 @@ export const clearAllNotifications = async (req, res) => {
   }
 };
 
+// Real-time notification (used internally by notification.service.js)
 export const sendRealTimeNotification = async ({
   userId,
   title,
@@ -122,7 +134,7 @@ export const notifyBookingUpdate = async (booking, status) => {
     ACCEPTED: {
       hirerId: {
         title: "Booking Accepted ✅",
-        body: `Your booking "${booking.title}" has been accepted.`,
+        body: `"${booking.title}" has been accepted.`,
       },
       workerId: {
         title: "You accepted a booking",
@@ -132,7 +144,7 @@ export const notifyBookingUpdate = async (booking, status) => {
     REJECTED: {
       hirerId: {
         title: "Booking Rejected",
-        body: `Your booking "${booking.title}" was declined.`,
+        body: `"${booking.title}" was declined.`,
       },
     },
     IN_PROGRESS: {
@@ -158,10 +170,8 @@ export const notifyBookingUpdate = async (booking, status) => {
       },
     },
   };
-
   const notifs = messages[status];
   if (!notifs) return;
-
   for (const [key, notif] of Object.entries(notifs)) {
     const userId = key === "hirerId" ? booking.hirerId : booking.workerId;
     if (userId) {
@@ -173,5 +183,153 @@ export const notifyBookingUpdate = async (booking, status) => {
         data: { bookingId: booking.id },
       });
     }
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 2  DEVICE TOKEN MANAGEMENT (NEW)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/notifications/token
+// Body: { token: "ExponentPushToken[...]", platform?: "ios" | "android" | "web" }
+// Call this on every app launch after the user logs in.
+export const registerDeviceToken = async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    const userId = req.user.id;
+
+    if (!token || typeof token !== "string" || !token.trim()) {
+      return sendError(res, "Push token is required", 400);
+    }
+
+    const record = await upsertDeviceToken(
+      userId,
+      token.trim(),
+      platform ?? null,
+    );
+
+    return sendResponse(res, {
+      status: 201,
+      message: "Device registered for push notifications",
+      data: { tokenId: record.id, platform: record.platform },
+    });
+  } catch (err) {
+    if (err.message === "Invalid push token format") {
+      return sendError(
+        res,
+        "Invalid push token format. Expected ExponentPushToken[...]",
+        400,
+      );
+    }
+    console.error("registerDeviceToken:", err);
+    return sendError(res, "Failed to register device token");
+  }
+};
+
+// DELETE /api/notifications/token
+// Body: { token: "ExponentPushToken[...]" }
+// Call this on logout so the user stops receiving pushes on that device.
+export const removeDeviceToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const userId = req.user.id;
+
+    if (!token) return sendError(res, "Token is required", 400);
+
+    await deactivateDeviceToken(userId, token);
+
+    return sendResponse(res, {
+      message: "Device unregistered from push notifications",
+    });
+  } catch (err) {
+    console.error("removeDeviceToken:", err);
+    return sendError(res, "Failed to remove device token");
+  }
+};
+
+// DELETE /api/notifications/tokens
+// Deactivate all tokens for the current user (call from logout-all-devices flow).
+export const removeAllDeviceTokens = async (req, res) => {
+  try {
+    await deactivateAllUserTokens(req.user.id);
+    return sendResponse(res, { message: "All devices unregistered" });
+  } catch (err) {
+    console.error("removeAllDeviceTokens:", err);
+    return sendError(res, "Failed to remove device tokens");
+  }
+};
+
+// GET /api/notifications/tokens  (for debugging / admin use)
+export const getDeviceTokens = async (req, res) => {
+  try {
+    const tokens = await prisma.deviceToken.findMany({
+      where: { userId: req.user.id },
+      select: {
+        id: true,
+        platform: true,
+        active: true,
+        createdAt: true,
+        token: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    // Mask most of the token for security
+    const masked = tokens.map((t) => ({
+      ...t,
+      token: `${t.token.slice(0, 25)}…`,
+    }));
+    return sendResponse(res, {
+      data: { tokens: masked, total: tokens.length },
+    });
+  } catch (err) {
+    console.error("getDeviceTokens:", err);
+    return sendError(res, "Failed to fetch device tokens");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 3  CUSTOM REQUEST / SUPPORT NOTIFICATION
+// (was inline in notification.routes.js — moved here where prisma is imported)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/notifications/request
+export const submitNotificationRequest = async (req, res) => {
+  try {
+    const { type, details } = req.body;
+    if (!type) return sendError(res, "type is required", 400);
+
+    // Notify the requesting user
+    await prisma.notification.create({
+      data: {
+        userId: req.user.id,
+        title: `${type} Request Submitted`,
+        body: `Your ${type} request has been received. Our team will follow up within 24 hours.`,
+        type: `${type}_REQUEST`,
+        data: details || {},
+      },
+    });
+
+    // Notify all admins
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+
+    if (admins.length > 0) {
+      await prisma.notification.createMany({
+        data: admins.map((a) => ({
+          userId: a.id,
+          title: `New ${type} Request`,
+          body: `User ${req.user.firstName} ${req.user.lastName} has requested ${type}.`,
+          type: `${type}_REQUEST_ADMIN`,
+          data: { requesterId: req.user.id, ...details },
+        })),
+      });
+    }
+
+    return sendResponse(res, { message: "Request submitted" });
+  } catch (err) {
+    console.error("submitNotificationRequest:", err);
+    return sendError(res, "Failed to submit request");
   }
 };

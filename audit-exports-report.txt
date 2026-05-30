@@ -1,0 +1,489 @@
+
+SkilledProz — Controller Export & Route Import Audit
+Generated : 5/30/2026, 1:35:55 AM
+src dir   : /Users/onwukwennamdi/Desktop/skilledpro-backend/src
+────────────────────────────────────────────────────────────────────────────────
+
+§ 1  ALL CONTROLLER EXPORTS
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌─ admin.controller.js  (47 exports)
+  │   adminCancelSubscription
+  │   adminDeleteComment
+  │   adminDeleteJobPost
+  │   adminDeletePost
+  │   adminRefundPayment
+  │   adminReleasePayment
+  │   adminRemoveFeaturedListing
+  │   adminUpdateBookingStatus
+  │   adminUpdateJobStatus
+  │   approveWithdrawal
+  │   banUser
+  │   broadcastNotification
+  │   createCategory
+  │   deleteCategory
+  │   deleteReview
+  │   deleteUser
+  │   getAdminBookingDetail
+  │   getAllBookings
+  │   getAllCategories
+  │   getAllConversations
+  │   getAllFeaturedListings
+  │   getAllJobPosts
+  │   getAllPayments
+  │   getAllPosts
+  │   getAllReviews
+  │   getAllSubscriptions
+  │   getAllUsers
+  │   getAllVideoCalls
+  │   getAllWithdrawals
+  │   getConversationMessages
+  │   getDisputes
+  │   getJobPostDetail
+  │   getPaymentDetail
+  │   getPendingVerifications
+  │   getPlatformStats
+  │   getRevenueAnalytics
+  │   getUserDetail
+  │   getUserGrowthAnalytics
+  │   getVerificationStats
+  │   rejectManualPayment
+  │   rejectWithdrawal
+  │   resolveDispute
+  │   unbanUser
+  │   updateCategory
+  │   updateUserRole
+  │   verifyManualPayment
+  │   verifyWorker
+  └────────────────────────────────────────────────────────────
+
+  ┌─ audit.controller.js  (8 exports)
+  │   exportAuditLogs
+  │   getAuditAdmins
+  │   getAuditByTarget
+  │   getAuditLogDetail
+  │   getAuditLogs
+  │   getAuditStats
+  │   getMyAuditTrail
+  │   purgeAuditLogs
+  └────────────────────────────────────────────────────────────
+
+  ┌─ auth.controller.js  (9 exports)
+  │   forgotPassword
+  │   getMe
+  │   login
+  │   logout
+  │   refreshToken
+  │   register
+  │   resendVerification
+  │   resetPassword
+  │   verifyEmail
+  └────────────────────────────────────────────────────────────
+
+  ┌─ booking.controller.js  (9 exports)
+  │   activateSOS
+  │   checkIn
+  │   checkOut
+  │   createBooking
+  │   getBooking
+  │   getMyBookings
+  │   resolveSOS
+  │   updateBookingStatus
+  │   updateEmergencyContact
+  └────────────────────────────────────────────────────────────
+
+  ┌─ campaign.controller.js  (17 exports)
+  │   CAMPAIGN_CONFIG
+  │   adminApproveCampaignWithdrawal
+  │   adminGetCampaignStats
+  │   adminGetCampaignWithdrawals
+  │   adminGetSubmissions
+  │   adminRejectCampaignWithdrawal
+  │   adminReviewSubmission
+  │   getCampaignStatus
+  │   getCampaignSubmissions
+  │   getCampaignWallet
+  │   getMyCampaignReferrals
+  │   getMyTaskStatus
+  │   markProfileSetupComplete
+  │   registerCampaignReferral
+  │   reportSocialFollow
+  │   submitDailyCampaign
+  │   withdrawCampaignEarnings
+  └────────────────────────────────────────────────────────────
+
+  ┌─ category.controller.js  (5 exports)
+  │   deleteCategory
+  │   getCategories
+  │   getCategory
+  │   suggestCategory
+  │   updateCategory
+  └────────────────────────────────────────────────────────────
+
+  ┌─ dispute.controller.js  (6 exports)
+  │   cancelDispute
+  │   getAllDisputes
+  │   getDisputeDetail
+  │   getMyDisputes
+  │   raiseDispute
+  │   resolveDispute
+  └────────────────────────────────────────────────────────────
+
+  ┌─ featured.controller.js  (7 exports)
+  │   FEATURED_PACKAGES
+  │   createFeaturedCheckout
+  │   getFeaturedInvoice
+  │   getFeaturedUsers
+  │   getMyFeatured
+  │   getPackages
+  │   verifyFeaturedCheckout
+  └────────────────────────────────────────────────────────────
+
+  ┌─ hirer.controller.js  (9 exports)
+  │   getHirerBookings
+  │   getHirerDashboard
+  │   getHirerProfile
+  │   getHirerReviews
+  │   getMyHirerProfile
+  │   getNotifications
+  │   getSavedWorkers
+  │   markNotificationsRead
+  │   updateHirerProfile
+  └────────────────────────────────────────────────────────────
+
+  ┌─ insurance.controller.js  (5 exports)
+  │   PLANS
+  │   createInsuranceCheckout
+  │   getInsurancePlans
+  │   getMyInsurance
+  │   verifyInsuranceCheckout
+  └────────────────────────────────────────────────────────────
+
+  ┌─ job.controller.js  (10 exports)
+  │   applyToJob
+  │   createJobPost
+  │   getHirerPublicProfile
+  │   getJobApplications
+  │   getJobPost
+  │   getJobPosts
+  │   getMyApplications
+  │   getMyJobPosts
+  │   updateApplicationStatus
+  │   updateJobPostStatus
+  └────────────────────────────────────────────────────────────
+
+  ┌─ message.controller.js  (3 exports)
+  │   getConversations
+  │   getMessages
+  │   sendMessage
+  └────────────────────────────────────────────────────────────
+
+  ┌─ notification.controller.js  (7 exports)
+  │   clearAllNotifications
+  │   deleteNotification
+  │   getNotifications
+  │   markAllAsRead
+  │   markAsRead
+  │   notifyBookingUpdate
+  │   sendRealTimeNotification
+  └────────────────────────────────────────────────────────────
+
+  ┌─ payment.controller.js  (22 exports)
+  │   CRYPTO_CURRENCIES
+  │   SUPPORTED_CURRENCIES
+  │   approveWithdrawalPayout
+  │   confirmBankTransfer
+  │   confirmCryptoPayment
+  │   flutterwaveWebhook
+  │   getAllPayments
+  │   getBanksByCountry
+  │   getHirerPayments
+  │   getPayment
+  │   getWithdrawals
+  │   getWorkerEarnings
+  │   initiateBankTransfer
+  │   initiateBookingPayment
+  │   initiateCryptoPayment
+  │   paystackWebhook
+  │   refundPayment
+  │   releasePayment
+  │   requestWithdrawal
+  │   verifyBankAccount
+  │   verifyFlutterwave
+  │   verifyPaystack
+  └────────────────────────────────────────────────────────────
+
+  ┌─ post.controller.js  (13 exports)
+  │   addComment
+  │   createPost
+  │   deleteComment
+  │   deletePost
+  │   getComments
+  │   getFeed
+  │   getMyPosts
+  │   getPost
+  │   getReactions
+  │   getUserPosts
+  │   reactToPost
+  │   repost
+  │   updatePost
+  └────────────────────────────────────────────────────────────
+
+  ┌─ referral.controller.js  (19 exports)
+  │   REFEREE_PERKS
+  │   REFERRAL_CONFIG
+  │   TIERS
+  │   adminAdjustWallet
+  │   adminExpireReferral
+  │   adminFlagReferral
+  │   adminGetAllReferrals
+  │   adminGetReferralStats
+  │   adminManualReward
+  │   applyReferralOnSignup
+  │   convertReferral
+  │   getHirerFirstBookingDiscount
+  │   getMyReferralCode
+  │   getMyReferralDashboard
+  │   getMyWallet
+  │   getReferralLeaderboard
+  │   qualifyReferral
+  │   validateReferralCode
+  │   withdrawReferralEarnings
+  └────────────────────────────────────────────────────────────
+
+  ┌─ report.controller.js  (11 exports)
+  │   adminBulkDismiss
+  │   adminDismissReport
+  │   adminGetAllReports
+  │   adminGetReportDetail
+  │   adminGetReportStats
+  │   adminGetReportsByTarget
+  │   adminResolveReport
+  │   adminStartReview
+  │   cancelReport
+  │   createReport
+  │   getMyReports
+  └────────────────────────────────────────────────────────────
+
+  ┌─ review.controller.js  (7 exports)
+  │   checkReviewStatus
+  │   createReview
+  │   deleteReview
+  │   getHirerReviewsPublic
+  │   getMyGivenReviews
+  │   getMyReceivedReviews
+  │   getWorkerReviews
+  └────────────────────────────────────────────────────────────
+
+  ┌─ search.controller.js  (4 exports)
+  │   getFilterOptions
+  │   getTrending
+  │   globalSearch
+  │   nearbyWorkers
+  └────────────────────────────────────────────────────────────
+
+  ┌─ settings.controller.js  (14 exports)
+  │   changePassword
+  │   deleteAccount
+  │   getActivitySummary
+  │   getNotificationPrefs
+  │   getPaymentMethods
+  │   getPrivacySettings
+  │   getProfile
+  │   getSecurityInfo
+  │   updateAvatar
+  │   updateHirerProfile
+  │   updateNotificationPrefs
+  │   updatePrivacySettings
+  │   updateProfile
+  │   updateWorkerProfile
+  └────────────────────────────────────────────────────────────
+
+  ┌─ subscription.controller.js  (11 exports)
+  │   FEATURED_PACKAGES
+  │   HIRER_PLANS
+  │   WORKER_PLANS
+  │   cancelSubscription
+  │   createCheckout
+  │   getInvoice
+  │   getMySubscription
+  │   getPlanCode
+  │   getPlans
+  │   paystackWebhook
+  │   verifyCheckout
+  └────────────────────────────────────────────────────────────
+
+  ┌─ user.controller.js  (4 exports)
+  │   deleteAccount
+  │   getProfile
+  │   updateAvatar
+  │   updateProfile
+  └────────────────────────────────────────────────────────────
+
+  ┌─ verification.controller.js  (14 exports)
+  │   deleteCertification
+  │   getHirerVerificationStatus
+  │   getPendingHirerVerifications
+  │   getPendingVerifications
+  │   getVerificationStats
+  │   getVerificationStatus
+  │   getVerifiedWorkers
+  │   reviewHirerVerification
+  │   reviewVerification
+  │   submitCertification
+  │   submitHirerVerification
+  │   submitIdVerification
+  │   updateBackgroundCheck
+  │   verifyCertification
+  └────────────────────────────────────────────────────────────
+
+  ┌─ videocall.controller.js  (5 exports)
+  │   acceptCall
+  │   declineCall
+  │   endCall
+  │   getCallStatus
+  │   initiateCall
+  └────────────────────────────────────────────────────────────
+
+  ┌─ worker.controller.js  (15 exports)
+  │   addCategory
+  │   addCertification
+  │   addPortfolio
+  │   addVideoIntro
+  │   deletePortfolio
+  │   deleteVideoIntro
+  │   getMyReviews
+  │   getWorkerDashboard
+  │   getWorkerNotifications
+  │   getWorkerProfile
+  │   markAllNotificationsRead
+  │   removeCategory
+  │   searchWorkers
+  │   updateAvailability
+  │   updateWorkerProfile
+  └────────────────────────────────────────────────────────────
+
+
+§ 2  ROUTE IMPORT MISMATCH REPORT
+────────────────────────────────────────────────────────────────────────────────
+
+  ❌  booking.routes.js
+       importing from: booking.controller.js
+         ✗  "getBookings"  → did you mean: "getBooking" | "getMyBookings" | "createBooking"
+         ✗  "getBookingById"  → did you mean: "getBooking" | "getMyBookings" | "createBooking"
+         ✗  "triggerSOS"  → no close match found
+       available exports: activateSOS, checkIn, checkOut, createBooking, getBooking, getMyBookings, resolveSOS, updateBookingStatus, updateEmergencyContact
+
+  ❌  dispute.routes.js
+       importing from: dispute.controller.js
+         ✗  "createDispute"  → did you mean: "raiseDispute" | "cancelDispute" | "resolveDispute"
+         ✗  "getDispute"  → did you mean: "getMyDisputes" | "getAllDisputes" | "cancelDispute"
+       available exports: cancelDispute, getAllDisputes, getDisputeDetail, getMyDisputes, raiseDispute, resolveDispute
+
+  ❌  job.routes.js
+       importing from: job.controller.js
+         ✗  "updateJobStatus"  → did you mean: "updateJobPostStatus" | "createJobPost" | "getJobPosts"
+       available exports: applyToJob, createJobPost, getHirerPublicProfile, getJobApplications, getJobPost, getJobPosts, getMyApplications, getMyJobPosts, updateApplicationStatus, updateJobPostStatus
+
+  ❌  message.routes.js
+       importing from: message.controller.js
+         ✗  "markConversationRead"  → did you mean: "getConversations"
+       available exports: getConversations, getMessages, sendMessage
+
+  ❌  referral.routes.js
+       importing from: referral.controller.js
+         ✗  "getReferralCode"  → did you mean: "getMyReferralCode" | "validateReferralCode" | "REFERRAL_CONFIG"
+         ✗  "getReferralDashboard"  → did you mean: "getMyReferralDashboard" | "getReferralLeaderboard" | "getMyReferralCode"
+         ✗  "getReferralWallet"  → did you mean: "getMyReferralCode" | "getMyWallet" | "REFERRAL_CONFIG"
+         ✗  "getLeaderboard"  → did you mean: "getReferralLeaderboard"
+         ✗  "withdrawReferral"  → did you mean: "convertReferral" | "adminFlagReferral" | "qualifyReferral"
+         ✗  "adminGetReferrals"  → did you mean: "adminGetAllReferrals" | "adminGetReferralStats" | "adminFlagReferral"
+         ✗  "adminGetReferralDetail"  → did you mean: "adminGetReferralStats" | "adminGetAllReferrals" | "adminFlagReferral"
+         ✗  "adminApproveReferral"  → did you mean: "adminExpireReferral" | "adminFlagReferral" | "adminGetAllReferrals"
+         ✗  "adminRejectReferral"  → did you mean: "adminExpireReferral" | "adminFlagReferral" | "adminGetAllReferrals"
+         ✗  "adminProcessReferralPayout"  → did you mean: "adminGetReferralStats" | "adminExpireReferral" | "adminFlagReferral"
+       available exports: REFEREE_PERKS, REFERRAL_CONFIG, TIERS, adminAdjustWallet, adminExpireReferral, adminFlagReferral, adminGetAllReferrals, adminGetReferralStats, adminManualReward, applyReferralOnSignup, convertReferral, getHirerFirstBookingDiscount, getMyReferralCode, getMyReferralDashboard, getMyWallet … (19 total)
+
+  ❌  review.routes.js
+       importing from: review.controller.js
+         ✗  "checkReview"  → did you mean: "createReview" | "deleteReview" | "checkReviewStatus"
+         ✗  "getHirerReviews"  → did you mean: "getWorkerReviews" | "getMyGivenReviews" | "getHirerReviewsPublic"
+       available exports: checkReviewStatus, createReview, deleteReview, getHirerReviewsPublic, getMyGivenReviews, getMyReceivedReviews, getWorkerReviews
+
+  ❌  settings.routes.js
+       importing from: settings.controller.js
+         ✗  "uploadAvatar"  → did you mean: "updateAvatar"
+         ✗  "getSecuritySettings"  → did you mean: "getSecurityInfo" | "getPrivacySettings" | "updatePrivacySettings"
+         ✗  "getNotificationSettings"  → did you mean: "getNotificationPrefs" | "getPrivacySettings" | "updateNotificationPrefs"
+         ✗  "updateNotificationSettings"  → did you mean: "updateNotificationPrefs" | "updatePrivacySettings" | "getNotificationPrefs"
+         ✗  "getActivityLog"  → did you mean: "getActivitySummary"
+       available exports: changePassword, deleteAccount, getActivitySummary, getNotificationPrefs, getPaymentMethods, getPrivacySettings, getProfile, getSecurityInfo, updateAvatar, updateHirerProfile, updateNotificationPrefs, updatePrivacySettings, updateProfile, updateWorkerProfile
+
+  ❌  worker.routes.js
+       importing from: worker.controller.js
+         ✗  "uploadVideoIntro"  → did you mean: "addVideoIntro" | "deleteVideoIntro"
+         ✗  "getWorkerPortfolio"  → did you mean: "getWorkerProfile" | "deletePortfolio" | "getWorkerDashboard"
+       available exports: addCategory, addCertification, addPortfolio, addVideoIntro, deletePortfolio, deleteVideoIntro, getMyReviews, getWorkerDashboard, getWorkerNotifications, getWorkerProfile, markAllNotificationsRead, removeCategory, searchWorkers, updateAvailability, updateWorkerProfile
+
+
+§ 3  CLEAN ROUTE FILES (no import errors)
+────────────────────────────────────────────────────────────────────────────────
+  ✅  admin.routes.js
+  ✅  ai.routes.js
+  ✅  audit.routes.js
+  ✅  auth.routes.js
+  ✅  campaign.routes.js
+  ✅  category.routes.js
+  ✅  featured.routes.js
+  ✅  hirer.routes.js
+  ✅  insurance.routes.js
+  ✅  notification.routes.js
+  ✅  payment.routes.js
+  ✅  post.routes.js
+  ✅  report.routes.js
+  ✅  search.routes.js
+  ✅  subscription.routes.js
+  ✅  translate.routes.js
+  ✅  user.routes.js
+  ✅  verification.routes.js
+  ✅  videocall.routes.js
+
+
+§ 4  SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+  Controllers scanned : 25
+  Route files scanned : 27
+  Routes with errors  : 8
+  Clean routes        : 19
+
+  BROKEN IMPORTS AT A GLANCE:
+    booking.routes.js  imports "getBookings" from booking.controller.js → fix: "getBooking"
+    booking.routes.js  imports "getBookingById" from booking.controller.js → fix: "getBooking"
+    booking.routes.js  imports "triggerSOS" from booking.controller.js → needs manual check
+    dispute.routes.js  imports "createDispute" from dispute.controller.js → fix: "raiseDispute"
+    dispute.routes.js  imports "getDispute" from dispute.controller.js → fix: "getMyDisputes"
+    job.routes.js  imports "updateJobStatus" from job.controller.js → fix: "updateJobPostStatus"
+    message.routes.js  imports "markConversationRead" from message.controller.js → fix: "getConversations"
+    referral.routes.js  imports "getReferralCode" from referral.controller.js → fix: "getMyReferralCode"
+    referral.routes.js  imports "getReferralDashboard" from referral.controller.js → fix: "getMyReferralDashboard"
+    referral.routes.js  imports "getReferralWallet" from referral.controller.js → fix: "getMyReferralCode"
+    referral.routes.js  imports "getLeaderboard" from referral.controller.js → fix: "getReferralLeaderboard"
+    referral.routes.js  imports "withdrawReferral" from referral.controller.js → fix: "convertReferral"
+    referral.routes.js  imports "adminGetReferrals" from referral.controller.js → fix: "adminGetAllReferrals"
+    referral.routes.js  imports "adminGetReferralDetail" from referral.controller.js → fix: "adminGetReferralStats"
+    referral.routes.js  imports "adminApproveReferral" from referral.controller.js → fix: "adminExpireReferral"
+    referral.routes.js  imports "adminRejectReferral" from referral.controller.js → fix: "adminExpireReferral"
+    referral.routes.js  imports "adminProcessReferralPayout" from referral.controller.js → fix: "adminGetReferralStats"
+    review.routes.js  imports "checkReview" from review.controller.js → fix: "createReview"
+    review.routes.js  imports "getHirerReviews" from review.controller.js → fix: "getWorkerReviews"
+    settings.routes.js  imports "uploadAvatar" from settings.controller.js → fix: "updateAvatar"
+    settings.routes.js  imports "getSecuritySettings" from settings.controller.js → fix: "getSecurityInfo"
+    settings.routes.js  imports "getNotificationSettings" from settings.controller.js → fix: "getNotificationPrefs"
+    settings.routes.js  imports "updateNotificationSettings" from settings.controller.js → fix: "updateNotificationPrefs"
+    settings.routes.js  imports "getActivityLog" from settings.controller.js → fix: "getActivitySummary"
+    worker.routes.js  imports "uploadVideoIntro" from worker.controller.js → fix: "addVideoIntro"
+    worker.routes.js  imports "getWorkerPortfolio" from worker.controller.js → fix: "getWorkerProfile"
+
+────────────────────────────────────────────────────────────────────────────────
+Report saved to: audit-exports-report.txt
+────────────────────────────────────────────────────────────────────────────────

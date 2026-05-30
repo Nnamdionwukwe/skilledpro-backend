@@ -24,6 +24,7 @@ import {
 } from "./referral.controller.js";
 
 import { logAdminAction } from "../utils/auditLog.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
@@ -1179,7 +1180,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const { page = 1, limit = 15 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { skip, take } = paginate(page, limit);
 
   const [earnedAgg, escrowAgg, pendingAgg, withdrawals, total] =
     await Promise.all([
@@ -1199,7 +1200,7 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
         where: { workerId },
         orderBy: { createdAt: "desc" },
         skip,
-        take: Number(limit),
+        take,
       }),
       prisma.withdrawal.count({ where: { workerId } }),
     ]);
@@ -1233,7 +1234,7 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
       withdrawals: parsed,
       total,
       page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      pages: Math.ceil(total / take),
     },
   });
 });
@@ -1245,7 +1246,7 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 export const getWorkerEarnings = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const { from, to, currency, page = 1, limit = 20 } = req.query;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const { skip, take } = paginate(page, limit);
 
   const where = {
     booking: { workerId },
@@ -1268,7 +1269,7 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
       where,
       orderBy: { createdAt: "desc" },
       skip,
-      take: parseInt(limit),
+      take,
       include: {
         booking: {
           select: {
@@ -1301,7 +1302,7 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
       payments,
       total,
       page: parseInt(page),
-      pages: Math.ceil(total / parseInt(limit)),
+      pages: Math.ceil(total / take),
       summary: {
         totalEarned: aggregate._sum.workerPayout ?? 0,
         totalJobValue: aggregate._sum.amount ?? 0,
@@ -1319,7 +1320,7 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
 export const getHirerPayments = asyncHandler(async (req, res) => {
   const hirerId = req.user.id;
   const { status, currency, page = 1, limit = 10 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { skip, take } = paginate(page, limit);
 
   const where = {
     booking: { hirerId },
@@ -1341,7 +1342,7 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
       where,
       orderBy: { createdAt: "desc" },
       skip,
-      take: Number(limit),
+      take,
       include: {
         booking: {
           select: {
@@ -1391,7 +1392,7 @@ export const getHirerPayments = asyncHandler(async (req, res) => {
       payments,
       total,
       page: Number(page),
-      pages: Math.ceil(total / Number(limit)),
+      pages: Math.ceil(total / take),
       summary: {
         totalSpent: totalSpentAgg._sum.amount ?? 0,
         inEscrow: inEscrowAgg._sum.amount ?? 0,
@@ -1780,7 +1781,7 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllPayments = asyncHandler(async (req, res) => {
   const { status, provider, currency, page = 1, limit = 20 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const { skip, take } = paginate(page, limit);
 
   const where = {
     ...(status && { status }),
@@ -1805,7 +1806,7 @@ export const getAllPayments = asyncHandler(async (req, res) => {
       },
       orderBy: { createdAt: "desc" },
       skip,
-      take: Number(limit),
+      take,
     }),
     prisma.payment.count({ where }),
   ]);
@@ -1817,7 +1818,7 @@ export const getAllPayments = asyncHandler(async (req, res) => {
       total,
       page: Number(page),
       limit: Number(limit),
-      pages: Math.ceil(total / Number(limit)),
+      pages: Math.ceil(total / take),
     },
   });
 });

@@ -1,27 +1,58 @@
+// src/routes/booking.routes.js
 import { Router } from "express";
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
   createBooking,
-  getMyBookings,
-  getBooking,
+  getMyBookings, // was: getBookings       ← FIXED
+  getBooking, // was: getBookingById     ← FIXED
   updateBookingStatus,
   checkIn,
   checkOut,
-  activateSOS,
+  activateSOS, // was: triggerSOS         ← FIXED
   resolveSOS,
   updateEmergencyContact,
 } from "../controllers/booking.controller.js";
+import {
+  validateCreateBooking,
+  validateBookingStatus,
+  validateUUIDParam,
+} from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
-router.post("/", protect, createBooking);
-router.get("/", protect, getMyBookings);
-router.get("/:id", protect, getBooking);
-router.patch("/:id/status", protect, updateBookingStatus);
-router.patch("/:id/checkin", protect, checkIn);
-router.patch("/:id/checkout", protect, checkOut);
-router.post("/:id/sos", protect, activateSOS);
-router.patch("/:id/sos/resolve", protect, resolveSOS);
-router.patch("/:id/emergency-contact", protect, updateEmergencyContact);
+router.post("/", requireRole("HIRER"), validateCreateBooking, createBooking);
+router.get("/", getMyBookings);
+router.get("/:id", ...validateUUIDParam("id"), getBooking);
+router.patch(
+  "/:id/status",
+  ...validateUUIDParam("id"),
+  validateBookingStatus,
+  updateBookingStatus,
+);
+router.patch(
+  "/:id/checkin",
+  requireRole("WORKER"),
+  ...validateUUIDParam("id"),
+  checkIn,
+);
+router.patch(
+  "/:id/checkout",
+  requireRole("WORKER"),
+  ...validateUUIDParam("id"),
+  checkOut,
+);
+router.post("/:id/sos", ...validateUUIDParam("id"), activateSOS);
+router.patch(
+  "/:id/sos/resolve",
+  requireRole("HIRER", "ADMIN"),
+  ...validateUUIDParam("id"),
+  resolveSOS,
+);
+router.patch(
+  "/:id/emergency-contact",
+  ...validateUUIDParam("id"),
+  updateEmergencyContact,
+);
 
 export default router;

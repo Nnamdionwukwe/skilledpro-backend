@@ -1,37 +1,31 @@
+// src/routes/message.routes.js
 import { Router } from "express";
-import prisma from "../config/database.js"; // ← ADD THIS
+import { protect } from "../middleware/auth.middleware.js";
 import {
   getConversations,
   getMessages,
   sendMessage,
+  // NOTE: markConversationRead does NOT exist in message.controller.js
+  //       The controller only exports: getConversations, getMessages, sendMessage
+  //       Remove the route or add the function to the controller if needed.
 } from "../controllers/message.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
 import {
-  uploadSingle,
-  normaliseFile,
-} from "../middleware/upload.middleware.js";
+  validateSendMessage,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
-router.get("/conversations", protect, getConversations);
-router.get("/:conversationId", protect, getMessages);
-router.post("/", protect, uploadSingle, normaliseFile, sendMessage);
-
-// Mark conversation as read — called explicitly when user opens a chat
-router.patch("/:conversationId/read", protect, async (req, res) => {
-  try {
-    await prisma.message.updateMany({
-      where: {
-        conversationId: req.params.conversationId,
-        receiverId: req.user.id,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ success: false });
-  }
-});
+router.get("/conversations", validatePagination, getConversations);
+router.get(
+  "/:conversationId",
+  ...validateUUIDParam("conversationId"),
+  validatePagination,
+  getMessages,
+);
+router.post("/", validateSendMessage, sendMessage);
+// router.patch("/:conversationId/read",  markConversationRead);  ← removed: function not in controller
 
 export default router;

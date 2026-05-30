@@ -2,6 +2,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
 import { markProfileSetupComplete } from "./campaign.controller.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // user.controller.js — getProfile, change only the hirerProfile line in the select
 export const getProfile = async (req, res) => {

@@ -2,7 +2,37 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { notifyProfileViewed } from "../services/notification.service.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
+// ─── Worker select shape (reused across queries) ──────────────────────────────
+const WORKER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  avatar: true,
+  city: true,
+  country: true,
+  workerProfile: {
+    select: {
+      title: true,
+      hourlyRate: true,
+      currency: true,
+      avgRating: true,
+      totalReviews: true,
+      completedJobs: true,
+      isAvailable: true,
+      verificationStatus: true,
+      categories: {
+        take: 2,
+        include: { category: { select: { name: true, icon: true } } },
+      },
+    },
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 1  PROFILE
+// ─────────────────────────────────────────────────────────────────────────────
 export const getMyHirerProfile = async (req, res) => {
   try {
     const profile = await prisma.hirerProfile.findUnique({
@@ -28,7 +58,6 @@ export const getMyHirerProfile = async (req, res) => {
     if (!profile) return sendError(res, "Hirer profile not found", 404);
     return sendResponse(res, { data: { profile } });
   } catch (err) {
-    console.error(err);
     return sendError(res, "Failed to fetch profile");
   }
 };
@@ -46,7 +75,6 @@ export const updateHirerProfile = async (req, res) => {
     });
     return sendResponse(res, { message: "Profile updated", data: { profile } });
   } catch (err) {
-    console.error(err);
     return sendError(res, "Update failed");
   }
 };
@@ -71,19 +99,21 @@ export const getHirerProfile = async (req, res) => {
     });
     if (!profile) return sendError(res, "Hirer not found", 404);
 
-    // ── Notify hirer their profile was viewed ────────────────────────────────
     if (req.user && req.user.id !== req.params.userId) {
-      const viewer = await prisma.user.findUnique({
-        where: { id: req.user.id },
-        select: { firstName: true, lastName: true, role: true },
-      });
-      if (viewer) {
-        notifyProfileViewed(
-          req.params.userId,
-          `${viewer.firstName} ${viewer.lastName}`,
-          viewer.role,
-        ).catch(() => {});
-      }
+      prisma.user
+        .findUnique({
+          where: { id: req.user.id },
+          select: { firstName: true, lastName: true, role: true },
+        })
+        .then((viewer) => {
+          if (viewer)
+            notifyProfileViewed(
+              req.params.userId,
+              `${viewer.firstName} ${viewer.lastName}`,
+              viewer.role,
+            ).catch(() => {});
+        })
+        .catch(() => {});
     }
 
     return sendResponse(res, { data: { profile } });
@@ -92,18 +122,20 @@ export const getHirerProfile = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// § 2  BOOKINGS & DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
 export const getHirerBookings = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const where = { hirerId: req.user.id };
-    if (status) where.status = status;
+    const { skip, take } = paginate(page, limit);
+    const where = { hirerId: req.user.id, ...(status ? { status } : {}) };
 
     const [bookings, total, stats] = await Promise.all([
       prisma.booking.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           worker: {
             select: {
@@ -133,7 +165,7 @@ export const getHirerBookings = async (req, res) => {
         bookings,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         stats: {
           totalBookings: stats._count.id,
           totalSpent: stats._sum.agreedRate || 0,
@@ -141,7 +173,6 @@ export const getHirerBookings = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
     return sendError(res, "Failed to fetch bookings");
   }
 };
@@ -213,62 +244,141 @@ export const getHirerDashboard = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
     return sendError(res, "Failed to fetch dashboard");
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// § 3  SAVED WORKERS  (bookmark / shortlist system)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/hirers/me/saved-workers
+// Returns workers the hirer has explicitly bookmarked
 export const getSavedWorkers = async (req, res) => {
   try {
-    const bookedWorkers = await prisma.booking.findMany({
-      where: { hirerId: req.user.id },
-      distinct: ["workerId"],
-      include: {
-        worker: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            city: true,
-            country: true,
-            workerProfile: {
-              select: {
-                title: true,
-                avgRating: true,
-                totalReviews: true,
-                hourlyRate: true,
-                currency: true,
-                isAvailable: true,
-              },
-            },
-          },
-        },
-        category: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const { page = 1, limit = 20 } = req.query;
+    const { skip, take } = paginate(page, limit);
+    const hirerId = req.user.id;
 
-    const workers = bookedWorkers.map((b) => ({
-      ...b.worker,
-      lastCategory: b.category,
-    }));
-    return sendResponse(res, { data: { workers } });
+    const [saved, total] = await Promise.all([
+      prisma.savedWorker.findMany({
+        where: { hirerId },
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          worker: { select: WORKER_SELECT },
+        },
+      }),
+      prisma.savedWorker.count({ where: { hirerId } }),
+    ]);
+
+    return sendResponse(res, {
+      data: {
+        workers: saved.map((s) => ({
+          ...s.worker,
+          savedAt: s.createdAt,
+          savedId: s.id,
+        })),
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / take),
+      },
+    });
   } catch (err) {
     return sendError(res, "Failed to fetch saved workers");
   }
 };
 
+// POST /api/hirers/me/saved-workers/:workerId
+export const saveWorker = async (req, res) => {
+  try {
+    const hirerId = req.user.id;
+    const workerId = req.params.workerId;
+
+    if (hirerId === workerId)
+      return sendError(res, "You cannot save yourself", 400);
+
+    // Verify the target is an active worker
+    const worker = await prisma.user.findFirst({
+      where: { id: workerId, role: "WORKER", isActive: true, isBanned: false },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (!worker) return sendError(res, "Worker not found", 404);
+
+    const saved = await prisma.savedWorker.upsert({
+      where: { hirerId_workerId: { hirerId, workerId } },
+      update: {}, // already saved — no-op
+      create: { hirerId, workerId, id: crypto.randomUUID() },
+    });
+
+    return sendResponse(res, {
+      status: 201,
+      message: `${worker.firstName} ${worker.lastName} saved to your shortlist`,
+      data: { savedId: saved.id, workerId },
+    });
+  } catch (err) {
+    if (err.code === "P2002")
+      return sendError(res, "Worker already saved", 409);
+    return sendError(res, "Failed to save worker");
+  }
+};
+
+// DELETE /api/hirers/me/saved-workers/:workerId
+export const unsaveWorker = async (req, res) => {
+  try {
+    const hirerId = req.user.id;
+    const workerId = req.params.workerId;
+
+    await prisma.savedWorker.deleteMany({ where: { hirerId, workerId } });
+
+    return sendResponse(res, { message: "Worker removed from your shortlist" });
+  } catch (err) {
+    return sendError(res, "Failed to remove saved worker");
+  }
+};
+
+// GET /api/hirers/me/hired-workers
+// Workers the hirer has previously booked (booking history, not explicit saves)
+export const getHiredWorkers = async (req, res) => {
+  try {
+    const bookedWorkers = await prisma.booking.findMany({
+      where: { hirerId: req.user.id },
+      distinct: ["workerId"],
+      include: {
+        worker: { select: WORKER_SELECT },
+        category: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return sendResponse(res, {
+      data: {
+        workers: bookedWorkers.map((b) => ({
+          ...b.worker,
+          lastCategory: b.category,
+        })),
+        total: bookedWorkers.length,
+      },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to fetch hired workers");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 4  REVIEWS
+// ─────────────────────────────────────────────────────────────────────────────
 export const getHirerReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total, stats] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.user.id },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: {
@@ -312,7 +422,7 @@ export const getHirerReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
         totalReviews: stats._count.id,
         distribution: distribution.reduce((acc, r) => {
@@ -326,6 +436,9 @@ export const getHirerReviews = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// § 5  NOTIFICATIONS (hirer-specific convenience endpoints)
+// ─────────────────────────────────────────────────────────────────────────────
 export const getNotifications = async (req, res) => {
   try {
     const notifications = await prisma.notification.findMany({

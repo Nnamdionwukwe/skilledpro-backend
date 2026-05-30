@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── POST /api/reviews ─────────────────────────────────────────────────────────
 export const createReview = async (req, res) => {
@@ -127,13 +128,13 @@ export const createReview = async (req, res) => {
 export const getWorkerReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.params.userId },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: {
@@ -176,7 +177,7 @@ export const getWorkerReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
         distribution: distribution.reduce((acc, r) => {
           acc[r.rating] = r._count.rating;
@@ -193,13 +194,13 @@ export const getWorkerReviews = async (req, res) => {
 export const getHirerReviewsPublic = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.params.userId },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: {
@@ -242,7 +243,7 @@ export const getHirerReviewsPublic = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
         distribution: distribution.reduce((acc, r) => {
           acc[r.rating] = r._count.rating;
@@ -259,13 +260,13 @@ export const getHirerReviewsPublic = async (req, res) => {
 export const getMyGivenReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total] = await Promise.all([
       prisma.review.findMany({
         where: { giverId: req.user.id },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           receiver: {
             select: {
@@ -295,7 +296,7 @@ export const getMyGivenReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -307,13 +308,13 @@ export const getMyGivenReviews = async (req, res) => {
 export const getMyReceivedReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total, stats, distribution] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.user.id },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: {
@@ -356,7 +357,7 @@ export const getMyReceivedReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
         totalReviews: stats._count.id,
         distribution: distribution.reduce((acc, r) => {

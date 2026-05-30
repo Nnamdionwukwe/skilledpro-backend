@@ -299,7 +299,12 @@ walletTransactions WalletTransaction[]
 
    reportsGiven     Report[] @relation("ReportsGiven")
    reportsReviewed  Report[] @relation("ReportsReviewed")
-   auditLogs    AuditLog[]  @relation("AuditLogs")
+   auditLogs    AuditLog[]  @relation("AuditLogs") 
+   deviceTokens DeviceToken[] @relation("DeviceTokens")
+
+   savedWorkers     SavedWorker[] @relation("HirerSavedWorkers")
+   savedByHirers    SavedWorker[] @relation("WorkerSavedByHirers")
+   savedJobs        SavedJob[]    @relation("WorkerSavedJobs")
 }
 
   model Referral {
@@ -783,6 +788,8 @@ estimatedValue String?
   durationType DurationType @default(HOURS)
   durationValue String?
   skills        String[]    @default([])
+
+  savedBy          SavedJob[]    @relation("JobSavedBy")
 }
 
 enum SubscriptionTier {
@@ -969,4 +976,51 @@ enum DurationType {
   WEEKS
   MONTHS
   CUSTOM
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String                       // Expo push token: ExponentPushToken[...]
+  platform  String?                      // "ios" | "android" | "web"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation("DeviceTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])              // one token entry per user-device pair
+  @@index([userId])
+  @@index([token])
+  @@index([active])
+}
+
+// ─── Hirer bookmarks a worker profile ────────────────────────────────────────
+model SavedWorker {
+  id        String   @id @default(uuid())
+  hirerId   String
+  workerId  String
+  createdAt DateTime @default(now())
+
+  hirer  User @relation("HirerSavedWorkers",  fields: [hirerId],  references: [id], onDelete: Cascade)
+  worker User @relation("WorkerSavedByHirers", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([hirerId, workerId])
+  @@index([hirerId])
+  @@index([workerId])
+}
+
+// ─── Worker bookmarks a job post ─────────────────────────────────────────────
+model SavedJob {
+  id        String   @id @default(uuid())
+  workerId  String
+  jobPostId String
+  createdAt DateTime @default(now())
+
+  worker  User    @relation("WorkerSavedJobs", fields: [workerId],  references: [id], onDelete: Cascade)
+  jobPost JobPost @relation("JobSavedBy",      fields: [jobPostId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, jobPostId])
+  @@index([workerId])
+  @@index([jobPostId])
 }

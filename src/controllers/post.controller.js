@@ -1,5 +1,6 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 const POST_INCLUDE = {
   author: {
@@ -77,7 +78,7 @@ const POST_INCLUDE = {
 export const getFeed = async (req, res) => {
   try {
     const { page = 1, limit = 20, type } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {
       isPublic: true,
@@ -90,7 +91,7 @@ export const getFeed = async (req, res) => {
         include: POST_INCLUDE,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.post.count({ where }),
     ]);
@@ -110,7 +111,7 @@ export const getFeed = async (req, res) => {
         posts: enriched,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -123,7 +124,7 @@ export const getFeed = async (req, res) => {
 export const getMyPosts = async (req, res) => {
   try {
     const { page = 1, limit = 15 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
@@ -131,7 +132,7 @@ export const getMyPosts = async (req, res) => {
         include: POST_INCLUDE,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.post.count({ where: { authorId: req.user.id } }),
     ]);
@@ -146,7 +147,7 @@ export const getMyPosts = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -158,7 +159,7 @@ export const getMyPosts = async (req, res) => {
 export const getUserPosts = async (req, res) => {
   try {
     const { page = 1, limit = 15 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
@@ -166,7 +167,7 @@ export const getUserPosts = async (req, res) => {
         include: POST_INCLUDE,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.post.count({
         where: { authorId: req.params.userId, isPublic: true },
@@ -184,7 +185,7 @@ export const getUserPosts = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -567,7 +568,7 @@ export const addComment = async (req, res) => {
 export const getComments = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [comments, total] = await Promise.all([
       prisma.postComment.findMany({
@@ -599,7 +600,7 @@ export const getComments = async (req, res) => {
         },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.postComment.count({
         where: { postId: req.params.id, parentId: null },
@@ -611,7 +612,7 @@ export const getComments = async (req, res) => {
         comments,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {

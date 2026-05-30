@@ -1,4 +1,4 @@
-// src/routes/search.routes.js
+// src/routes/search.routes.js  (final version — rate limiting + validators)
 import { Router } from "express";
 import {
   globalSearch,
@@ -12,22 +12,14 @@ import {
   trendingLimiter,
   filterLimiter,
 } from "../middleware/rateLimit.middleware.js";
+import { validateSearch, validateNearby } from "../utils/validators.js";
 
 const router = Router();
 
-// All search routes are public (workers must be discoverable without login)
-// Rate limited to prevent scraping and abuse
-
-// 60 / min — allows fast typing/autocomplete without friction
-router.get("/", searchLimiter, globalSearch);
-
-// 20 / min — most expensive: haversine + multi-radius DB expansion
-router.get("/nearby", nearbyLimiter, nearbyWorkers);
-
-// 30 / min — aggregation query, moderately expensive
+// All routes are public — rate limited to prevent scraping
+router.get("/", searchLimiter, validateSearch, globalSearch);
+router.get("/nearby", nearbyLimiter, validateNearby, nearbyWorkers);
 router.get("/trending", trendingLimiter, getTrending);
-
-// 30 / min — filter options don't change often, light query
 router.get("/filters", filterLimiter, getFilterOptions);
 
 export default router;

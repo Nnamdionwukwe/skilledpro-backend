@@ -5,6 +5,7 @@ import {
   sendNewJobMatchEmail,
 } from "../services/email.service.js";
 import { notifyNewJobMatch } from "../services/notification.service.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── POST /api/jobs ─────────────────────────────────────────────────────────────
 // Hirer creates a public job post
@@ -179,7 +180,7 @@ export const getJobPosts = async (req, res) => {
       page = 1,
       limit = 20,
     } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {
       status: "OPEN",
@@ -208,7 +209,7 @@ export const getJobPosts = async (req, res) => {
       prisma.jobPost.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: {
@@ -240,7 +241,7 @@ export const getJobPosts = async (req, res) => {
         jobPosts,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -250,6 +251,7 @@ export const getJobPosts = async (req, res) => {
 
 // ── GET /api/jobs/:id ──────────────────────────────────────────────────────────
 // Public — single job post detail
+
 export const getJobPost = async (req, res) => {
   try {
     const jobPost = await prisma.jobPost.findUnique({
@@ -282,19 +284,34 @@ export const getJobPost = async (req, res) => {
 
     if (!jobPost) return sendError(res, "Job post not found", 404);
 
-    // If worker is logged in, check if they already applied
     let hasApplied = false;
+    let isSaved = false;
+
     if (req.user) {
-      const existing = await prisma.jobApplication.findFirst({
-        where: { jobPostId: jobPost.id, workerId: req.user.id },
-      });
-      hasApplied = !!existing;
+      const [application, savedJob] = await Promise.all([
+        prisma.jobApplication.findFirst({
+          where: { jobPostId: jobPost.id, workerId: req.user.id },
+        }),
+        // Only check saved if the viewer is a worker
+        req.user.role === "WORKER"
+          ? prisma.savedJob.findUnique({
+              where: {
+                workerId_jobPostId: {
+                  workerId: req.user.id,
+                  jobPostId: jobPost.id,
+                },
+              },
+            })
+          : null,
+      ]);
+      hasApplied = !!application;
+      isSaved = !!savedJob;
     }
 
-    return sendResponse(res, { data: { jobPost, hasApplied } });
+    return sendResponse(res, { data: { jobPost, hasApplied, isSaved } });
   } catch (err) {
-    console.error("JOBS ERROR:", err);
-    return sendError(res, "Failed to fetch job posts");
+    console.error("getJobPost error:", err);
+    return sendError(res, "Failed to fetch job post");
   }
 };
 
@@ -303,7 +320,7 @@ export const getJobPost = async (req, res) => {
 export const getMyJobPosts = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {
       hirerId: req.user.id,
@@ -314,7 +331,7 @@ export const getMyJobPosts = async (req, res) => {
       prisma.jobPost.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           category: true,
           _count: { select: { applications: true } },
@@ -344,7 +361,7 @@ export const getMyJobPosts = async (req, res) => {
         jobPosts,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -603,7 +620,7 @@ export const updateApplicationStatus = async (req, res) => {
 export const getMyApplications = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {
       workerId: req.user.id,
@@ -614,7 +631,7 @@ export const getMyApplications = async (req, res) => {
       prisma.jobApplication.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           jobPost: {
             include: {
@@ -641,91 +658,13 @@ export const getMyApplications = async (req, res) => {
         applications,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
     return sendError(res, "Failed to fetch your applications");
   }
 };
-
-// ── GET /api/hirers/:userId/profile ───────────────────────────────────────────
-// Public — full hirer public profile with job posts and reviews
-// export const getHirerPublicProfile = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-
-//     const [hirerProfile, jobPosts, reviews] = await Promise.all([
-//       prisma.hirerProfile.findUnique({
-//         where: { userId },
-//         include: {
-//           user: {
-//             select: {
-//               id: true,
-//               firstName: true,
-//               lastName: true,
-//               avatar: true,
-//               city: true,
-//               country: true,
-//               createdAt: true,
-//             },
-//           },
-//         },
-//       }),
-//       prisma.jobPost.findMany({
-//         where: { hirerId: userId, status: "OPEN" },
-//         include: {
-//           category: true,
-//           _count: { select: { applications: true } },
-//         },
-//         orderBy: { createdAt: "desc" },
-//         take: 10,
-//       }),
-//       prisma.review.findMany({
-//         where: { receiverId: userId },
-//         include: {
-//           giver: {
-//             select: {
-//               id: true,
-//               firstName: true,
-//               lastName: true,
-//               avatar: true,
-//               role: true,
-//             },
-//           },
-//           booking: { select: { id: true, title: true } },
-//         },
-//         orderBy: { createdAt: "desc" },
-//         take: 5,
-//       }),
-//     ]);
-
-//     if (!hirerProfile) return sendError(res, "Hirer not found", 404);
-
-//     const reviewStats = await prisma.review.aggregate({
-//       where: { receiverId: userId },
-//       _avg: { rating: true },
-//       _count: { id: true },
-//     });
-
-//     return sendResponse(res, {
-//       data: {
-//         profile: hirerProfile,
-//         jobPosts,
-//         reviews,
-//         stats: {
-//           avgRating: Math.round((reviewStats._avg.rating || 0) * 10) / 10,
-//           totalReviews: reviewStats._count.id,
-//           totalHires: hirerProfile.totalHires,
-//           openJobs: jobPosts.length,
-//         },
-//       },
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     return sendError(res, "Failed to fetch hirer profile");
-//   }
-// };
 
 export const getHirerPublicProfile = async (req, res) => {
   try {
@@ -833,5 +772,123 @@ export const getHirerPublicProfile = async (req, res) => {
   } catch (err) {
     console.error("getHirerPublicProfile error:", err);
     return sendError(res, "Failed to fetch hirer profile");
+  }
+};
+
+// ─── GET /api/jobs/saved ──────────────────────────────────────────────────────
+// Worker views their saved/bookmarked jobs
+export const getSavedJobs = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const { skip, take } = paginate(page, limit);
+    const workerId = req.user.id;
+
+    const [saved, total] = await Promise.all([
+      prisma.savedJob.findMany({
+        where: { workerId },
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          jobPost: {
+            include: {
+              hirer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  city: true,
+                  country: true,
+                  hirerProfile: {
+                    select: {
+                      companyName: true,
+                      avgRating: true,
+                      totalHires: true,
+                    },
+                  },
+                },
+              },
+              category: true,
+              _count: { select: { applications: true } },
+            },
+          },
+        },
+      }),
+      prisma.savedJob.count({ where: { workerId } }),
+    ]);
+
+    // Check if the worker has already applied to each saved job
+    const savedJobIds = saved.map((s) => s.jobPostId);
+    const applied = await prisma.jobApplication.findMany({
+      where: { workerId, jobPostId: { in: savedJobIds } },
+      select: { jobPostId: true },
+    });
+    const appliedSet = new Set(applied.map((a) => a.jobPostId));
+
+    return sendResponse(res, {
+      data: {
+        jobs: saved.map((s) => ({
+          ...s.jobPost,
+          savedAt: s.createdAt,
+          savedId: s.id,
+          hasApplied: appliedSet.has(s.jobPostId),
+        })),
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / take),
+      },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to fetch saved jobs");
+  }
+};
+
+// ─── POST /api/jobs/:id/save ──────────────────────────────────────────────────
+// Worker saves / bookmarks a job
+export const saveJob = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const jobPostId = req.params.id;
+
+    const jobPost = await prisma.jobPost.findUnique({
+      where: { id: jobPostId },
+      select: { id: true, title: true, status: true, hirerId: true },
+    });
+    if (!jobPost) return sendError(res, "Job not found", 404);
+    if (jobPost.status !== "OPEN")
+      return sendError(res, "This job is no longer open", 400);
+    if (jobPost.hirerId === workerId)
+      return sendError(res, "You cannot save your own job", 400);
+
+    const saved = await prisma.savedJob.upsert({
+      where: { workerId_jobPostId: { workerId, jobPostId } },
+      update: {}, // already saved — no-op
+      create: { workerId, jobPostId, id: crypto.randomUUID() },
+    });
+
+    return sendResponse(res, {
+      status: 201,
+      message: `"${jobPost.title}" saved to your job board`,
+      data: { savedId: saved.id, jobPostId },
+    });
+  } catch (err) {
+    if (err.code === "P2002") return sendError(res, "Job already saved", 409);
+    return sendError(res, "Failed to save job");
+  }
+};
+
+// ─── DELETE /api/jobs/:id/save ────────────────────────────────────────────────
+// Worker removes a saved job
+export const unsaveJob = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const jobPostId = req.params.id;
+
+    await prisma.savedJob.deleteMany({ where: { workerId, jobPostId } });
+
+    return sendResponse(res, { message: "Job removed from your saved list" });
+  } catch (err) {
+    return sendError(res, "Failed to unsave job");
   }
 };

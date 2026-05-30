@@ -2,6 +2,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { sendRealTimeNotification } from "./notification.controller.js";
 import { v2 as cloudinary } from "cloudinary";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── WORKER: Submit ID for verification ───────────────────────────────────────
 // POST /api/verification/submit-id
@@ -262,13 +263,13 @@ export const deleteCertification = async (req, res) => {
 export const getPendingVerifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [workers, total] = await Promise.all([
       prisma.workerProfile.findMany({
         where: { verificationStatus: "PENDING" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           user: {
             select: {
@@ -313,7 +314,7 @@ export const getPendingVerifications = async (req, res) => {
         workers: enriched,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -327,13 +328,13 @@ export const getPendingVerifications = async (req, res) => {
 export const getVerifiedWorkers = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [workers, total] = await Promise.all([
       prisma.workerProfile.findMany({
         where: { verificationStatus: "VERIFIED" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           user: {
             select: {
@@ -360,7 +361,7 @@ export const getVerifiedWorkers = async (req, res) => {
         workers,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -777,14 +778,14 @@ export const getHirerVerificationStatus = async (req, res) => {
 export const getPendingHirerVerifications = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     // Get all hirer users who have PENDING submissions
     const pendingNotifications = await prisma.notification.findMany({
       where: { type: "HIRER_VERIFICATION_SUBMITTED" },
       orderBy: { createdAt: "desc" },
       skip,
-      take: parseInt(limit),
+      take,
     });
 
     // Filter only PENDING status ones

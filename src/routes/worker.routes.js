@@ -1,109 +1,79 @@
+// src/routes/worker.routes.js
 import { Router } from "express";
-
+import {
+  protect,
+  requireRole,
+  optionalProtect,
+} from "../middleware/auth.middleware.js";
 import {
   searchWorkers,
-  getWorkerProfile,
+  getWorkerDashboard,
+  getMyReviews,
   updateWorkerProfile,
+  addCategory,
+  removeCategory,
   addPortfolio,
   deletePortfolio,
-  addCertification,
-  updateAvailability,
-  addCategory,
-  getWorkerDashboard,
-  getWorkerNotifications,
-  markAllNotificationsRead,
-  removeCategory,
   addVideoIntro,
   deleteVideoIntro,
-  getMyReviews, // renamed from getWorkerReviews — was colliding with review.controller.js
+  updateAvailability,
+  addCertification,
+  getWorkerProfile,
+  getWorkerNotifications,
+  markAllNotificationsRead,
 } from "../controllers/worker.controller.js";
-import { getWorkerEarnings } from "../controllers/payment.controller.js";
-
-import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
-  uploadSingle,
-  normaliseFile,
+  uploadSingle, // was: upload.single(...)  ← FIXED — middleware exports uploadSingle not upload
+  normaliseFile, // normalises req.files → req.file for controllers that use req.file
 } from "../middleware/upload.middleware.js";
-import { getMyApplications } from "../controllers/job.controller.js";
+import {
+  validateUpdateWorkerProfile,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
 
-// PUBLIC ROUTES (static — must come first)
-router.get("/search", searchWorkers);
-
-// WORKER DASHBOARD (protected — WORKER only)
-// All /dashboard/* routes defined before /:userId
-router.get("/dashboard", protect, requireRole("WORKER"), getWorkerDashboard);
+// ── Public ────────────────────────────────────────────────────────────────────
+router.get("/search", optionalProtect, validatePagination, searchWorkers);
 router.get(
-  "/dashboard/notifications",
-  protect,
-  requireRole("WORKER"),
-  getWorkerNotifications,
+  "/:userId",
+  optionalProtect,
+  ...validateUUIDParam("userId"),
+  getWorkerProfile,
 );
-router.patch(
-  "/dashboard/notifications/read-all",
-  protect,
-  requireRole("WORKER"),
-  markAllNotificationsRead,
-);
-router.get(
-  "/dashboard/earnings",
-  protect,
-  requireRole("WORKER"),
-  getWorkerEarnings, // ← payment controller version
-);
-router.get("/dashboard/reviews", protect, requireRole("WORKER"), getMyReviews);
 
-// WORKER PROFILE MANAGEMENT (protected — WORKER only)
-router.put("/profile", protect, requireRole("WORKER"), updateWorkerProfile);
-router.post(
-  "/portfolio",
-  protect,
-  requireRole("WORKER"),
-  uploadSingle,
-  addPortfolio,
-  normaliseFile,
-);
-router.delete(
-  "/portfolio/:id",
-  protect,
-  requireRole("WORKER"),
-  deletePortfolio,
-);
-router.post(
-  "/certifications",
-  protect,
-  requireRole("WORKER"),
-  uploadSingle,
-  addCertification,
-  normaliseFile,
-);
-router.put("/availability", protect, requireRole("WORKER"), updateAvailability);
-router.post("/categories", protect, requireRole("WORKER"), addCategory);
-// Add to worker.routes.js:
-router.delete(
-  "/categories/:categoryId",
-  protect,
-  requireRole("WORKER"),
-  removeCategory,
-);
-router.get(
-  "/my-applications",
-  protect,
-  requireRole("WORKER"),
-  getMyApplications,
-);
-router.post(
-  "/video-intro",
-  protect,
-  requireRole("WORKER"),
-  uploadSingle,
-  normaliseFile,
-  addVideoIntro,
-);
-router.delete("/video-intro", protect, requireRole("WORKER"), deleteVideoIntro);
+// ── Protected: WORKER role only ───────────────────────────────────────────────
+router.use(protect, requireRole("WORKER"));
 
-// PUBLIC DYNAMIC ROUTE (wildcard — always last)
-router.get("/:userId", getWorkerProfile);
+// Dashboard
+router.get("/dashboard", getWorkerDashboard);
+router.get("/dashboard/reviews", validatePagination, getMyReviews);
+
+// Profile
+router.put("/profile", validateUpdateWorkerProfile, updateWorkerProfile);
+
+// Categories
+router.post("/categories", addCategory);
+router.delete("/categories/:id", ...validateUUIDParam("id"), removeCategory);
+
+// Portfolio  (uploadSingle = upload.any() — accepts any field name)
+router.post("/portfolio", uploadSingle, normaliseFile, addPortfolio);
+router.delete("/portfolio/:id", ...validateUUIDParam("id"), deletePortfolio);
+
+// Certifications
+router.post("/certifications", uploadSingle, normaliseFile, addCertification);
+
+// Availability
+router.put("/availability", updateAvailability);
+router.post("/availability", updateAvailability);
+
+// Video intro
+router.post("/video-intro", uploadSingle, normaliseFile, addVideoIntro);
+router.delete("/video-intro", deleteVideoIntro);
+
+// Notifications
+router.get("/notifications", validatePagination, getWorkerNotifications);
+router.patch("/notifications/read-all", markAllNotificationsRead);
 
 export default router;

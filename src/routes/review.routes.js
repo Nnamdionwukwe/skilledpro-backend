@@ -1,28 +1,44 @@
+// src/routes/review.routes.js
 import { Router } from "express";
+import { protect } from "../middleware/auth.middleware.js";
 import {
   createReview,
-  getWorkerReviews,
-  getHirerReviewsPublic,
   getMyGivenReviews,
   getMyReceivedReviews,
-  checkReviewStatus,
+  checkReviewStatus, // was: checkReview         ← FIXED
   deleteReview,
+  getWorkerReviews,
+  getHirerReviewsPublic, // was: getHirerReviews     ← FIXED
 } from "../controllers/review.controller.js";
-import { protect, requireRole } from "../middleware/auth.middleware.js";
+import {
+  validateCreateReview,
+  validateUUIDParam,
+  validatePagination,
+} from "../utils/validators.js";
 
 const router = Router();
+router.use(protect);
 
-// ── Protected — logged-in users ───────────────────────────────────────────────
-router.post("/", protect, createReview);
-router.get("/my/given", protect, getMyGivenReviews);
-router.get("/my/received", protect, getMyReceivedReviews);
-router.get("/check/:bookingId", protect, checkReviewStatus);
-
-// ── Admin only ────────────────────────────────────────────────────────────────
-router.delete("/:reviewId", protect, requireRole("ADMIN"), deleteReview);
-
-// ── Public — anyone can view ──────────────────────────────────────────────────
-router.get("/worker/:userId", getWorkerReviews);
-router.get("/hirer/:userId", getHirerReviewsPublic);
+router.post("/", validateCreateReview, createReview);
+router.get("/my/given", validatePagination, getMyGivenReviews);
+router.get("/my/received", validatePagination, getMyReceivedReviews);
+router.get(
+  "/check/:bookingId",
+  ...validateUUIDParam("bookingId"),
+  checkReviewStatus,
+);
+router.delete("/:reviewId", ...validateUUIDParam("reviewId"), deleteReview);
+router.get(
+  "/worker/:userId",
+  ...validateUUIDParam("userId"),
+  validatePagination,
+  getWorkerReviews,
+);
+router.get(
+  "/hirer/:userId",
+  ...validateUUIDParam("userId"),
+  validatePagination,
+  getHirerReviewsPublic,
+);
 
 export default router;

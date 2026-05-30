@@ -10,6 +10,7 @@ import {
 } from "../services/email.service.js";
 
 import { convertReferral } from "./referral.controller.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
@@ -103,7 +104,7 @@ export const createBooking = async (req, res) => {
 export const getMyBookings = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {};
     if (req.user.role === "HIRER") where.hirerId = req.user.id;
@@ -114,7 +115,7 @@ export const getMyBookings = async (req, res) => {
       prisma.booking.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: { id: true, firstName: true, lastName: true, avatar: true },
@@ -135,7 +136,7 @@ export const getMyBookings = async (req, res) => {
         bookings,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
