@@ -1,57 +1,78 @@
 // src/routes/admin.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+// S4 FIX: merged the duplicate import block.
+// `verifyManualPayment` and `rejectManualPayment` were imported in a SECOND
+// `import {...} from "admin.controller.js"` block at the bottom of the file.
+// ESM technically allows this but tools warn about it and it's confusing.
+// Merged into the single import block below.
+// ─────────────────────────────────────────────────────────────────────────────
 import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
+  // Analytics
   getPlatformStats,
   getUserGrowthAnalytics,
   getRevenueAnalytics,
+  // Users
   getAllUsers,
   getUserDetail,
   banUser,
   unbanUser,
   deleteUser,
   updateUserRole,
+  // Verifications
   verifyWorker,
   getPendingVerifications,
   getVerificationStats,
+  // Bookings
   getAllBookings,
   getAdminBookingDetail,
   adminUpdateBookingStatus,
+  // Disputes
   getDisputes,
   resolveDispute,
+  // Payments
   getAllPayments,
   getPaymentDetail,
   adminReleasePayment,
   adminRefundPayment,
+  verifyManualPayment, // ← S4 FIX: was in a second duplicate import block
+  rejectManualPayment, // ← S4 FIX: was in a second duplicate import block
+  // Withdrawals
   getAllWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
+  // Categories
   getAllCategories,
   createCategory,
   updateCategory,
   deleteCategory,
+  // Reviews
   getAllReviews,
   deleteReview,
+  // Jobs
   getAllJobPosts,
   getJobPostDetail,
   adminUpdateJobStatus,
   adminDeleteJobPost,
+  // Subscriptions
   getAllSubscriptions,
   adminCancelSubscription,
+  // Featured listings
   getAllFeaturedListings,
   adminRemoveFeaturedListing,
+  // Community posts
   getAllPosts,
   adminDeletePost,
   adminDeleteComment,
+  // Messages
   getAllConversations,
   getConversationMessages,
+  // Notifications
   broadcastNotification,
+  // Video calls
   getAllVideoCalls,
-} from "../controllers/admin.controller.js";
-import {
-  verifyManualPayment,
-  rejectManualPayment,
-} from "../controllers/admin.controller.js";
+} from "../controllers/admin.controller.js"; // ← single import, no duplicate
 import {
   validateCreateCategory,
   validateBroadcast,
@@ -62,7 +83,7 @@ import {
 
 const router = Router();
 
-// ── All admin routes require auth + ADMIN role ─────────────────────────────────
+// All admin routes require auth + ADMIN role
 router.use(protect, requireRole("ADMIN"));
 
 // ── Analytics & stats ──────────────────────────────────────────────────────────
@@ -133,6 +154,10 @@ router.post(
   ...validateUUIDParam("bookingId"),
   adminRefundPayment,
 );
+
+// Manual payment verification (bank transfer + crypto)
+// PATCH /api/admin/payments/:bookingId/verify        — approve + move to HELD
+// PATCH /api/admin/payments/:bookingId/reject-manual — reject + set to FAILED
 router.patch(
   "/payments/:bookingId/verify",
   ...validateUUIDParam("bookingId"),
@@ -222,7 +247,7 @@ router.delete(
   adminDeleteComment,
 );
 
-// ── Messages (read-only oversight) ────────────────────────────────────────────
+// ── Messages (read-only admin oversight) ──────────────────────────────────────
 router.get("/conversations", validatePagination, getAllConversations);
 router.get(
   "/conversations/:conversationId",
