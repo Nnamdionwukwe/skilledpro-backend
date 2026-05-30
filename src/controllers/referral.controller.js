@@ -856,11 +856,20 @@ export const withdrawReferralEarnings = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 9. LEADERBOARD (public)           GET /referral/leaderboard
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const getReferralLeaderboard = async (req, res) => {
   try {
-    const { limit = 20 } = req.query;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100); // cap at 100
+    const userId = req.user.id;
 
-    const [topReferrers, myRank] = await Promise.all([
+    // Fetch the current user's count first so we can use it in the parallel query
+    const me = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { successfulReferrals: true },
+    });
+    const myCount = me?.successfulReferrals || 0;
+
+    const [topReferrers, usersAhead] = await Promise.all([
       prisma.user.findMany({
         where: {
           successfulReferrals: { gt: 0 },
@@ -877,21 +886,10 @@ export const getReferralLeaderboard = async (req, res) => {
           walletLifetimeTotal: true,
         },
         orderBy: { successfulReferrals: "desc" },
-        take,
+        take: limit, // ← was `take` (undefined) — now correctly `limit`
       }),
       prisma.user.count({
-        where: {
-          successfulReferrals: {
-            gt:
-              (
-                await prisma.user.findUnique({
-                  where: { id: req.user.id },
-                  select: { successfulReferrals: true },
-                })
-              )?.successfulReferrals || 0,
-          },
-          isActive: true,
-        },
+        where: { successfulReferrals: { gt: myCount }, isActive: true },
       }),
     ]);
 
@@ -905,9 +903,9 @@ export const getReferralLeaderboard = async (req, res) => {
           badge: TIERS[u.referralTier]?.badge || "bronze",
           referrals: u.successfulReferrals,
           earned: u.walletLifetimeTotal,
-          isMe: u.id === req.user.id,
+          isMe: u.id === userId,
         })),
-        myRank: myRank + 1,
+        myRank: usersAhead + 1,
         currency: REFERRAL_CONFIG.CURRENCY,
         tiers: Object.entries(TIERS).map(([key, cfg]) => ({
           key,
@@ -920,6 +918,7 @@ export const getReferralLeaderboard = async (req, res) => {
       },
     });
   } catch (err) {
+    console.error("getReferralLeaderboard:", err);
     return sendError(res, "Failed to load leaderboard");
   }
 };
