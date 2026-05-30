@@ -52,6 +52,7 @@ import {
   getConversationMessages,
   broadcastNotification,
   getAllVideoCalls,
+  getAdminDashboard,
 } from "../controllers/admin.controller.js";
 import {
   approveWithdrawalPayout, // ← was unrouted (§4 fix)
@@ -69,6 +70,7 @@ router.use(protect, requireRole("ADMIN"));
 
 // ── Analytics ──────────────────────────────────────────────────────────────────
 router.get("/stats", getPlatformStats);
+getAdminDashboard;
 router.get("/analytics/users", getUserGrowthAnalytics);
 router.get("/analytics/revenue", getRevenueAnalytics);
 

@@ -21,7 +21,19 @@ import {
 } from "./referral.controller.js";
 import { registerCampaignReferral } from "./campaign.controller.js";
 import { logAdminAction } from "../utils/auditLog.js"; // ← FIXED: was missing
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 import {
   generateTokenPair,
   generateAccessToken,
@@ -36,7 +48,7 @@ import {
   clearPasswordResetToken,
   verifyStoredRefreshToken,
   setTokenCookies,
-  clearTokenCookies
+  clearTokenCookies,
 } from "../services/auth.service.js";
 // ─── Token helpers ─────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
@@ -85,12 +97,10 @@ export const register = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Role must be HIRER or WORKER" });
   }
   if (password.length < 8) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Password must be at least 8 characters",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Password must be at least 8 characters",
+    });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -394,12 +404,10 @@ export const refreshToken = asyncHandler(async (req, res) => {
     data: { refreshToken: newRefreshToken },
   });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      data: { accessToken, refreshToken: newRefreshToken },
-    });
+  res.status(200).json({
+    success: true,
+    data: { accessToken, refreshToken: newRefreshToken },
+  });
 });
 
 // ─── Logout ────────────────────────────────────────────────────────────────────
@@ -452,12 +460,10 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
   // Always return success — prevents email enumeration attacks
   if (!user) {
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "If that email exists, a reset link has been sent",
-      });
+    return res.status(200).json({
+      success: true,
+      message: "If that email exists, a reset link has been sent",
+    });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -470,12 +476,10 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
   await sendPasswordResetEmail({ to: email, firstName: user.firstName, token });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: "If that email exists, a reset link has been sent",
-    });
+  res.status(200).json({
+    success: true,
+    message: "If that email exists, a reset link has been sent",
+  });
 });
 
 // ─── Reset password ────────────────────────────────────────────────────────────
@@ -489,12 +493,10 @@ export const resetPassword = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Token and new password required" });
   }
   if (password.length < 8) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Password must be at least 8 characters",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Password must be at least 8 characters",
+    });
   }
 
   const user = await prisma.user.findFirst({
@@ -520,12 +522,10 @@ export const resetPassword = asyncHandler(async (req, res) => {
     },
   });
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: "Password reset successful. Please log in.",
-    });
+  res.status(200).json({
+    success: true,
+    message: "Password reset successful. Please log in.",
+  });
 
   // Fire-and-forget notifications
   sendPasswordChangedEmail({ to: user.email, name: user.firstName }).catch(
@@ -533,3 +533,68 @@ export const resetPassword = asyncHandler(async (req, res) => {
   );
   notifyPasswordChanged(user.id).catch(() => {});
 });
+
+// ADD to src/controllers/auth.controller.js
+// ADD to src/routes/auth.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── CONTROLLER (paste into auth.controller.js) ────────────────────────────────
+
+// POST /api/auth/logout-all
+// Invalidates ALL active sessions for the current user across every device.
+// Use case: "I think my account was compromised" / "Sign out everywhere"
+export const logoutAll = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // 1. Clear the stored refresh token hash (kills web/mobile JWT sessions)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: null },
+    });
+
+    // 2. Deactivate all push notification tokens (kills background push too)
+    try {
+      await prisma.deviceToken.updateMany({
+        where: { userId },
+        data: { active: false },
+      });
+    } catch (_) {
+      // DeviceToken table may not exist yet in older environments — non-fatal
+    }
+
+    // 3. Clear any auth cookies if the app uses them
+    res.clearCookie("token", { httpOnly: true, path: "/" });
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      path: "/api/auth/refresh",
+    });
+
+    // 4. Notify the user (so they're aware if they didn't do this themselves)
+    try {
+      await prisma.notification.create({
+        data: {
+          userId,
+          title: "🔐 Signed out from all devices",
+          body: "You've been signed out from all devices and sessions. If this wasn't you, change your password immediately.",
+          type: "SECURITY_LOGOUT_ALL",
+          data: {
+            ip:
+              req.headers["x-forwarded-for"]?.split(",")[0] ||
+              req.socket?.remoteAddress,
+          },
+        },
+      });
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      message: "Successfully signed out from all devices. Please log in again.",
+    });
+  } catch (err) {
+    console.error("logoutAll error:", err.message);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to sign out from all devices" });
+  }
+};

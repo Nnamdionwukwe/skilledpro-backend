@@ -9,7 +9,19 @@ import {
   logAdminFailure,
   userSnapshot,
 } from "../utils/auditLog.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANALYTICS & STATS
@@ -2171,5 +2183,224 @@ export const rejectManualPayment = async (req, res) => {
     });
   } catch (err) {
     return sendError(res, "Failed to reject payment");
+  }
+};
+
+// ADD to src/controllers/admin.controller.js
+// ADD to src/routes/admin.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── CONTROLLER (paste into admin.controller.js) ───────────────────────────────
+
+// GET /api/admin/dashboard
+// Single endpoint that loads everything an admin needs on first open.
+// Returns in ~200–300ms via Promise.all parallelism.
+export const getAdminDashboard = async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const weekStart = new Date(now - 7 * 86_400_000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [
+      // ── Users ──────────────────────────────────────────────────────────────
+      totalUsers,
+      newUsersToday,
+      newUsersWeek,
+      bannedUsers,
+      totalWorkers,
+      verifiedWorkers,
+      totalHirers,
+
+      // ── Bookings ───────────────────────────────────────────────────────────
+      totalBookings,
+      activeBookings,
+      completedBookings,
+      disputedBookings,
+      newBookingsToday,
+
+      // ── Revenue ────────────────────────────────────────────────────────────
+      revenueToday,
+      revenueWeek,
+      revenueMonth,
+      revenueAllTime,
+      pendingEscrow,
+
+      // ── Pending queues (the things that need admin action) ────────────────
+      pendingVerifications,
+      pendingWithdrawals,
+      pendingWithdrawalsAmount,
+      openDisputes,
+      pendingReports,
+      pendingCampaignSubmissions,
+
+      // ── Recent activity ────────────────────────────────────────────────────
+      recentUsers,
+      recentBookings,
+      recentPayments,
+    ] = await Promise.all([
+      // Users
+      prisma.user.count({ where: { isActive: true } }),
+      prisma.user.count({ where: { createdAt: { gte: todayStart } } }),
+      prisma.user.count({ where: { createdAt: { gte: weekStart } } }),
+      prisma.user.count({ where: { isBanned: true } }),
+      prisma.workerProfile.count(),
+      prisma.workerProfile.count({ where: { verificationStatus: "VERIFIED" } }),
+      prisma.hirerProfile.count(),
+
+      // Bookings
+      prisma.booking.count(),
+      prisma.booking.count({
+        where: { status: { in: ["PENDING", "ACCEPTED", "IN_PROGRESS"] } },
+      }),
+      prisma.booking.count({ where: { status: "COMPLETED" } }),
+      prisma.booking.count({ where: { status: "DISPUTED" } }),
+      prisma.booking.count({ where: { createdAt: { gte: todayStart } } }),
+
+      // Revenue
+      prisma.payment.aggregate({
+        where: { status: "RELEASED", createdAt: { gte: todayStart } },
+        _sum: { platformFee: true },
+      }),
+      prisma.payment.aggregate({
+        where: { status: "RELEASED", createdAt: { gte: weekStart } },
+        _sum: { platformFee: true },
+      }),
+      prisma.payment.aggregate({
+        where: { status: "RELEASED", createdAt: { gte: monthStart } },
+        _sum: { platformFee: true },
+      }),
+      prisma.payment.aggregate({
+        where: { status: "RELEASED" },
+        _sum: { platformFee: true, amount: true },
+      }),
+      prisma.payment.aggregate({
+        where: { status: "HELD" },
+        _sum: { amount: true },
+      }),
+
+      // Pending queues
+      prisma.workerProfile.count({ where: { verificationStatus: "PENDING" } }),
+      prisma.withdrawal.count({ where: { status: "PENDING" } }),
+      prisma.withdrawal.aggregate({
+        where: { status: "PENDING" },
+        _sum: { amount: true },
+      }),
+      prisma.booking.count({ where: { status: "DISPUTED" } }),
+      prisma.report.count({ where: { status: "PENDING" } }).catch(() => 0),
+      prisma.campaignSubmission
+        .count({ where: { status: "PENDING" } })
+        .catch(() => 0),
+
+      // Recent activity
+      prisma.user.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          avatar: true,
+          createdAt: true,
+        },
+      }),
+      prisma.booking.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          hirer: { select: { id: true, firstName: true, lastName: true } },
+          worker: { select: { id: true, firstName: true, lastName: true } },
+          category: { select: { name: true, icon: true } },
+        },
+      }),
+      prisma.payment.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          booking: {
+            select: {
+              title: true,
+              hirer: { select: { firstName: true, lastName: true } },
+              worker: { select: { firstName: true, lastName: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        users: {
+          total: totalUsers,
+          workers: totalWorkers,
+          hirers: totalHirers,
+          banned: bannedUsers,
+          newToday: newUsersToday,
+          newWeek: newUsersWeek,
+          workerVerificationRate:
+            totalWorkers > 0
+              ? Math.round((verifiedWorkers / totalWorkers) * 100)
+              : 0,
+        },
+
+        bookings: {
+          total: totalBookings,
+          active: activeBookings,
+          completed: completedBookings,
+          disputed: disputedBookings,
+          newToday: newBookingsToday,
+          completionRate:
+            totalBookings > 0
+              ? Math.round((completedBookings / totalBookings) * 100)
+              : 0,
+        },
+
+        revenue: {
+          today: revenueToday._sum.platformFee || 0,
+          week: revenueWeek._sum.platformFee || 0,
+          month: revenueMonth._sum.platformFee || 0,
+          allTime: revenueAllTime._sum.platformFee || 0,
+          totalGMV: revenueAllTime._sum.amount || 0,
+          escrowHeld: pendingEscrow._sum.amount || 0,
+          currency: "NGN",
+        },
+
+        // Items that need admin attention right now
+        pendingActions: {
+          verifications: pendingVerifications,
+          withdrawals: pendingWithdrawals,
+          withdrawalsAmountNGN: pendingWithdrawalsAmount._sum.amount || 0,
+          disputes: openDisputes,
+          reports: pendingReports,
+          campaignSubmissions: pendingCampaignSubmissions,
+          total:
+            pendingVerifications +
+            pendingWithdrawals +
+            openDisputes +
+            pendingReports +
+            pendingCampaignSubmissions,
+        },
+
+        recent: {
+          users: recentUsers,
+          bookings: recentBookings,
+          payments: recentPayments,
+        },
+
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error("getAdminDashboard error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to load admin dashboard" });
   }
 };

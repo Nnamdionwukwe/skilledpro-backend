@@ -11,6 +11,7 @@ import {
   getMe,
   forgotPassword,
   resetPassword,
+  logoutAll,
 } from "../controllers/auth.controller.js";
 import {
   loginLimiter,
@@ -55,5 +56,7 @@ router.post("/refresh", refreshTokenLimiter, refreshToken);
 // ─── Protected ────────────────────────────────────────────────────────────────
 router.post("/logout", protect, logout);
 router.get("/me", protect, getMe);
+
+router.post("/logout-all", protect, logoutAll);
 
 export default router;
