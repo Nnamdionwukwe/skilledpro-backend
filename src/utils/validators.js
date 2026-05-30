@@ -1850,3 +1850,153 @@ export const validateUpdatePrivacySettings = [
     .withMessage("allowMessages must be true or false"),
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPEND to the bottom of src/utils/validators.js
+// Payment validators for all payment route endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── §28  INITIATE PAYSTACK/FLUTTERWAVE PAYMENT ───────────────────────────────
+// POST /api/payments/initiate/:bookingId
+export const validateInitiatePayment = [
+  body("callbackUrl")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("callbackUrl must be a valid URL"),
+
+  body("currency")
+    .optional()
+    .isIn(["NGN", "USD", "GBP", "EUR"])
+    .withMessage("currency must be NGN, USD, GBP or EUR"),
+
+  validate,
+];
+
+// ─── §29  BANK TRANSFER ───────────────────────────────────────────────────────
+// POST /api/payments/bank-transfer/:bookingId
+export const validateBankTransfer = [
+  body("bankCode")
+    .trim()
+    .notEmpty()
+    .withMessage("bankCode is required")
+    .isLength({ min: 3, max: 10 })
+    .withMessage("bankCode must be 3–10 characters"),
+
+  body("accountNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("accountNumber is required")
+    .matches(/^\d{10}$/)
+    .withMessage("accountNumber must be exactly 10 digits"),
+
+  body("accountName")
+    .trim()
+    .notEmpty()
+    .withMessage("accountName is required")
+    .isLength({ min: 3, max: 100 })
+    .withMessage("accountName must be 3–100 characters"),
+
+  validate,
+];
+
+// POST /api/payments/bank-transfer/:bookingId/confirm
+export const validateInitiateCryptoPayment = [
+  body("currency")
+    .notEmpty()
+    .withMessage("currency is required")
+    .isIn(["USDC", "USDT", "ETH", "BTC"])
+    .withMessage("currency must be USDC, USDT, ETH or BTC"),
+
+  body("network")
+    .optional()
+    .isIn(["ERC20", "TRC20", "BEP20", "BITCOIN"])
+    .withMessage("network must be ERC20, TRC20, BEP20 or BITCOIN"),
+
+  validate,
+];
+
+// PATCH /api/payments/crypto/:bookingId/confirm
+export const validateConfirmCryptoPayment = [
+  body("txHash")
+    .trim()
+    .notEmpty()
+    .withMessage("txHash (transaction hash) is required")
+    .isLength({ min: 20, max: 150 })
+    .withMessage("txHash must be 20–150 characters")
+    .matches(/^[a-fA-F0-9x]+$/)
+    .withMessage("txHash must be a valid hex string"),
+
+  validate,
+];
+
+// ─── §31  WITHDRAWAL REQUEST ──────────────────────────────────────────────────
+// POST /api/payments/withdraw
+export const validateRequestWithdrawal = [
+  body("amount")
+    .notEmpty()
+    .withMessage("amount is required")
+    .isFloat({ min: 100 })
+    .withMessage("amount must be at least ₦100"),
+
+  body("bankCode")
+    .trim()
+    .notEmpty()
+    .withMessage("bankCode is required")
+    .isLength({ min: 3, max: 10 })
+    .withMessage("bankCode must be 3–10 characters"),
+
+  body("accountNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("accountNumber is required")
+    .matches(/^\d{10}$/)
+    .withMessage("accountNumber must be exactly 10 digits"),
+
+  body("accountName")
+    .trim()
+    .notEmpty()
+    .withMessage("accountName is required")
+    .isLength({ min: 3, max: 100 })
+    .withMessage("accountName must be 3–100 characters"),
+
+  body("currency")
+    .optional()
+    .isIn(["NGN", "USD"])
+    .withMessage("currency must be NGN or USD"),
+
+  validate,
+];
+
+// ─── §32  VERIFY BANK ACCOUNT ─────────────────────────────────────────────────
+// POST /api/payments/verify-account
+export const validateVerifyBankAccount = [
+  body("accountNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("accountNumber is required")
+    .matches(/^\d{10}$/)
+    .withMessage("accountNumber must be exactly 10 digits"),
+
+  body("bankCode")
+    .trim()
+    .notEmpty()
+    .withMessage("bankCode is required")
+    .isLength({ min: 3, max: 10 })
+    .withMessage("bankCode must be 3–10 characters"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO-ADDED by fix-missing-validators.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/auth/resend-verification
+export const validateResendVerification = [
+  body("email")
+    .trim().notEmpty().withMessage("email is required")
+    .isEmail().withMessage("Must be a valid email address")
+    .normalizeEmail(),
+  validate,
+];

@@ -1,131 +1,151 @@
-// src/routes/payment.routes.js  (updated with validators)
+// src/routes/payment.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Full payment routes including the new invoice endpoint.
+//
+// IMPORTANT: /invoice/:bookingId MUST come before /:bookingId
+// or Express will match "invoice" as the bookingId.
+// ─────────────────────────────────────────────────────────────────────────────
 import { Router } from "express";
-import express from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
   initiateBookingPayment,
-  verifyFlutterwave,
   verifyPaystack,
-  flutterwaveWebhook,
+  verifyFlutterwave,
   paystackWebhook,
-  releasePayment,
-  refundPayment,
-  getPayment,
-  getAllPayments,
-  getWorkerEarnings,
-  getHirerPayments,
-  requestWithdrawal,
-  getWithdrawals,
+  flutterwaveWebhook,
   initiateBankTransfer,
   confirmBankTransfer,
   initiateCryptoPayment,
   confirmCryptoPayment,
+  releasePayment,
+  refundPayment,
+  getHirerPayments,
+  getWorkerEarnings,
+  requestWithdrawal,
+  getWithdrawals,
+  approveWithdrawalPayout,
   getBanksByCountry,
   verifyBankAccount,
+  getPayment,
+  getAllPayments,
 } from "../controllers/payment.controller.js";
+import { getPaymentInvoice } from "../controllers/invoice.controller.js"; // ← NEW
 import {
-  validateWithdrawal,
+  validateInitiatePayment,
+  validateBankTransfer,
   validateConfirmBankTransfer,
-  validateConfirmCrypto,
-  validateVerifyAccount,
+  validateInitiateCryptoPayment,
+  validateConfirmCryptoPayment,
+  validateRequestWithdrawal,
+  validateVerifyBankAccount,
   validateUUIDParam,
   validatePagination,
 } from "../utils/validators.js";
 
 const router = Router();
 
-// ── Webhooks (raw body, no auth, no validation — signature verified inside handler)
-router.post("/webhook/flutterwave", express.json(), flutterwaveWebhook);
-router.post("/webhook/paystack", express.json(), paystackWebhook);
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBHOOKS — public, no auth (Paystack/Flutterwave calls these directly)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/webhook/paystack", paystackWebhook);
+router.post("/webhook/flutterwave", flutterwaveWebhook);
 
-// ── Public redirect callbacks
-router.get("/verify/flutterwave", verifyFlutterwave);
-router.get("/verify/paystack", verifyPaystack);
-
-// ── Public utility
-router.get("/banks", getBanksByCountry);
-
-// ── Auth required
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHENTICATED from here down
+// ─────────────────────────────────────────────────────────────────────────────
 router.use(protect);
 
-// ── Any authenticated user
-router.post("/verify-account", validateVerifyAccount, verifyBankAccount);
+// ── Paystack / Flutterwave verification ───────────────────────────────────────
+router.get("/verify/paystack", verifyPaystack);
+router.get("/verify/flutterwave", verifyFlutterwave);
 
-// ── Hirer routes
+// ── Bank utilities ────────────────────────────────────────────────────────────
+router.get("/banks", validatePagination, getBanksByCountry);
+router.post("/verify-account", validateVerifyBankAccount, verifyBankAccount);
+
+// ── Initiate payment (Paystack card checkout) ─────────────────────────────────
 router.post(
   "/initiate/:bookingId",
-  requireRole("HIRER"),
   ...validateUUIDParam("bookingId"),
+  validateInitiatePayment,
   initiateBookingPayment,
 );
+
+// ── Bank transfer flow ────────────────────────────────────────────────────────
 router.post(
   "/bank-transfer/:bookingId",
-  requireRole("HIRER"),
   ...validateUUIDParam("bookingId"),
+  validateBankTransfer,
   initiateBankTransfer,
 );
+
 router.patch(
   "/bank-transfer/:bookingId/confirm",
-  requireRole("HIRER"),
+  ...validateUUIDParam("bookingId"),
   validateConfirmBankTransfer,
   confirmBankTransfer,
 );
+
+// ── Crypto flow ───────────────────────────────────────────────────────────────
 router.post(
   "/crypto/:bookingId",
-  requireRole("HIRER"),
   ...validateUUIDParam("bookingId"),
+  validateInitiateCryptoPayment,
   initiateCryptoPayment,
 );
+
 router.patch(
   "/crypto/:bookingId/confirm",
-  requireRole("HIRER"),
-  validateConfirmCrypto,
+  ...validateUUIDParam("bookingId"),
+  validateConfirmCryptoPayment,
   confirmCryptoPayment,
 );
+
+// ── Escrow release ────────────────────────────────────────────────────────────
 router.post(
   "/release/:bookingId",
-  requireRole("HIRER"),
   ...validateUUIDParam("bookingId"),
   releasePayment,
 );
-router.get(
-  "/hirer",
-  requireRole("HIRER"),
-  validatePagination,
-  getHirerPayments,
-);
 
-// ── Worker routes
-router.get(
-  "/earnings",
-  requireRole("WORKER"),
-  validatePagination,
-  getWorkerEarnings,
-);
-router.post(
-  "/withdraw",
-  requireRole("WORKER"),
-  validateWithdrawal,
-  requestWithdrawal,
-);
-router.get(
-  "/withdrawals",
-  requireRole("WORKER"),
-  validatePagination,
-  getWithdrawals,
-);
-
-// ── Admin
-router.get("/", requireRole("ADMIN"), validatePagination, getAllPayments);
-
-// ── Shared
+// ── Refund (admin or hirer within refund window) ──────────────────────────────
 router.post(
   "/refund/:bookingId",
   ...validateUUIDParam("bookingId"),
   refundPayment,
 );
 
-// ── Wildcard — must be last
+// ── Invoice PDF — hirer or admin only ─────────────────────────────────────────
+// NOTE: this MUST be defined before GET /:bookingId below
+// GET /api/payments/invoice/:bookingId → streams a PDF invoice
+router.get(
+  "/invoice/:bookingId",
+  ...validateUUIDParam("bookingId"),
+  getPaymentInvoice,
+);
+
+// ── Hirer payment history ─────────────────────────────────────────────────────
+router.get("/hirer", validatePagination, getHirerPayments);
+
+// ── Worker earnings ───────────────────────────────────────────────────────────
+router.get("/earnings", validatePagination, getWorkerEarnings);
+
+// ── Worker withdrawal ─────────────────────────────────────────────────────────
+router.post("/withdraw", validateRequestWithdrawal, requestWithdrawal);
+router.get("/withdrawals", validatePagination, getWithdrawals);
+
+// ── Admin: approve payout ─────────────────────────────────────────────────────
+router.post(
+  "/withdrawals/:withdrawalId/payout",
+  requireRole("ADMIN"),
+  ...validateUUIDParam("withdrawalId"),
+  approveWithdrawalPayout,
+);
+
+// ── All payments (admin) ──────────────────────────────────────────────────────
+router.get("/", requireRole("ADMIN"), validatePagination, getAllPayments);
+
+// ── Single payment lookup — MUST come last (catches /:bookingId) ───────────────
 router.get("/:bookingId", ...validateUUIDParam("bookingId"), getPayment);
 
 export default router;

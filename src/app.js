@@ -32,11 +32,13 @@ import reportRoutes from "./routes/report.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
 
 import { apiLimiter } from "./middleware/rateLimit.middleware.js";
+import healthRouter from "./routes/health.routes.js";
 
 // NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
 // before this file is imported.
 
 const app = express();
+app.use("/health", healthRouter);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 // Single cors() call — handles both regular requests AND OPTIONS preflight.

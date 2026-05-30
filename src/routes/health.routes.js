@@ -1,13 +1,8 @@
 // src/routes/health.routes.js
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /health — Railway health check + DB ping
-//
-// Mount BEFORE all other middleware in app.js:
+// Mount BEFORE all other middleware in app.js so it always responds:
 //   import healthRouter from "./routes/health.routes.js";
-//   app.get("/health", healthRouter);   ← before rateLimiter, before protect
-//
-// Railway uses this endpoint to decide if a deployment is healthy.
-// Returns 200 on success, 503 if DB is unreachable.
+//   app.use("/health", healthRouter);   ← before apiLimiter, before protect
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router } from "express";
 import prisma from "../config/database.js";
@@ -28,20 +23,17 @@ router.get("/", async (req, res) => {
     console.error("[health] DB ping failed:", err.message);
   }
 
-  const healthy = dbStatus === "connected";
+  const ok = dbStatus === "connected";
   const mem = process.memoryUsage();
 
-  return res.status(healthy ? 200 : 503).json({
-    status: healthy ? "ok" : "degraded",
+  return res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
     environment: process.env.NODE_ENV || "development",
     version: process.env.npm_package_version || "1.0.0",
     services: {
-      database: {
-        status: dbStatus,
-        latencyMs: dbLatencyMs,
-      },
+      database: { status: dbStatus, latencyMs: dbLatencyMs },
     },
     memory: {
       heapUsedMB: Math.round(mem.heapUsed / 1_048_576),
@@ -51,3 +43,5 @@ router.get("/", async (req, res) => {
     responseTimeMs: Date.now() - start,
   });
 });
+
+export default router;

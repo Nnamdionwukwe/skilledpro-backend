@@ -1,62 +1,50 @@
-// src/routes/auth.routes.js  (final version — rate limiting + validators)
-import express from "express";
+// src/routes/auth.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Added: POST /logout-all
+// ─────────────────────────────────────────────────────────────────────────────
+import { Router } from "express";
 import { protect } from "../middleware/auth.middleware.js";
 import {
   register,
+  login,
   verifyEmail,
   resendVerification,
-  login,
+  forgotPassword,
+  resetPassword,
   refreshToken,
   logout,
   getMe,
-  forgotPassword,
-  resetPassword,
-  logoutAll,
+  logoutAll, // ← NEW
 } from "../controllers/auth.controller.js";
-import {
-  loginLimiter,
-  registerLimiter,
-  forgotPasswordLimiter,
-  resetPasswordLimiter,
-  resendVerificationLimiter,
-  refreshTokenLimiter,
-} from "../middleware/rateLimit.middleware.js";
 import {
   validateRegister,
   validateLogin,
   validateForgotPassword,
   validateResetPassword,
+  validateResendVerification,
 } from "../utils/validators.js";
 
-const router = express.Router();
+const router = Router();
 
-// ─── Public routes (rate limited + validated) ─────────────────────────────────
-router.post("/register", registerLimiter, validateRegister, register);
-router.post("/login", loginLimiter, validateLogin, login);
+// ── Public ────────────────────────────────────────────────────────────────────
+router.post("/register", validateRegister, register);
+router.post("/login", validateLogin, login);
 router.get("/verify-email", verifyEmail);
 router.post(
   "/resend-verification",
-  resendVerificationLimiter,
+  validateResendVerification,
   resendVerification,
 );
-router.post(
-  "/forgot-password",
-  forgotPasswordLimiter,
-  validateForgotPassword,
-  forgotPassword,
-);
-router.post(
-  "/reset-password",
-  resetPasswordLimiter,
-  validateResetPassword,
-  resetPassword,
-);
-router.post("/refresh", refreshTokenLimiter, refreshToken);
+router.post("/forgot-password", validateForgotPassword, forgotPassword);
+router.post("/reset-password", validateResetPassword, resetPassword);
 
-// ─── Protected ────────────────────────────────────────────────────────────────
+// ── Protected ─────────────────────────────────────────────────────────────────
+router.post("/refresh", protect, refreshToken);
 router.post("/logout", protect, logout);
 router.get("/me", protect, getMe);
 
+// POST /api/auth/logout-all — sign out from every device simultaneously
+// Clears refresh token hash + deactivates all push device tokens
 router.post("/logout-all", protect, logoutAll);
 
 export default router;
