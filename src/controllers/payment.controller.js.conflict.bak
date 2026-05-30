@@ -25,6 +25,7 @@ import {
 
 import { logAdminAction } from "../utils/auditLog.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,6 +297,10 @@ function getWithdrawalProvider(countryCode, method) {
   if (PAYSTACK_COUNTRIES.has((countryCode ?? "").toUpperCase()))
     return "paystack";
   return "flutterwave";
+}
+
+function uniqueRef(prefix = "SP") {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

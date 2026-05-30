@@ -3,11 +3,11 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { getIO } from "../socket/index.js";
 import {
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
   upsertDeviceToken,
   deactivateDeviceToken,
   deactivateAllUserTokens,
 } from "../services/push.service.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  IN-APP NOTIFICATION CRUD (unchanged from original)

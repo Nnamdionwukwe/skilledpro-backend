@@ -1,5 +1,6 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -40,7 +41,7 @@ export const globalSearch = async (req, res) => {
       return sendError(res, "Search query must be at least 2 characters", 400);
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const results = {};
 
     if (!type || type === "workers") {
@@ -84,7 +85,7 @@ export const globalSearch = async (req, res) => {
         prisma.workerProfile.findMany({
           where: workerWhere,
           skip,
-          take: parseInt(limit),
+          take,
           include: {
             user: {
               select: {
@@ -202,7 +203,7 @@ export const globalSearch = async (req, res) => {
             },
           },
         },
-        take: parseInt(limit),
+        take,
       });
       results.locations = {
         data: locationWorkers,
@@ -348,7 +349,7 @@ export const nearbyWorkers = async (req, res) => {
       if (level.km < requestedRadius) continue; // don't go smaller than requested
       const found = await prisma.workerProfile.findMany({
         where: buildWhere(level.km),
-        take: parseInt(limit),
+        take,
         include,
         orderBy,
       });

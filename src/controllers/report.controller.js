@@ -23,7 +23,6 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logAdminAction } from "../utils/auditLog.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // ─── Allowed values (mirrors Prisma enums) ───────────────────────────────────
 const VALID_TYPES = [
   "USER",

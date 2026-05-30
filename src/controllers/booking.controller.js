@@ -11,7 +11,6 @@ import {
 
 import { convertReferral } from "./referral.controller.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
   try {

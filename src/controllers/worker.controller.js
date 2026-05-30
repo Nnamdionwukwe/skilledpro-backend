@@ -4,7 +4,6 @@ import { sendResponse, sendError } from "../utils/response.js";
 import { notifyProfileViewed } from "../services/notification.service.js";
 import { sendProfileViewedEmail } from "../services/email.service.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 export const searchWorkers = async (req, res) => {
   try {
     const {
@@ -213,24 +212,6 @@ export const getWorkerProfile = async (req, res) => {
       return sendError(res, "This profile is private", 403);
 
     const isOwnProfile = req.user?.id === userId;
-
-    const safeUser = {
-      id: worker.user.id,
-      firstName: worker.user.firstName,
-      lastName: worker.user.lastName,
-      avatar: worker.user.avatar,
-      language: worker.user.language,
-      createdAt: worker.user.createdAt,
-      city: isOwnProfile || worker.user.showLocation ? worker.user.city : null,
-      country:
-        isOwnProfile || worker.user.showLocation ? worker.user.country : null,
-      state:
-        isOwnProfile || worker.user.showLocation ? worker.user.state : null,
-      phone: isOwnProfile || worker.user.showPhone ? worker.user.phone : null,
-      email: isOwnProfile || worker.user.showEmail ? worker.user.email : null,
-      gender:
-        isOwnProfile || worker.user.showGender ? worker.user.gender : null,
-    };
 
     // ── Notify worker of profile view (fire-and-forget) ───────────────────────
     if (req.user && !isOwnProfile) {

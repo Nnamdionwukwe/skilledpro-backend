@@ -1,6 +1,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { sendRealTimeNotification } from "./notification.controller.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // POST /api/disputes - Raise a dispute on a booking
 export const raiseDispute = async (req, res) => {
@@ -335,13 +336,13 @@ export const cancelDispute = async (req, res) => {
 export const getAllDisputes = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [disputes, total] = await Promise.all([
       prisma.booking.findMany({
         where: { status: "DISPUTED" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           hirer: {
             select: {
@@ -374,7 +375,7 @@ export const getAllDisputes = async (req, res) => {
         disputes,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {

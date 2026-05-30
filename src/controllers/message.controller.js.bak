@@ -1,5 +1,6 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 export const getConversations = async (req, res) => {
   try {
@@ -58,11 +59,11 @@ export const getConversations = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const messages = await prisma.message.findMany({
       where: { conversationId: req.params.conversationId },
       skip,
-      take: parseInt(limit),
+      take,
       include: {
         sender: {
           select: { id: true, firstName: true, lastName: true, avatar: true },

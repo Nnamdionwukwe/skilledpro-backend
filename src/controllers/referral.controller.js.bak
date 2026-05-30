@@ -37,6 +37,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
 import { FEE_CONFIG } from "../config/fees.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── Tier & reward configuration ───────────────────────────────────────────────
 
@@ -665,7 +666,7 @@ export const getMyReferralDashboard = async (req, res) => {
 export const getMyWallet = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [user, transactions, total] = await Promise.all([
       prisma.user.findUnique({
@@ -676,7 +677,7 @@ export const getMyWallet = async (req, res) => {
         where: { userId: req.user.id },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.walletTransaction.count({ where: { userId: req.user.id } }),
     ]);
@@ -691,7 +692,7 @@ export const getMyWallet = async (req, res) => {
         transactions,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -829,7 +830,7 @@ export const getReferralLeaderboard = async (req, res) => {
           walletLifetimeTotal: true,
         },
         orderBy: { successfulReferrals: "desc" },
-        take: parseInt(limit),
+        take,
       }),
       prisma.user.count({
         where: {
@@ -917,7 +918,7 @@ export const getHirerFirstBookingDiscount = async (hirerId, bookingAmount) => {
 export const adminGetAllReferrals = async (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (status) where.status = status;
     if (search) {
@@ -931,7 +932,7 @@ export const adminGetAllReferrals = async (req, res) => {
       prisma.referral.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           referrer: {
             select: {
@@ -967,7 +968,7 @@ export const adminGetAllReferrals = async (req, res) => {
         referrals,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         stats: stats.reduce((acc, s) => {
           acc[s.status] = { count: s._count, totalBonus: s._sum.referrerBonus };
           return acc;

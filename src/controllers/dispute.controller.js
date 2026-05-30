@@ -2,7 +2,6 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { sendRealTimeNotification } from "./notification.controller.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // POST /api/disputes - Raise a dispute on a booking
 export const raiseDispute = async (req, res) => {
   try {

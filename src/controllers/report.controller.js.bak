@@ -22,6 +22,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logAdminAction } from "../utils/auditLog.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─── Allowed values (mirrors Prisma enums) ───────────────────────────────────
 const VALID_TYPES = [
@@ -312,7 +313,7 @@ export const getMyReports = async (req, res) => {
   try {
     const reporterId = req.user.id;
     const { page = 1, limit = 10, status } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = { reporterId, ...(status ? { status } : {}) };
 
@@ -321,7 +322,7 @@ export const getMyReports = async (req, res) => {
         where,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
         select: {
           id: true,
           targetType: true,
@@ -348,7 +349,7 @@ export const getMyReports = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -404,7 +405,7 @@ export const adminGetAllReports = async (req, res) => {
       from,
       to,
     } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const where = {
       ...(status ? { status } : {}),
@@ -440,7 +441,7 @@ export const adminGetAllReports = async (req, res) => {
         where,
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           reporter: {
             select: {
@@ -479,7 +480,7 @@ export const adminGetAllReports = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         summary,
       },
     });

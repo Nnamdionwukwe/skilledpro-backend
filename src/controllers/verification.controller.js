@@ -3,7 +3,6 @@ import { sendResponse, sendError } from "../utils/response.js";
 import { sendRealTimeNotification } from "./notification.controller.js";
 import { v2 as cloudinary } from "cloudinary";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // ── WORKER: Submit ID for verification ───────────────────────────────────────
 // POST /api/verification/submit-id
 export const submitIdVerification = async (req, res) => {

@@ -31,6 +31,7 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ── Campaign Configuration ────────────────────────────────────────────────────
 export const CAMPAIGN_CONFIG = {
@@ -274,7 +275,7 @@ export const getCampaignStatus = async (req, res) => {
 export const getMyCampaignReferrals = async (req, res) => {
   try {
     const { status, page = 1, limit = 30 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = { referrerId: req.user.id };
     if (status) where.status = status;
 
@@ -295,7 +296,7 @@ export const getMyCampaignReferrals = async (req, res) => {
         },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.campaignReferral.count({ where }),
     ]);
@@ -331,7 +332,7 @@ export const getMyCampaignReferrals = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -641,7 +642,7 @@ export const submitDailyCampaign = async (req, res) => {
 export const getCampaignSubmissions = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [submissions, total] = await Promise.all([
       prisma.campaignSubmission.findMany({
@@ -657,7 +658,7 @@ export const getCampaignSubmissions = async (req, res) => {
         },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.campaignSubmission.count({ where: { referrerId: req.user.id } }),
     ]);
@@ -687,7 +688,7 @@ export const getCampaignSubmissions = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -701,7 +702,7 @@ export const getCampaignSubmissions = async (req, res) => {
 export const getCampaignWallet = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [user, txns, total, pendingWd] = await Promise.all([
       prisma.user.findUnique({
@@ -715,7 +716,7 @@ export const getCampaignWallet = async (req, res) => {
         where: { userId: req.user.id },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.campaignTransaction.count({ where: { userId: req.user.id } }),
       prisma.campaignWithdrawal.findMany({
@@ -736,7 +737,7 @@ export const getCampaignWallet = async (req, res) => {
         transactions: txns,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -847,7 +848,7 @@ export const withdrawCampaignEarnings = async (req, res) => {
 export const adminGetSubmissions = async (req, res) => {
   try {
     const { status, page = 1, limit = 20, search, date } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = {};
     if (status) where.status = status;
     if (date) where.submissionDate = date;
@@ -890,7 +891,7 @@ export const adminGetSubmissions = async (req, res) => {
         },
         orderBy: { createdAt: "desc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.campaignSubmission.count({ where }),
       prisma.campaignSubmission.groupBy({
@@ -905,7 +906,7 @@ export const adminGetSubmissions = async (req, res) => {
         submissions,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         stats: stats.reduce(
           (acc, s) => ({
             ...acc,
@@ -1261,7 +1262,7 @@ export const adminGetCampaignStats = async (req, res) => {
 export const adminGetCampaignWithdrawals = async (req, res) => {
   try {
     const { status = "PENDING", page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [withdrawals, total] = await Promise.all([
       prisma.campaignWithdrawal.findMany({
@@ -1273,7 +1274,7 @@ export const adminGetCampaignWithdrawals = async (req, res) => {
         },
         orderBy: { createdAt: "asc" },
         skip,
-        take: parseInt(limit),
+        take,
       }),
       prisma.campaignWithdrawal.count({
         where: status !== "ALL" ? { status } : {},
@@ -1285,7 +1286,7 @@ export const adminGetCampaignWithdrawals = async (req, res) => {
         withdrawals,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {

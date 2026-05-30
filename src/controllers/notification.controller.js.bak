@@ -3,6 +3,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { getIO } from "../socket/index.js";
 import {
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
   upsertDeviceToken,
   deactivateDeviceToken,
   deactivateAllUserTokens,
@@ -15,7 +16,7 @@ import {
 export const getNotifications = async (req, res) => {
   try {
     const { page = 1, limit = 30, unreadOnly } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = { userId: req.user.id };
     if (unreadOnly === "true") where.isRead = false;
 
@@ -23,7 +24,7 @@ export const getNotifications = async (req, res) => {
       prisma.notification.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         orderBy: { createdAt: "desc" },
       }),
       prisma.notification.count({ where }),
@@ -38,7 +39,7 @@ export const getNotifications = async (req, res) => {
         total,
         unreadCount,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {

@@ -32,7 +32,6 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // ── Campaign Configuration ────────────────────────────────────────────────────
 export const CAMPAIGN_CONFIG = {
   REWARD_PER_REFERRAL: 100, // ₦100 per fully qualified referral

@@ -5,11 +5,11 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import {
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
   logAdminAction,
   logAdminFailure,
   userSnapshot,
 } from "../utils/auditLog.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANALYTICS & STATS

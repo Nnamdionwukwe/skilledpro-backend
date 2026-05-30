@@ -38,7 +38,6 @@ import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
 import { FEE_CONFIG } from "../config/fees.js";
 import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
-
 // ── Tier & reward configuration ───────────────────────────────────────────────
 
 export const TIERS = {

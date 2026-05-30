@@ -2,6 +2,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { notifyProfileViewed } from "../services/notification.service.js";
+import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
 
 // ─── Worker select shape (reused across queries) ──────────────────────────────
 const WORKER_SELECT = {
@@ -127,14 +128,14 @@ export const getHirerProfile = async (req, res) => {
 export const getHirerBookings = async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const where = { hirerId: req.user.id, ...(status ? { status } : {}) };
 
     const [bookings, total, stats] = await Promise.all([
       prisma.booking.findMany({
         where,
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           worker: {
             select: {
@@ -164,7 +165,7 @@ export const getHirerBookings = async (req, res) => {
         bookings,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         stats: {
           totalBookings: stats._count.id,
           totalSpent: stats._sum.agreedRate || 0,
@@ -256,14 +257,14 @@ export const getHirerDashboard = async (req, res) => {
 export const getSavedWorkers = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
     const hirerId = req.user.id;
 
     const [saved, total] = await Promise.all([
       prisma.savedWorker.findMany({
         where: { hirerId },
         skip,
-        take: parseInt(limit),
+        take,
         orderBy: { createdAt: "desc" },
         include: {
           worker: { select: WORKER_SELECT },
@@ -281,7 +282,7 @@ export const getSavedWorkers = async (req, res) => {
         })),
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
       },
     });
   } catch (err) {
@@ -371,13 +372,13 @@ export const getHiredWorkers = async (req, res) => {
 export const getHirerReviews = async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { skip, take } = paginate(page, limit);
 
     const [reviews, total, stats] = await Promise.all([
       prisma.review.findMany({
         where: { receiverId: req.user.id },
         skip,
-        take: parseInt(limit),
+        take,
         include: {
           giver: {
             select: {
@@ -421,7 +422,7 @@ export const getHirerReviews = async (req, res) => {
         reviews,
         total,
         page: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
+        pages: Math.ceil(total / take),
         avgRating: Math.round((stats._avg.rating || 0) * 10) / 10,
         totalReviews: stats._count.id,
         distribution: distribution.reduce((acc, r) => {
