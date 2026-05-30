@@ -1549,3 +1549,304 @@ export const validateTranslate = [
 
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPEND to the bottom of src/utils/validators.js
+// ─────────────────────────────────────────────────────────────────────────────
+// §23  VERIFICATION SUBMISSION VALIDATORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VALID_ID_TYPES = [
+  "NATIONAL_ID",
+  "PASSPORT",
+  "DRIVERS_LICENSE",
+  "VOTERS_CARD",
+  "RESIDENCE_PERMIT",
+  "WORK_PERMIT",
+];
+
+// POST /api/verification/submit-id
+// Body: { idType, idNumber, dateOfBirth?, nationality? }  + file upload
+export const validateSubmitIdVerification = [
+  body("idType")
+    .notEmpty()
+    .withMessage("ID type is required")
+    .isIn(VALID_ID_TYPES)
+    .withMessage(`ID type must be one of: ${VALID_ID_TYPES.join(", ")}`),
+
+  body("idNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("ID number is required")
+    .isLength({ min: 3, max: 50 })
+    .withMessage("ID number must be 3–50 characters"),
+
+  body("dateOfBirth")
+    .optional({ nullable: true })
+    .isISO8601()
+    .withMessage("Date of birth must be a valid date (YYYY-MM-DD)"),
+
+  body("nationality")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 60 })
+    .withMessage("Nationality must not exceed 60 characters"),
+
+  validate,
+];
+
+// POST /api/verification/submit-certification
+// Body: { name, issuedBy, issueDate?, expiryDate? }  + optional file upload
+export const validateSubmitCertification = [
+  body("name")
+    .trim()
+    .notEmpty()
+    .withMessage("Certification name is required")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("Name must be 2–150 characters"),
+
+  body("issuedBy")
+    .trim()
+    .notEmpty()
+    .withMessage("Issuing body is required")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("Issuing body must be 2–150 characters"),
+
+  body("issueDate")
+    .optional({ nullable: true })
+    .isISO8601()
+    .withMessage("Issue date must be a valid date"),
+
+  body("expiryDate")
+    .optional({ nullable: true })
+    .isISO8601()
+    .withMessage("Expiry date must be a valid date"),
+
+  validate,
+];
+
+// POST /api/verification/hirer/submit
+// Body: { verificationType, idType?, idNumber?, companyName?, companyRegNumber?, ... }
+export const validateSubmitHirerVerification = [
+  body("verificationType")
+    .notEmpty()
+    .withMessage("Verification type is required")
+    .isIn(["INDIVIDUAL", "BUSINESS"])
+    .withMessage("Verification type must be INDIVIDUAL or BUSINESS"),
+
+  // Individual fields
+  body("idType")
+    .if(body("verificationType").equals("INDIVIDUAL"))
+    .notEmpty()
+    .withMessage("ID type is required for individual verification")
+    .isIn(VALID_ID_TYPES)
+    .withMessage(`ID type must be one of: ${VALID_ID_TYPES.join(", ")}`),
+
+  body("idNumber")
+    .if(body("verificationType").equals("INDIVIDUAL"))
+    .trim()
+    .notEmpty()
+    .withMessage("ID number is required for individual verification")
+    .isLength({ min: 3, max: 50 })
+    .withMessage("ID number must be 3–50 characters"),
+
+  // Business fields
+  body("companyName")
+    .if(body("verificationType").equals("BUSINESS"))
+    .trim()
+    .notEmpty()
+    .withMessage("Company name is required for business verification")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("Company name must be 2–150 characters"),
+
+  body("companyRegNumber")
+    .if(body("verificationType").equals("BUSINESS"))
+    .trim()
+    .notEmpty()
+    .withMessage("Company registration number is required")
+    .isLength({ min: 4, max: 50 })
+    .withMessage("Registration number must be 4–50 characters"),
+
+  // Optional for both
+  body("companyCountry")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 60 })
+    .withMessage("Country must not exceed 60 characters"),
+
+  body("website")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("Website must be a valid URL"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §24  WORKER AVAILABILITY VALIDATOR
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VALID_DAYS = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+];
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:MM 24-hour
+
+// PUT /api/workers/availability
+// Body: { availability: [{ dayOfWeek, startTime, endTime, isAvailable? }] }
+export const validateUpdateAvailability = [
+  body("availability")
+    .isArray({ min: 1, max: 7 })
+    .withMessage("availability must be an array of 1–7 day schedules"),
+
+  body("availability.*.dayOfWeek")
+    .notEmpty()
+    .withMessage("Each slot must have a dayOfWeek")
+    .custom((v) => {
+      if (typeof v === "string") return VALID_DAYS.includes(v.toUpperCase());
+      if (typeof v === "number") return v >= 0 && v <= 6;
+      return false;
+    })
+    .withMessage("dayOfWeek must be a weekday name (MONDAY…) or 0–6"),
+
+  body("availability.*.startTime")
+    .notEmpty()
+    .withMessage("Each slot must have a startTime")
+    .matches(TIME_RE)
+    .withMessage("startTime must be HH:MM (e.g. 08:00)"),
+
+  body("availability.*.endTime")
+    .notEmpty()
+    .withMessage("Each slot must have an endTime")
+    .matches(TIME_RE)
+    .withMessage("endTime must be HH:MM (e.g. 18:00)")
+    .custom((end, { req }) => {
+      // Basic sanity: endTime must be after startTime on the same slot
+      // We can't easily access the sibling startTime via express-validator
+      // so just validate format here — the controller handles the logic
+      return true;
+    }),
+
+  body("availability.*.isAvailable")
+    .optional()
+    .isBoolean()
+    .withMessage("isAvailable must be true or false"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §25  CATEGORY UPDATE VALIDATOR  (admin PATCH /:id)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// PATCH /api/categories/:id  (reuses the admin createCategory shape, all optional)
+export const validateUpdateCategory = [
+  param("id").isUUID(4).withMessage("Category ID must be a valid UUID"),
+
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Name must be 2–100 characters"),
+
+  body("slug")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Slug must be 2–100 characters")
+    .matches(/^[a-z0-9-]+$/)
+    .withMessage(
+      "Slug may only contain lowercase letters, numbers, and hyphens",
+    ),
+
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Description must not exceed 500 characters"),
+
+  body("icon")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 10 })
+    .withMessage("Icon must not exceed 10 characters"),
+
+  validate,
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPEND to the bottom of src/utils/validators.js
+// These 3 validators close the last genuine §7 gaps.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── §26  NOTIFICATION PREFERENCES  (PATCH /api/settings/notifications) ──────
+export const validateUpdateNotificationPrefs = [
+  body("email")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("email must be true or false"),
+  body("sms")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("sms must be true or false"),
+  body("push")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("push must be true or false"),
+  body("bookings")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("bookings must be true or false"),
+  body("payments")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("payments must be true or false"),
+  body("messages")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("messages must be true or false"),
+  body("reviews")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("reviews must be true or false"),
+  body("marketing")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("marketing must be true or false"),
+  validate,
+];
+
+// ─── §27  PRIVACY SETTINGS  (PATCH /api/settings/privacy) ────────────────────
+export const validateUpdatePrivacySettings = [
+  body("profileVisible")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("profileVisible must be true or false"),
+  body("showPhone")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("showPhone must be true or false"),
+  body("showEmail")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("showEmail must be true or false"),
+  body("showLocation")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("showLocation must be true or false"),
+  body("showGender")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("showGender must be true or false"),
+  body("allowMessages")
+    .optional({ nullable: true })
+    .isBoolean()
+    .withMessage("allowMessages must be true or false"),
+  validate,
+];

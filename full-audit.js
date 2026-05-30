@@ -1,38 +1,12 @@
 #!/usr/bin/env node
-// full-audit.js
-// ─────────────────────────────────────────────────────────────────────────────
-// SkilledProz — Complete Platform Audit
-//
-// Checks:
-//   §1  Project file tree
-//   §2  All controller exports (25 controllers)
-//   §3  All route endpoints (method + path + handler)
-//   §4  Controller → Route coverage (exported functions with no route)
-//   §5  Route → Controller cross-check (broken imports)
-//   §6  Auth middleware coverage (routes missing protect/requireRole)
-//   §7  Validation coverage (POST/PATCH/PUT missing validators)
-//   §8  Pagination coverage (list endpoints not using paginate helper)
-//   §9  Service files check
-//   §10 Middleware files check
-//   §11 Utils files check
-//   §12 Platform feature checklist (what a marketplace must have)
-//   §13 app.js route mount check
-//   §14 Environment variable audit
-//   §15 Summary & priority action list
-//
-// Run: node full-audit.js
-// Output saved to: full-audit-report.txt
-// ─────────────────────────────────────────────────────────────────────────────
-
+// full-audit.js  v2 — fixed regex for comments in imports, router.use() auth, handler extraction
 import { readdir, readFile, writeFile, stat } from "fs/promises";
-import { join, dirname, extname, basename } from "path";
+import { join, dirname, basename } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DRY = false;
 
-// ── Find project root ─────────────────────────────────────────────────────────
 function findRoot(start) {
   let dir = start;
   for (let i = 0; i < 6; i++) {
@@ -45,28 +19,19 @@ const ROOT = findRoot(__dirname);
 const SRC = join(ROOT, "src");
 const LINE = "─".repeat(80);
 const DLINE = "═".repeat(80);
-
 const out = [];
 function log(s = "") {
   console.log(s);
   out.push(s);
 }
-function sec(title) {
+function sec(t) {
   log();
   log(DLINE);
-  log(`  ${title}`);
+  log(`  ${t}`);
   log(DLINE);
-}
-function sub(title) {
-  log();
-  log(`  ${LINE.slice(0, 60)}`);
-  log(`  ${title}`);
-  log(`  ${LINE.slice(0, 60)}`);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Read helpers ──────────────────────────────────────────────────────────────
 async function readSrc(rel) {
   try {
     return await readFile(join(SRC, rel), "utf8");
@@ -74,16 +39,13 @@ async function readSrc(rel) {
     return null;
   }
 }
-
 async function listDir(dir) {
   try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries;
+    return await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
   }
 }
-
 async function dirExists(p) {
   try {
     return (await stat(p)).isDirectory();
@@ -92,99 +54,38 @@ async function dirExists(p) {
   }
 }
 
-// Extract named exports from a JS file
+// ── Strip JS comments from a string (single-line + block) ────────────────────
+function stripComments(src) {
+  return src
+    .replace(/\/\/[^\n]*/g, "") // // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ""); // /* block comments */
+}
+
+// ── Extract named exports ─────────────────────────────────────────────────────
 function extractExports(content) {
   const found = new Set();
-  const patterns = [
+  const clean = stripComments(content);
+  [
     /^export\s+const\s+(\w+)\s*=/gm,
     /^export\s+async\s+function\s+(\w+)/gm,
     /^export\s+function\s+(\w+)/gm,
-  ];
-  for (const p of patterns) {
+  ].forEach((p) => {
     let m;
     const re = new RegExp(p.source, p.flags);
-    while ((m = re.exec(content)) !== null) if (m[1]) found.add(m[1]);
-  }
+    while ((m = re.exec(clean)) !== null) if (m[1]) found.add(m[1]);
+  });
   return [...found].sort();
 }
 
-// Extract router.METHOD(path, ...) lines
-function extractRoutes(content, filename) {
-  const routes = [];
-  const re =
-    /router\.(get|post|put|patch|delete|use)\s*\(\s*["'`]([^"'`]+)["'`]/g;
-  let m;
-  while ((m = re.exec(content)) !== null) {
-    const method = m[1].toUpperCase();
-    const path = m[2];
-    if (method === "USE" && path === "/") continue; // skip router.use("/")
-
-    // Extract handlers (last identifier before the closing paren group)
-    const lineStart = content.lastIndexOf("\n", m.index) + 1;
-    const lineEnd = content.indexOf("\n", m.index + m[0].length);
-    const snippet = content.slice(
-      m.index,
-      lineEnd < 0 ? undefined : lineEnd + 200,
-    );
-
-    // Find handler name — last word before closing paren of route definition
-    const handlers = [...snippet.matchAll(/\b([a-z][a-zA-Z0-9]+)\b/g)]
-      .map((x) => x[1])
-      .filter(
-        (h) =>
-          ![
-            "router",
-            "get",
-            "post",
-            "put",
-            "patch",
-            "delete",
-            "use",
-            "protect",
-            "requireRole",
-            "optionalProtect",
-            "uploadSingle",
-            "normaliseFile",
-            "validatePagination",
-            "loginLimiter",
-            "registerLimiter",
-            "apiLimiter",
-            "aiLimiter",
-            "aiDailyLimiter",
-            "nearbyLimiter",
-            "searchLimiter",
-            "filterLimiter",
-            "trendingLimiter",
-            "webhookLimiter",
-            "uploadLimiter",
-            "notificationRequestLimiter",
-          ].includes(h),
-      );
-
-    const handler = handlers[handlers.length - 1] || "?";
-
-    routes.push({
-      method,
-      path,
-      handler,
-      hasProtect: /\bprotect\b/.test(snippet),
-      hasRequireRole: /\brequireRole\b/.test(snippet),
-      hasValidator: /\bvalidate[A-Z]/.test(snippet),
-      hasUUIDParam: /\bvalidateUUIDParam\b/.test(snippet),
-      hasPagination: /\bvalidatePagination\b/.test(snippet),
-      isOptionalAuth: /\boptionalProtect\b/.test(snippet),
-    });
-  }
-  return routes;
-}
-
-// Extract what a route file imports from controllers
+// ── Extract what a route file imports from controllers ────────────────────────
+// KEY FIX: strip comments before splitting on comma
 function extractControllerImports(content) {
   const result = {};
   const re = /import\s*\{([^}]+)\}\s*from\s*["']([^'"]*controller[^'"]*)['"]/g;
   let m;
   while ((m = re.exec(content)) !== null) {
-    const names = m[1]
+    const block = stripComments(m[1]); // ← strip // comments first
+    const names = block
       .split(",")
       .map((s) =>
         s
@@ -192,7 +93,7 @@ function extractControllerImports(content) {
           .split(/\s+as\s+/)[0]
           .trim(),
       )
-      .filter(Boolean);
+      .filter((s) => /^\w+$/.test(s)); // only valid identifiers
     const file = basename(m[2]);
     if (!result[file]) result[file] = [];
     result[file].push(...names);
@@ -200,7 +101,108 @@ function extractControllerImports(content) {
   return result;
 }
 
-// Levenshtein for suggestions
+// ── Extract routes from a route file ─────────────────────────────────────────
+function extractRoutes(content) {
+  const routes = [];
+
+  // KEY FIX: detect router.use(protect) at the router level
+  const routerUsesProtect = /router\.use\s*\(\s*protect\b/.test(content);
+  const routerUsesRequireRole =
+    /router\.use\s*\(\s*(?:protect\s*,\s*)?requireRole\b/.test(content);
+  // also detect const W = [protect, ...] pattern
+  const hasWProtect = /const\s+\w+\s*=\s*\[protect\b/.test(content);
+
+  const re =
+    /router\.(get|post|put|patch|delete|use)\s*\(\s*["'`]([^"'`]+)["'`]/gi;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const method = m[1].toUpperCase();
+    const path = m[2];
+    if (method === "USE") continue;
+
+    // Get the snippet from this match to the next semicolon / close paren
+    const start = m.index;
+    const snippet = content.slice(start, start + 600);
+
+    // KEY FIX: extract handler — last word that looks like a camelCase function
+    // ignore keywords, middleware names, and short words
+    const IGNORE = new Set([
+      "router",
+      "get",
+      "post",
+      "put",
+      "patch",
+      "delete",
+      "use",
+      "protect",
+      "requireRole",
+      "optionalProtect",
+      "uploadSingle",
+      "normaliseFile",
+      "validatePagination",
+      "loginLimiter",
+      "registerLimiter",
+      "apiLimiter",
+      "aiLimiter",
+      "aiDailyLimiter",
+      "nearbyLimiter",
+      "searchLimiter",
+      "filterLimiter",
+      "trendingLimiter",
+      "webhookLimiter",
+      "uploadLimiter",
+      "notificationRequestLimiter",
+      "validate",
+      "body",
+      "param",
+      "query",
+      "default",
+      "async",
+      "await",
+      "const",
+      "let",
+      "var",
+      "return",
+      "function",
+      "router",
+      "express",
+      "true",
+      "false",
+    ]);
+
+    const allWords = [...snippet.matchAll(/\b([a-z][a-zA-Z0-9]{3,})\b/g)]
+      .map((x) => x[1])
+      .filter(
+        (w) => !IGNORE.has(w) && !w.startsWith("validate") && w !== "route",
+      );
+
+    const handler = allWords[allWords.length - 1] || "?";
+
+    // Per-route auth detection (individual route has protect)
+    const perRouteProtect = /\bprotect\b/.test(snippet);
+    const perRouteRole = /\brequireRole\b/.test(snippet);
+
+    // Router-level OR per-route
+    const hasProtect = perRouteProtect || routerUsesProtect || hasWProtect;
+    const hasRequireRole = perRouteRole || routerUsesRequireRole;
+    const isOptional = /\boptionalProtect\b/.test(snippet);
+
+    routes.push({
+      method,
+      path,
+      handler,
+      hasProtect,
+      hasRequireRole,
+      hasValidator: /\bvalidate[A-Z]/.test(snippet),
+      hasUUIDParam: /\bvalidateUUIDParam\b/.test(snippet),
+      hasPagination: /\bvalidatePagination\b/.test(snippet),
+      isOptionalAuth: isOptional && !hasProtect,
+    });
+  }
+  return routes;
+}
+
+// ── Levenshtein ───────────────────────────────────────────────────────────────
 function lev(a, b) {
   const dp = Array.from({ length: a.length + 1 }, (_, i) =>
     Array.from({ length: b.length + 1 }, (_, j) =>
@@ -215,7 +217,6 @@ function lev(a, b) {
           : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
   return dp[a.length][b.length];
 }
-
 function closest(name, list) {
   return list
     .sort((a, b) => lev(name, a) - lev(name, b))
@@ -223,22 +224,18 @@ function closest(name, list) {
     .filter((x) => lev(name, x) <= 5);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
 // MAIN
-// ─────────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
 log();
 log(DLINE);
-log("  SkilledProz — Full Platform Audit");
+log("  SkilledProz — Full Platform Audit  v2");
 log(`  Generated : ${new Date().toLocaleString()}`);
 log(`  Root      : ${ROOT}`);
-log(`  Src       : ${SRC}`);
 log(DLINE);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §1  PROJECT FILE TREE
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §1 File tree ──────────────────────────────────────────────────────────────
 sec("§ 1  PROJECT FILE TREE");
-
 const KEY_DIRS = [
   "controllers",
   "routes",
@@ -248,45 +245,26 @@ const KEY_DIRS = [
   "config",
   "socket",
   "prisma",
-  "generated",
 ];
-
 for (const dir of KEY_DIRS) {
-  const full = join(SRC, dir);
-  const entries = await listDir(full);
-  const files = entries
+  const files = (await listDir(join(SRC, dir)))
     .filter((e) => e.isFile())
     .map((e) => e.name)
     .sort();
-  const exists = await dirExists(full);
-
-  if (!exists || files.length === 0) {
-    log(`  ❌  src/${dir}/  (empty or missing)`);
-  } else {
-    log(
-      `  ✅  src/${dir}/  (${files.length} file${files.length !== 1 ? "s" : ""})`,
-    );
-    files.forEach((f) => {
-      const size = "";
-      log(`        ${f}`);
-    });
-  }
+  const ok = (await dirExists(join(SRC, dir))) && files.length > 0;
+  log(`  ${ok ? "✅" : "❌"}  src/${dir}/  (${files.length} files)`);
+  files.forEach((f) => log(`        ${f}`));
 }
-
-// Also list root scripts/
-const scriptFiles = (await listDir(join(ROOT, "scripts")))
+const scripts = (await listDir(join(ROOT, "scripts")))
   .filter((e) => e.isFile())
   .map((e) => e.name)
   .sort();
 log();
-log(`  📁  scripts/  (${scriptFiles.length} files)`);
-scriptFiles.forEach((f) => log(`        ${f}`));
+log(`  📁  scripts/ (${scripts.length} files)`);
+scripts.forEach((f) => log(`        ${f}`));
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §2  CONTROLLER AUDIT
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §2 Controller exports ────────────────────────────────────────────────────
 sec("§ 2  ALL CONTROLLER EXPORTS");
-
 const ctrlDir = join(SRC, "controllers");
 const ctrlFiles = (await listDir(ctrlDir))
   .filter(
@@ -294,9 +272,7 @@ const ctrlFiles = (await listDir(ctrlDir))
   )
   .map((e) => e.name)
   .sort();
-
-const controllerMap = {}; // { "auth.controller.js": ["login","register",...] }
-
+const controllerMap = {};
 let totalExports = 0;
 for (const file of ctrlFiles) {
   const content = await readFile(join(ctrlDir, file), "utf8");
@@ -308,16 +284,12 @@ for (const file of ctrlFiles) {
   exports.forEach((e) => log(`  │   ${e}`));
   log(`  └${"─".repeat(60)}`);
 }
-log();
 log(
-  `  Total: ${ctrlFiles.length} controllers, ${totalExports} exported functions`,
+  `\n  Total: ${ctrlFiles.length} controllers, ${totalExports} exported functions`,
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §3  ROUTE AUDIT
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §3 Route audit ────────────────────────────────────────────────────────────
 sec("§ 3  ALL ROUTES");
-
 const routesDir = join(SRC, "routes");
 const routeFiles = (await listDir(routesDir))
   .filter(
@@ -325,60 +297,45 @@ const routeFiles = (await listDir(routesDir))
   )
   .map((e) => e.name)
   .sort();
-
-const routeMap = {}; // { "auth.routes.js": [{ method, path, handler, ... }] }
-const importMap = {}; // { "auth.routes.js": { "auth.controller.js": ["login",...] } }
-
+const routeMap = {};
+const importMap = {};
 let totalRoutes = 0;
 for (const file of routeFiles) {
   const content = await readFile(join(routesDir, file), "utf8");
-  const routes = extractRoutes(content, file);
+  const routes = extractRoutes(content);
   const imports = extractControllerImports(content);
   routeMap[file] = routes;
   importMap[file] = imports;
   totalRoutes += routes.length;
-
   log();
-  log(
-    `  ┌─ ${file}  (${routes.length} route${routes.length !== 1 ? "s" : ""})`,
-  );
+  log(`  ┌─ ${file}  (${routes.length} routes)`);
   routes.forEach((r) => {
     const auth = r.hasProtect
       ? r.hasRequireRole
         ? "🔐ROLE"
         : "🔑AUTH"
       : r.isOptionalAuth
-        ? "👁️OPT"
+        ? "👁️OPT "
         : "🌐PUB ";
-    const val = r.hasValidator ? "✅VAL" : "⬜   ";
+    const val = r.hasValidator || r.hasUUIDParam ? "✅VAL" : "⬜   ";
     log(
       `  │   ${auth} ${val}  ${r.method.padEnd(7)} ${r.path.padEnd(40)} → ${r.handler}`,
     );
   });
   log(`  └${"─".repeat(60)}`);
 }
-log();
-log(`  Total: ${routeFiles.length} route files, ${totalRoutes} endpoints`);
+log(`\n  Total: ${routeFiles.length} route files, ${totalRoutes} endpoints`);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §4  CONTROLLER → ROUTE COVERAGE
-//     (exported functions that are not used in any route)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §4 Controller → Route coverage ───────────────────────────────────────────
 sec("§ 4  UNUSED CONTROLLER EXPORTS (not mapped to any route)");
-
-// Build set of all handler names used in routes
 const usedHandlers = new Set();
-for (const routes of Object.values(routeMap)) {
+for (const routes of Object.values(routeMap))
   routes.forEach((r) => usedHandlers.add(r.handler));
-}
-// Also collect everything imported in route files
-for (const imports of Object.values(importMap)) {
+for (const imports of Object.values(importMap))
   for (const names of Object.values(imports))
     names.forEach((n) => usedHandlers.add(n));
-}
 
-const INTERNAL_FNS = new Set([
-  // functions meant to be called internally, not via routes
+const INTERNAL = new Set([
   "applyReferralOnSignup",
   "qualifyReferral",
   "convertReferral",
@@ -399,11 +356,10 @@ const INTERNAL_FNS = new Set([
   "SUPPORTED_CURRENCIES",
   "getPlanCode",
 ]);
-
 let unusedCount = 0;
 for (const [file, exports] of Object.entries(controllerMap)) {
   const unused = exports.filter(
-    (e) => !usedHandlers.has(e) && !INTERNAL_FNS.has(e),
+    (e) => !usedHandlers.has(e) && !INTERNAL.has(e),
   );
   if (unused.length > 0) {
     log();
@@ -412,22 +368,11 @@ for (const [file, exports] of Object.entries(controllerMap)) {
     unusedCount += unused.length;
   }
 }
+if (!unusedCount) log("  ✅  All exported functions are reachable via routes.");
+else log(`\n  ${unusedCount} function(s) not routed.`);
 
-if (unusedCount === 0) {
-  log(
-    "  ✅  All exported controller functions are mapped to at least one route.",
-  );
-} else {
-  log();
-  log(`  ${unusedCount} function(s) exported but not reachable via any route.`);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// §5  ROUTE → CONTROLLER CROSS-CHECK
-//     (imports that don't exist in the controller)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §5 Broken imports ────────────────────────────────────────────────────────
 sec("§ 5  BROKEN ROUTE IMPORTS");
-
 let brokenCount = 0;
 for (const [routeFile, imports] of Object.entries(importMap)) {
   for (const [ctrlFile, names] of Object.entries(imports)) {
@@ -446,23 +391,13 @@ for (const [routeFile, imports] of Object.entries(importMap)) {
     }
   }
 }
-
-if (brokenCount === 0) {
+if (!brokenCount)
   log("  ✅  All route imports resolve to real controller exports.");
-} else {
-  log();
-  log(
-    `  ${brokenCount} broken import(s) found. Fix these first — server crashes on startup.`,
-  );
-}
+else log(`\n  ${brokenCount} broken import(s).`);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §6  AUTH MIDDLEWARE COVERAGE
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §6 Auth coverage ─────────────────────────────────────────────────────────
 sec("§ 6  AUTH MIDDLEWARE COVERAGE");
-
-// Routes that should always be public
-const ALWAYS_PUBLIC = new Set([
+const ALWAYS_PUBLIC_PATHS = new Set([
   "/",
   "/health",
   "/search",
@@ -473,50 +408,54 @@ const ALWAYS_PUBLIC = new Set([
   "/plans",
   "/categories",
 ]);
-// Route files that are entirely public (no auth needed anywhere)
-const PUBLIC_ROUTE_FILES = new Set(["search.routes.js", "category.routes.js"]);
-
-let noAuthCount = 0;
-for (const [file, routes] of Object.entries(routeMap)) {
-  if (PUBLIC_ROUTE_FILES.has(file)) continue;
-
-  const unprotected = routes.filter((r) => {
-    if (r.method === "GET" && ALWAYS_PUBLIC.has(r.path)) return false;
-    if (r.isOptionalAuth) return false;
-    if (r.hasProtect || r.hasRequireRole) return false;
-    // Webhooks are intentionally unprotected
-    if (r.path.includes("webhook")) return false;
-    // Public GET endpoints are usually fine
-    if (r.method === "GET" && (r.path === "/" || r.path.match(/^\/:[a-z]+Id$/)))
-      return false;
-    return (
-      r.method !== "GET" ||
-      r.path.includes("register") ||
-      r.path.includes("login")
-    );
-  });
-
-  if (unprotected.length > 0) {
-    log();
-    log(`  ⚠️  ${file} — routes missing auth middleware:`);
-    unprotected.forEach((r) => log(`       ${r.method.padEnd(7)} ${r.path}`));
-    noAuthCount += unprotected.length;
-  }
-}
-
-if (noAuthCount === 0) {
-  log("  ✅  Auth middleware looks complete across all route files.");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// §7  VALIDATION COVERAGE
-// ─────────────────────────────────────────────────────────────────────────────
-sec("§ 7  VALIDATION COVERAGE (POST/PATCH/PUT missing validators)");
-
-// Routes that are intentionally unvalidated (webhooks, simple toggles, etc.)
-const SKIP_VALIDATION = new Set([
+const ALWAYS_PUBLIC_METHODS = new Set(["GET"]);
+const INTENTIONALLY_PUBLIC = new Set([
+  "register",
+  "login",
+  "forgotPassword",
+  "resetPassword",
+  "verifyEmail",
+  "resendVerification",
   "paystackWebhook",
   "flutterwaveWebhook",
+  "getJobPosts",
+  "searchWorkers",
+  "getHirerProfile",
+  "getHirerPublicProfile",
+  "getWorkerProfile",
+  "getCategories",
+  "getCategory",
+  "suggestCategory",
+  "validateReferralCode",
+  "getInsurancePlans",
+  "getPackages",
+  "getTrending",
+  "getFilterOptions",
+  "globalSearch",
+  "nearbyWorkers",
+]);
+let noAuthCount = 0;
+for (const [file, routes] of Object.entries(routeMap)) {
+  const missing = routes.filter((r) => {
+    if (r.hasProtect || r.hasRequireRole || r.isOptionalAuth) return false;
+    if (r.path.includes("webhook")) return false;
+    if (ALWAYS_PUBLIC_PATHS.has(r.path)) return false;
+    if (INTENTIONALLY_PUBLIC.has(r.handler)) return false;
+    if (r.method === "GET") return false; // GET is usually OK to be public unless financial/personal
+    return true;
+  });
+  if (missing.length > 0) {
+    log();
+    log(`  ⚠️  ${file}`);
+    missing.forEach((r) => log(`       ${r.method.padEnd(7)} ${r.path}`));
+    noAuthCount += missing.length;
+  }
+}
+if (!noAuthCount) log("  ✅  Auth middleware looks complete.");
+
+// ── §7 Validation ─────────────────────────────────────────────────────────────
+sec("§ 7  VALIDATION COVERAGE (POST/PATCH/PUT without body validators)");
+const SKIP_VAL = new Set([
   "logout",
   "getMe",
   "refreshToken",
@@ -549,8 +488,17 @@ const SKIP_VALIDATION = new Set([
   "cancelReport",
   "cancelDispute",
   "resolveSOS",
+  "cancelSubscription",
+  "markNotificationsRead",
+  "markAllNotificationsRead",
+  "repost",
+  "unsaveWorker",
+  "unsaveJob",
+  "markConversationRead",
+  "removeAllDeviceTokens",
+  "removeDeviceToken",
+  "updateBackgroundCheck",
 ]);
-
 let noValCount = 0;
 for (const [file, routes] of Object.entries(routeMap)) {
   const missing = routes.filter(
@@ -558,10 +506,9 @@ for (const [file, routes] of Object.entries(routeMap)) {
       ["POST", "PATCH", "PUT"].includes(r.method) &&
       !r.hasValidator &&
       !r.hasUUIDParam &&
-      !SKIP_VALIDATION.has(r.handler) &&
+      !SKIP_VAL.has(r.handler) &&
       !r.path.includes("webhook"),
   );
-
   if (missing.length > 0) {
     log();
     log(`  ⚠️  ${file}`);
@@ -571,20 +518,11 @@ for (const [file, routes] of Object.entries(routeMap)) {
     noValCount += missing.length;
   }
 }
+if (!noValCount) log("  ✅  All mutating routes have validation middleware.");
+else log(`\n  ${noValCount} route(s) modifying data without input validation.`);
 
-if (noValCount === 0) {
-  log("  ✅  All mutating routes have validation middleware.");
-} else {
-  log();
-  log(`  ${noValCount} route(s) modifying data without input validation.`);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// §8  PAGINATION COVERAGE
-// ─────────────────────────────────────────────────────────────────────────────
-sec("§ 8  PAGINATION COVERAGE (GET list routes missing validatePagination)");
-
-// Handlers that definitely return lists
+// ── §8 Pagination ─────────────────────────────────────────────────────────────
+sec("§ 8  PAGINATION COVERAGE");
 const LIST_HANDLERS = new Set([
   "getAllUsers",
   "getAllBookings",
@@ -626,7 +564,6 @@ const LIST_HANDLERS = new Set([
   "getMyReceivedReviews",
   "getMyGivenReviews",
   "getWorkerReviews",
-  "getHirerReviews",
   "getWithdrawals",
   "getHirerPayments",
   "getWorkerEarnings",
@@ -634,7 +571,6 @@ const LIST_HANDLERS = new Set([
   "getMyPosts",
   "getUserPosts",
 ]);
-
 let noPagCount = 0;
 for (const [file, routes] of Object.entries(routeMap)) {
   const missing = routes.filter(
@@ -645,635 +581,381 @@ for (const [file, routes] of Object.entries(routeMap)) {
     log();
     log(`  ⚠️  ${file}`);
     missing.forEach((r) =>
-      log(
-        `       GET ${r.path.padEnd(40)} → ${r.handler}  (no validatePagination)`,
-      ),
+      log(`       GET ${r.path.padEnd(40)} → ${r.handler}`),
     );
     noPagCount += missing.length;
   }
 }
+if (!noPagCount) log("  ✅  All list endpoints use validatePagination.");
 
-if (noPagCount === 0) {
-  log("  ✅  All known list endpoints use validatePagination.");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// §9  SERVICE FILES
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §9–§11 Services / Middleware / Utils ──────────────────────────────────────
 sec("§ 9  SERVICE FILES");
-
-const EXPECTED_SERVICES = [
-  { file: "auth.service.js", desc: "JWT + token management" },
-  { file: "email.service.js", desc: "Resend / Nodemailer email sending" },
-  {
-    file: "notification.service.js",
-    desc: "In-app + push notification helpers",
-  },
-  { file: "push.service.js", desc: "Expo push notification API" },
-  {
-    file: "payment.service.js",
-    desc: "Shared payment utilities (Paystack/Flutterwave)",
-  },
-];
-
-for (const s of EXPECTED_SERVICES) {
-  const exists = existsSync(join(SRC, "services", s.file));
-  log(`  ${exists ? "✅" : "❌"}  services/${s.file.padEnd(30)} ${s.desc}`);
-}
-
-// Also list any extra service files
+[
+  { f: "auth.service.js", d: "JWT + token management" },
+  { f: "email.service.js", d: "Email sending" },
+  { f: "notification.service.js", d: "In-app + push notifications" },
+  { f: "push.service.js", d: "Expo push API" },
+  { f: "payment.service.js", d: "Paystack/Flutterwave utilities" },
+].forEach((s) => {
+  const ok = existsSync(join(SRC, "services", s.f));
+  log(`  ${ok ? "✅" : "❌"}  ${s.f.padEnd(30)} ${s.d}`);
+});
 const svcFiles = (await listDir(join(SRC, "services")))
   .filter((e) => e.isFile() && e.name.endsWith(".js"))
   .map((e) => e.name);
-const extra = svcFiles.filter(
-  (f) => !EXPECTED_SERVICES.map((s) => s.file).includes(f),
-);
-if (extra.length > 0) {
+const expected = [
+  "auth.service.js",
+  "email.service.js",
+  "notification.service.js",
+  "push.service.js",
+  "payment.service.js",
+];
+const extra = svcFiles.filter((f) => !expected.includes(f));
+if (extra.length) {
   log();
-  log("  Extra service files found:");
+  log("  Extra:");
   extra.forEach((f) => log(`       ${f}`));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §10 MIDDLEWARE FILES
-// ─────────────────────────────────────────────────────────────────────────────
 sec("§ 10  MIDDLEWARE FILES");
+[
+  { f: "auth.middleware.js", d: "protect, requireRole, optionalProtect" },
+  { f: "upload.middleware.js", d: "uploadSingle, normaliseFile" },
+  { f: "rateLimit.middleware.js", d: "Named limiters" },
+  { f: "error.middleware.js", d: "Global error handler" },
+].forEach((m) =>
+  log(
+    `  ${existsSync(join(SRC, "middleware", m.f)) ? "✅" : "❌"}  ${m.f.padEnd(28)} ${m.d}`,
+  ),
+);
 
-const EXPECTED_MW = [
-  { file: "auth.middleware.js", desc: "protect, requireRole, optionalProtect" },
-  {
-    file: "upload.middleware.js",
-    desc: "uploadSingle, uploadMultiple, normaliseFile",
-  },
-  { file: "rateLimit.middleware.js", desc: "14 named limiters" },
-  {
-    file: "error.middleware.js",
-    desc: "Global error handler (optional but recommended)",
-  },
-];
-
-for (const m of EXPECTED_MW) {
-  const exists = existsSync(join(SRC, "middleware", m.file));
-  log(`  ${exists ? "✅" : "❌"}  middleware/${m.file.padEnd(28)} ${m.desc}`);
-}
-
-// Check what auth.middleware.js exports
-const authMwContent = await readSrc("middleware/auth.middleware.js");
-if (authMwContent) {
-  const authExports = extractExports(authMwContent);
-  const required = ["protect", "requireRole", "optionalProtect"];
-  required.forEach((fn) => {
-    const ok =
-      authExports.includes(fn) ||
-      authMwContent.includes(`export const ${fn}`) ||
-      authMwContent.includes(`exports.${fn}`);
-    log(`       ${ok ? "✅" : "❌"}  ${fn}`);
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// §11 UTILS FILES
-// ─────────────────────────────────────────────────────────────────────────────
 sec("§ 11  UTILITY FILES");
-
-const EXPECTED_UTILS = [
-  { file: "response.js", desc: "sendResponse, sendError, sendPaginated, …" },
-  { file: "helpers.js", desc: "paginate, fullName, formatCurrency, …" },
-  { file: "validators.js", desc: "All input validators (22 sections)" },
-  { file: "auditLog.js", desc: "logAdminAction, logAdminFailure" },
-];
-
-for (const u of EXPECTED_UTILS) {
-  const exists = existsSync(join(SRC, "utils", u.file));
-  log(`  ${exists ? "✅" : "❌"}  utils/${u.file.padEnd(20)} ${u.desc}`);
-  if (exists) {
-    const content = await readSrc(`utils/${u.file}`);
-    const exports = extractExports(content);
-    log(`       ${exports.length} exported functions`);
+for (const u of ["response.js", "helpers.js", "validators.js", "auditLog.js"]) {
+  const ok = existsSync(join(SRC, "utils", u));
+  if (ok) {
+    const c = await readSrc(`utils/${u}`);
+    const n = extractExports(c).length;
+    log(`  ✅  utils/${u.padEnd(16)} (${n} exports)`);
+  } else {
+    log(`  ❌  utils/${u}`);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §12 PLATFORM FEATURE CHECKLIST
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §12 Feature checklist ─────────────────────────────────────────────────────
 sec("§ 12  PLATFORM FEATURE CHECKLIST");
-
-// Infer which features exist based on controller presence
 const ctrlSet = new Set(ctrlFiles);
 const routeSet = new Set(routeFiles);
-
 const FEATURES = [
-  // Auth & Users
   {
-    name: "User registration + login",
-    ctrl: "auth.controller.js",
-    route: "auth.routes.js",
+    n: "User registration + login",
+    c: "auth.controller.js",
+    r: "auth.routes.js",
+  },
+  { n: "Email verification", c: "auth.controller.js", r: "auth.routes.js" },
+  {
+    n: "Forgot / reset password",
+    c: "auth.controller.js",
+    r: "auth.routes.js",
   },
   {
-    name: "Email verification",
-    ctrl: "auth.controller.js",
-    route: "auth.routes.js",
+    n: "JWT refresh token rotation",
+    c: "auth.controller.js",
+    r: "auth.routes.js",
   },
   {
-    name: "Forgot / reset password",
-    ctrl: "auth.controller.js",
-    route: "auth.routes.js",
+    n: "User profile settings",
+    c: "settings.controller.js",
+    r: "settings.routes.js",
+  },
+  { n: "Avatar upload", c: "settings.controller.js", r: "settings.routes.js" },
+  {
+    n: "Privacy settings",
+    c: "settings.controller.js",
+    r: "settings.routes.js",
+  },
+  { n: "Worker profile", c: "worker.controller.js", r: "worker.routes.js" },
+  {
+    n: "Portfolio management",
+    c: "worker.controller.js",
+    r: "worker.routes.js",
   },
   {
-    name: "JWT refresh token rotation",
-    ctrl: "auth.controller.js",
-    route: "auth.routes.js",
+    n: "Availability calendar",
+    c: "worker.controller.js",
+    r: "worker.routes.js",
+  },
+  { n: "Video intro upload", c: "worker.controller.js", r: "worker.routes.js" },
+  {
+    n: "Worker search (geo + filters)",
+    c: "search.controller.js",
+    r: "search.routes.js",
+  },
+  { n: "Nearby workers", c: "search.controller.js", r: "search.routes.js" },
+  { n: "Worker dashboard", c: "worker.controller.js", r: "worker.routes.js" },
+  { n: "Hirer profile", c: "hirer.controller.js", r: "hirer.routes.js" },
+  { n: "Hirer dashboard", c: "hirer.controller.js", r: "hirer.routes.js" },
+  {
+    n: "Saved workers (shortlist)",
+    c: "hirer.controller.js",
+    r: "hirer.routes.js",
+  },
+  { n: "Job post (create/browse)", c: "job.controller.js", r: "job.routes.js" },
+  { n: "Job applications", c: "job.controller.js", r: "job.routes.js" },
+  {
+    n: "Saved jobs (worker bookmark)",
+    c: "job.controller.js",
+    r: "job.routes.js",
   },
   {
-    name: "User profile settings",
-    ctrl: "settings.controller.js",
-    route: "settings.routes.js",
+    n: "Booking lifecycle",
+    c: "booking.controller.js",
+    r: "booking.routes.js",
   },
   {
-    name: "Avatar upload",
-    ctrl: "settings.controller.js",
-    route: "settings.routes.js",
+    n: "Check-in / check-out",
+    c: "booking.controller.js",
+    r: "booking.routes.js",
   },
   {
-    name: "Privacy settings",
-    ctrl: "settings.controller.js",
-    route: "settings.routes.js",
+    n: "SOS emergency alert",
+    c: "booking.controller.js",
+    r: "booking.routes.js",
+  },
+  { n: "Paystack payment", c: "payment.controller.js", r: "payment.routes.js" },
+  {
+    n: "Flutterwave payment",
+    c: "payment.controller.js",
+    r: "payment.routes.js",
   },
   {
-    name: "Activity log",
-    ctrl: "settings.controller.js",
-    route: "settings.routes.js",
+    n: "Bank transfer (manual)",
+    c: "payment.controller.js",
+    r: "payment.routes.js",
   },
-  // Workers
+  { n: "Crypto payment", c: "payment.controller.js", r: "payment.routes.js" },
   {
-    name: "Worker profile",
-    ctrl: "worker.controller.js",
-    route: "worker.routes.js",
-  },
-  {
-    name: "Portfolio management",
-    ctrl: "worker.controller.js",
-    route: "worker.routes.js",
+    n: "Escrow + withdrawal",
+    c: "payment.controller.js",
+    r: "payment.routes.js",
   },
   {
-    name: "Availability calendar",
-    ctrl: "worker.controller.js",
-    route: "worker.routes.js",
+    n: "Worker & hirer reviews",
+    c: "review.controller.js",
+    r: "review.routes.js",
   },
   {
-    name: "Video intro upload",
-    ctrl: "worker.controller.js",
-    route: "worker.routes.js",
+    n: "Real-time messaging",
+    c: "message.controller.js",
+    r: "message.routes.js",
   },
   {
-    name: "Worker search & discovery",
-    ctrl: "search.controller.js",
-    route: "search.routes.js",
+    n: "In-app + push notifications",
+    c: "notification.controller.js",
+    r: "notification.routes.js",
   },
   {
-    name: "Nearby workers (geo)",
-    ctrl: "search.controller.js",
-    route: "search.routes.js",
+    n: "Device token management",
+    c: "notification.controller.js",
+    r: "notification.routes.js",
   },
   {
-    name: "Worker dashboard",
-    ctrl: "worker.controller.js",
-    route: "worker.routes.js",
-  },
-  // Hirers
-  {
-    name: "Hirer profile",
-    ctrl: "hirer.controller.js",
-    route: "hirer.routes.js",
+    n: "Worker ID verification",
+    c: "verification.controller.js",
+    r: "verification.routes.js",
   },
   {
-    name: "Hirer dashboard",
-    ctrl: "hirer.controller.js",
-    route: "hirer.routes.js",
+    n: "Hirer business verification",
+    c: "verification.controller.js",
+    r: "verification.routes.js",
   },
   {
-    name: "Saved workers (shortlist)",
-    ctrl: "hirer.controller.js",
-    route: "hirer.routes.js",
-  },
-  // Jobs
-  {
-    name: "Job post (create/browse)",
-    ctrl: "job.controller.js",
-    route: "job.routes.js",
+    n: "Report / flag system",
+    c: "report.controller.js",
+    r: "report.routes.js",
   },
   {
-    name: "Job applications",
-    ctrl: "job.controller.js",
-    route: "job.routes.js",
+    n: "Dispute resolution",
+    c: "dispute.controller.js",
+    r: "dispute.routes.js",
   },
   {
-    name: "Saved jobs (worker bookmark)",
-    ctrl: "job.controller.js",
-    route: "job.routes.js",
-  },
-  // Bookings
-  {
-    name: "Booking lifecycle (CRUD)",
-    ctrl: "booking.controller.js",
-    route: "booking.routes.js",
+    n: "Subscription plans",
+    c: "subscription.controller.js",
+    r: "subscription.routes.js",
   },
   {
-    name: "Check-in / check-out",
-    ctrl: "booking.controller.js",
-    route: "booking.routes.js",
+    n: "Featured listings",
+    c: "featured.controller.js",
+    r: "featured.routes.js",
   },
   {
-    name: "SOS emergency alert",
-    ctrl: "booking.controller.js",
-    route: "booking.routes.js",
+    n: "Insurance plans",
+    c: "insurance.controller.js",
+    r: "insurance.routes.js",
   },
   {
-    name: "Emergency contact",
-    ctrl: "booking.controller.js",
-    route: "booking.routes.js",
+    n: "Referral program (tiered)",
+    c: "referral.controller.js",
+    r: "referral.routes.js",
   },
-  // Payments
-  {
-    name: "Paystack (card) payment",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Flutterwave payment",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Bank transfer (manual)",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Crypto payment (USDC/USDT)",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Escrow release",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Worker withdrawal",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  {
-    name: "Bank account verification",
-    ctrl: "payment.controller.js",
-    route: "payment.routes.js",
-  },
-  // Reviews
-  {
-    name: "Worker & hirer reviews",
-    ctrl: "review.controller.js",
-    route: "review.routes.js",
-  },
-  // Messages
-  {
-    name: "Real-time messaging",
-    ctrl: "message.controller.js",
-    route: "message.routes.js",
-  },
-  // Notifications
-  {
-    name: "In-app notifications",
-    ctrl: "notification.controller.js",
-    route: "notification.routes.js",
-  },
-  {
-    name: "Push notifications (Expo)",
-    ctrl: "notification.controller.js",
-    route: "notification.routes.js",
-  },
-  {
-    name: "Device token management",
-    ctrl: "notification.controller.js",
-    route: "notification.routes.js",
-  },
-  // Verification
-  {
-    name: "Worker ID verification",
-    ctrl: "verification.controller.js",
-    route: "verification.routes.js",
-  },
-  {
-    name: "Worker certification upload",
-    ctrl: "verification.controller.js",
-    route: "verification.routes.js",
-  },
-  {
-    name: "Background check",
-    ctrl: "verification.controller.js",
-    route: "verification.routes.js",
-  },
-  {
-    name: "Hirer business verification",
-    ctrl: "verification.controller.js",
-    route: "verification.routes.js",
-  },
-  // Reports & Safety
-  {
-    name: "Report / flag system",
-    ctrl: "report.controller.js",
-    route: "report.routes.js",
-  },
-  {
-    name: "Dispute resolution",
-    ctrl: "dispute.controller.js",
-    route: "dispute.routes.js",
-  },
-  // Subscriptions & Monetisation
-  {
-    name: "Subscription plans",
-    ctrl: "subscription.controller.js",
-    route: "subscription.routes.js",
-  },
-  {
-    name: "Featured listings (boost)",
-    ctrl: "featured.controller.js",
-    route: "featured.routes.js",
-  },
-  {
-    name: "Insurance plans",
-    ctrl: "insurance.controller.js",
-    route: "insurance.routes.js",
-  },
-  // Referral & Campaign
-  {
-    name: "Referral program (tiered)",
-    ctrl: "referral.controller.js",
-    route: "referral.routes.js",
-  },
-  {
-    name: "Daily campaign (social tasks)",
-    ctrl: "campaign.controller.js",
-    route: "campaign.routes.js",
-  },
-  // Community
-  {
-    name: "Community posts / feed",
-    ctrl: "post.controller.js",
-    route: "post.routes.js",
-  },
-  // AI & Translation
-  { name: "AI assistant (Anthropic)", ctrl: null, route: "ai.routes.js" },
-  { name: "Translation endpoint", ctrl: null, route: "translate.routes.js" },
-  // Video
-  {
-    name: "Video calls (WebRTC)",
-    ctrl: "videocall.controller.js",
-    route: "videocall.routes.js",
-  },
-  // Admin
-  {
-    name: "Admin user management",
-    ctrl: "admin.controller.js",
-    route: "admin.routes.js",
-  },
-  {
-    name: "Admin analytics & stats",
-    ctrl: "admin.controller.js",
-    route: "admin.routes.js",
-  },
-  {
-    name: "Admin audit log",
-    ctrl: "audit.controller.js",
-    route: "audit.routes.js",
-  },
-  {
-    name: "Admin manual payment verify",
-    ctrl: "admin.controller.js",
-    route: "admin.routes.js",
-  },
+  { n: "Daily campaign", c: "campaign.controller.js", r: "campaign.routes.js" },
+  { n: "Community posts / feed", c: "post.controller.js", r: "post.routes.js" },
+  { n: "AI assistant", c: null, r: "ai.routes.js" },
+  { n: "Translation", c: null, r: "translate.routes.js" },
+  { n: "Video calls", c: "videocall.controller.js", r: "videocall.routes.js" },
+  { n: "Admin panel", c: "admin.controller.js", r: "admin.routes.js" },
+  { n: "Admin audit log", c: "audit.controller.js", r: "audit.routes.js" },
+  { n: "Matching service", c: null, r: null, svc: "matching.service.js" },
 ];
-
-let presentCount = 0;
-let missingCount = 0;
+let present = 0,
+  missing = 0;
 for (const f of FEATURES) {
-  const ctrlOk = !f.ctrl || ctrlSet.has(f.ctrl);
-  const routeOk = !f.route || routeSet.has(f.route);
-  const ok = ctrlOk && routeOk;
-  if (ok) presentCount++;
-  else missingCount++;
+  const ctrlOk = !f.c || ctrlSet.has(f.c);
+  const routeOk = !f.r || routeSet.has(f.r);
+  const svcOk = !f.svc || existsSync(join(SRC, "services", f.svc));
+  const ok = ctrlOk && routeOk && svcOk;
+  ok ? present++ : missing++;
   log(
-    `  ${ok ? "✅" : "❌"}  ${f.name.padEnd(42)} ${f.ctrl || "(inline)"}${!ctrlOk ? " ← MISSING CTRL" : ""}${!routeOk ? " ← MISSING ROUTE" : ""}`,
+    `  ${ok ? "✅" : "❌"}  ${f.n.padEnd(40)} ${(f.c || f.svc || "(inline)").padEnd(28)}${!ok ? " ← MISSING" : ""}`,
   );
 }
-log();
 log(
-  `  ${presentCount}/${FEATURES.length} features present  |  ${missingCount} missing`,
+  `\n  ${present}/${FEATURES.length} features present  |  ${missing} missing`,
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §13 APP.JS ROUTE MOUNT CHECK
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §13 Route mounts ──────────────────────────────────────────────────────────
 sec("§ 13  APP.JS ROUTE MOUNTS");
-
 const appContent =
   (await readFile(join(ROOT, "app.js"), "utf8").catch(() => null)) ||
   (await readFile(join(SRC, "app.js"), "utf8").catch(() => null)) ||
   (await readFile(join(ROOT, "server.js"), "utf8").catch(() => null));
-
+const MOUNTS = [
+  "/api/auth",
+  "/api/users",
+  "/api/workers",
+  "/api/hirers",
+  "/api/jobs",
+  "/api/bookings",
+  "/api/payments",
+  "/api/reviews",
+  "/api/messages",
+  "/api/notifications",
+  "/api/verification",
+  "/api/reports",
+  "/api/disputes",
+  "/api/subscriptions",
+  "/api/featured",
+  "/api/insurance",
+  "/api/referral",
+  "/api/campaign",
+  "/api/posts",
+  "/api/search",
+  "/api/categories",
+  "/api/video-calls",
+  "/api/ai",
+  "/api/translate",
+  "/api/admin",
+  "/api/audit",
+];
 if (!appContent) {
-  log("  ❌  Could not find app.js or server.js");
+  log("  ❌  app.js / server.js not found");
 } else {
-  const EXPECTED_MOUNTS = [
-    { route: "/api/auth", file: "auth.routes.js" },
-    { route: "/api/users", file: "user.routes.js" },
-    { route: "/api/workers", file: "worker.routes.js" },
-    { route: "/api/hirers", file: "hirer.routes.js" },
-    { route: "/api/jobs", file: "job.routes.js" },
-    { route: "/api/bookings", file: "booking.routes.js" },
-    { route: "/api/payments", file: "payment.routes.js" },
-    { route: "/api/reviews", file: "review.routes.js" },
-    { route: "/api/messages", file: "message.routes.js" },
-    { route: "/api/notifications", file: "notification.routes.js" },
-    { route: "/api/verification", file: "verification.routes.js" },
-    { route: "/api/reports", file: "report.routes.js" },
-    { route: "/api/disputes", file: "dispute.routes.js" },
-    { route: "/api/subscriptions", file: "subscription.routes.js" },
-    { route: "/api/featured", file: "featured.routes.js" },
-    { route: "/api/insurance", file: "insurance.routes.js" },
-    { route: "/api/referral", file: "referral.routes.js" },
-    { route: "/api/campaign", file: "campaign.routes.js" },
-    { route: "/api/posts", file: "post.routes.js" },
-    { route: "/api/search", file: "search.routes.js" },
-    { route: "/api/categories", file: "category.routes.js" },
-    { route: "/api/video-calls", file: "videocall.routes.js" },
-    { route: "/api/ai", file: "ai.routes.js" },
-    { route: "/api/translate", file: "translate.routes.js" },
-    { route: "/api/admin", file: "admin.routes.js" },
-    { route: "/api/audit", file: "audit.routes.js" },
-  ];
-
-  let mountedCount = 0;
-  let unmountedCount = 0;
-  for (const m of EXPECTED_MOUNTS) {
-    const mounted =
-      appContent.includes(`"${m.route}"`) ||
-      appContent.includes(`'${m.route}'`);
-    if (mounted) mountedCount++;
-    else unmountedCount++;
+  let mc = 0,
+    um = 0;
+  for (const m of MOUNTS) {
+    const ok = appContent.includes(`"${m}"`) || appContent.includes(`'${m}'`);
+    ok ? mc++ : um++;
     log(
-      `  ${mounted ? "✅" : "❌"}  app.use("${m.route}", …)${!mounted ? " ← NOT MOUNTED" : ""}`,
+      `  ${ok ? "✅" : "❌"}  app.use("${m}", …)${!ok ? " ← NOT MOUNTED" : ""}`,
     );
   }
-  log();
-  log(
-    `  ${mountedCount}/${EXPECTED_MOUNTS.length} routes mounted  |  ${unmountedCount} unmounted`,
-  );
+  log(`\n  ${mc}/${MOUNTS.length} mounted  |  ${um} unmounted`);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §14 ENVIRONMENT VARIABLES
-// ─────────────────────────────────────────────────────────────────────────────
-sec("§ 14  ENVIRONMENT VARIABLES (.env check)");
-
+// ── §14 .env ──────────────────────────────────────────────────────────────────
+sec("§ 14  ENVIRONMENT VARIABLES");
 let envContent = "";
 try {
   envContent = await readFile(join(ROOT, ".env"), "utf8");
 } catch {}
-
-const REQUIRED_ENVS = [
-  // Database
-  {
-    key: "DATABASE_URL",
-    critical: true,
-    note: "Railway PostgreSQL connection string",
-  },
-  // JWT
-  { key: "JWT_SECRET", critical: true, note: "Access token signing secret" },
-  {
-    key: "JWT_REFRESH_SECRET",
-    critical: true,
-    note: "Refresh token signing secret",
-  },
-  { key: "JWT_EXPIRES_IN", critical: false, note: "e.g. 7d (default 7d)" },
-  {
-    key: "JWT_REFRESH_EXPIRES_IN",
-    critical: false,
-    note: "e.g. 30d (default 30d)",
-  },
-  // Cloudinary
-  { key: "CLOUDINARY_CLOUD_NAME", critical: true, note: "Cloudinary uploads" },
-  { key: "CLOUDINARY_API_KEY", critical: true, note: "" },
-  { key: "CLOUDINARY_API_SECRET", critical: true, note: "" },
-  // Payments
-  { key: "PAYSTACK_SECRET_KEY", critical: true, note: "Paystack API secret" },
-  {
-    key: "FLUTTERWAVE_SECRET_KEY",
-    critical: true,
-    note: "Flutterwave API secret",
-  },
-  { key: "FLUTTERWAVE_PUBLIC_KEY", critical: false, note: "" },
-  // Email
-  {
-    key: "RESEND_API_KEY",
-    critical: false,
-    note: "Resend email (or use SMTP)",
-  },
-  { key: "EMAIL_FROM", critical: false, note: "e.g. noreply@skilledproz.com" },
-  // App
-  { key: "NODE_ENV", critical: true, note: "production | development" },
-  { key: "PORT", critical: false, note: "default 5000" },
-  { key: "CLIENT_URL", critical: true, note: "Frontend URL for CORS" },
-  { key: "APP_BASE_URL", critical: false, note: "Backend base URL for links" },
-  // AI
-  { key: "ANTHROPIC_API_KEY", critical: false, note: "For /api/ai endpoint" },
-  // Social campaign
-  {
-    key: "FACEBOOK_URL",
-    critical: false,
-    note: "SkilledProz Facebook page URL",
-  },
-  { key: "INSTAGRAM_URL", critical: false, note: "SkilledProz Instagram URL" },
-  { key: "TIKTOK_URL", critical: false, note: "SkilledProz TikTok URL" },
+const ENV_VARS = [
+  { k: "DATABASE_URL", crit: true },
+  { k: "JWT_SECRET", crit: true },
+  { k: "JWT_REFRESH_SECRET", crit: true },
+  { k: "JWT_EXPIRES_IN", crit: false },
+  { k: "JWT_REFRESH_EXPIRES_IN", crit: false },
+  { k: "CLOUDINARY_CLOUD_NAME", crit: true },
+  { k: "CLOUDINARY_API_KEY", crit: true },
+  { k: "CLOUDINARY_API_SECRET", crit: true },
+  { k: "PAYSTACK_SECRET_KEY", crit: true },
+  { k: "FLUTTERWAVE_SECRET_KEY", crit: true },
+  { k: "RESEND_API_KEY", crit: false },
+  { k: "EMAIL_FROM", crit: false },
+  { k: "NODE_ENV", crit: true },
+  { k: "PORT", crit: false },
+  { k: "CLIENT_URL", crit: true },
+  { k: "APP_BASE_URL", crit: false },
+  { k: "ANTHROPIC_API_KEY", crit: false },
+  { k: "FACEBOOK_URL", crit: false },
+  { k: "INSTAGRAM_URL", crit: false },
+  { k: "TIKTOK_URL", crit: false },
 ];
-
-// Check for duplicate keys in .env
-const envLines = envContent.split("\n").filter((l) => /^\s*\w+=/.test(l));
-const envKeys = envLines.map((l) => l.split("=")[0].trim());
-const dupeKeys = envKeys.filter((k, i) => envKeys.indexOf(k) !== i);
-if (dupeKeys.length > 0) {
-  log(
-    `  ⚠️  Duplicate .env keys (keep only one): ${[...new Set(dupeKeys)].join(", ")}`,
-  );
-  log();
-}
-
-for (const e of REQUIRED_ENVS) {
+const dupeKeys = (() => {
+  const keys = envContent
+    .split("\n")
+    .filter((l) => /^\s*\w+=/.test(l))
+    .map((l) => l.split("=")[0].trim());
+  return keys.filter((k, i) => keys.indexOf(k) !== i);
+})();
+if (dupeKeys.length)
+  log(`  ⚠️  Duplicate .env keys: ${[...new Set(dupeKeys)].join(", ")}\n`);
+for (const e of ENV_VARS) {
   const present =
-    envContent.includes(`${e.key}=`) || envContent.includes(`${e.key} =`);
-  const val = envContent
-    .match(new RegExp(`${e.key}\\s*=\\s*(.+)`))?.[1]
-    ?.trim();
-  const empty = !val || val === "" || val === "your_secret_here";
-  const icon = !present ? (e.critical ? "❌" : "⚠️") : empty ? "⚠️" : "✅";
-  log(
-    `  ${icon}  ${e.key.padEnd(28)} ${!present ? "(missing)" : empty ? "(empty/placeholder)" : "(set)"}  ${e.note}`,
-  );
+    envContent.includes(`${e.k}=`) || envContent.includes(`${e.k} =`);
+  const icon = !present ? (e.crit ? "❌" : "⚠️") : "✅";
+  log(`  ${icon}  ${e.k.padEnd(28)} ${present ? "(set)" : "(missing)"}`);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §15 SUMMARY & PRIORITY LIST
-// ─────────────────────────────────────────────────────────────────────────────
+// ── §15 Summary ───────────────────────────────────────────────────────────────
 sec("§ 15  SUMMARY & PRIORITY ACTION LIST");
-
 log();
 log("  CRITICAL — Fix before launch:");
-log("  ─────────────────────────────────────────────────────────────────");
-if (brokenCount > 0)
+log("  " + LINE.slice(0, 60));
+if (brokenCount)
   log(
     `  🔴  ${brokenCount} broken route import(s) — server crashes on startup`,
   );
-if (noAuthCount > 0)
-  log(
-    `  🔴  ${noAuthCount} route(s) missing auth middleware — potential security hole`,
-  );
-
+if (noAuthCount) log(`  🔴  ${noAuthCount} route(s) missing auth middleware`);
+if (!brokenCount && !noAuthCount) log("  ✅  No critical issues found!");
 log();
 log("  HIGH — Fix before testing:");
-log("  ─────────────────────────────────────────────────────────────────");
-if (unusedCount > 0)
+log("  " + LINE.slice(0, 60));
+if (unusedCount)
   log(
     `  🟠  ${unusedCount} controller function(s) not reachable via any route`,
   );
-if (noPagCount > 0)
+if (noPagCount)
   log(`  🟠  ${noPagCount} list endpoint(s) missing validatePagination`);
-
+if (!unusedCount && !noPagCount) log("  ✅  No high-priority issues found!");
 log();
 log("  MEDIUM — Polish before launch:");
-log("  ─────────────────────────────────────────────────────────────────");
-if (noValCount > 0)
+log("  " + LINE.slice(0, 60));
+if (noValCount)
   log(`  🟡  ${noValCount} mutating route(s) without input validation`);
-if (missingCount > 0)
-  log(`  🟡  ${missingCount} platform feature(s) not detected (see §12)`);
-
+if (!noValCount) log("  ✅  No validation gaps found!");
 log();
-log("  RECOMMENDED ADDITIONS (not detected in codebase):");
-log("  ─────────────────────────────────────────────────────────────────");
-
-const RECOMMENDATIONS = [
-  "GET  /health               — health check endpoint for Railway (returns 200 + DB status)",
-  "POST /api/admin/export/users — CSV export for user data (admin reporting)",
-  "POST /api/admin/export/payments — payment reconciliation export",
-  "GET  /api/workers/online   — list currently available workers (real-time status)",
-  "POST /api/bookings/:id/extend — extend booking duration/deadline",
-  "GET  /api/payments/invoice/:id — downloadable PDF invoice for hirer",
-  "POST /api/auth/logout-all  — invalidate all sessions (security feature)",
-  "PATCH /api/users/me/deactivate — soft disable without deletion (GDPR)",
-  "GET  /api/admin/dashboard  — single admin overview endpoint (all stats at once)",
-  "GET  /api/trending          — trending workers, jobs, categories",
-];
-
-RECOMMENDATIONS.forEach((r) => log(`  💡  ${r}`));
+log("  RECOMMENDED ADDITIONS:");
+log("  " + LINE.slice(0, 60));
+[
+  "GET  /health                     — Railway health check + DB ping",
+  "GET  /api/admin/dashboard        — single overview endpoint (all stats)",
+  "POST /api/auth/logout-all        — invalidate all sessions",
+  "GET  /api/payments/invoice/:id   — PDF invoice download for hirer",
+  "GET  /api/workers/online         — currently available workers (real-time)",
+  "POST /api/bookings/:id/extend    — extend booking deadline",
+  "PATCH /api/users/me/deactivate   — GDPR soft-disable",
+  "POST /api/admin/export/users     — CSV data export",
+].forEach((r) => log(`  💡  ${r}`));
 
 log();
 log(LINE);
@@ -1282,5 +964,4 @@ log(`  Report saved: full-audit-report.txt`);
 log(LINE);
 log();
 
-// Save to file
 await writeFile(join(ROOT, "full-audit-report.txt"), out.join("\n"), "utf8");

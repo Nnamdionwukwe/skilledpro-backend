@@ -41,6 +41,7 @@ import {
 import {
   validateUpdateWorkerProfile,
   validateUUIDParam,
+  validateUpdateAvailability,
   validatePagination,
 } from "../utils/validators.js";
 
@@ -94,8 +95,18 @@ router.post(
 );
 
 // Availability
-router.put("/availability", ...W, updateAvailability);
-router.post("/availability", ...W, updateAvailability);
+router.put(
+  "/availability",
+  ...W,
+  validateUpdateAvailability,
+  updateAvailability,
+);
+router.post(
+  "/availability",
+  ...W,
+  validateUpdateAvailability,
+  updateAvailability,
+);
 
 // Video intro
 router.post("/video-intro", ...W, uploadSingle, normaliseFile, addVideoIntro);

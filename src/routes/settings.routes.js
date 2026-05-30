@@ -18,13 +18,15 @@ import {
   deleteAccount,
 } from "../controllers/settings.controller.js";
 import {
-  uploadSingle, // was: upload.single("avatar")  ← FIXED
+  uploadSingle,
   normaliseFile,
 } from "../middleware/upload.middleware.js";
 import {
   validateUpdateProfile,
   validateUpdateWorkerProfile,
   validateChangePassword,
+  validateUpdateNotificationPrefs, // ← §26 (new)
+  validateUpdatePrivacySettings, // ← §27 (new)
 } from "../utils/validators.js";
 
 const router = Router();
@@ -42,9 +44,13 @@ router.patch("/hirer-profile", updateHirerProfile);
 router.patch("/password", validateChangePassword, changePassword);
 router.get("/security", getSecurityInfo);
 router.get("/notifications", getNotificationPrefs);
-router.patch("/notifications", updateNotificationPrefs);
+router.patch(
+  "/notifications",
+  validateUpdateNotificationPrefs,
+  updateNotificationPrefs,
+);
 router.get("/privacy", getPrivacySettings);
-router.patch("/privacy", updatePrivacySettings);
+router.patch("/privacy", validateUpdatePrivacySettings, updatePrivacySettings);
 router.get("/payment-methods", getPaymentMethods);
 router.get("/activity", getActivitySummary);
 router.delete("/account", deleteAccount);

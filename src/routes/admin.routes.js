@@ -1,78 +1,61 @@
 // src/routes/admin.routes.js
 // ─────────────────────────────────────────────────────────────────────────────
-// S4 FIX: merged the duplicate import block.
-// `verifyManualPayment` and `rejectManualPayment` were imported in a SECOND
-// `import {...} from "admin.controller.js"` block at the bottom of the file.
-// ESM technically allows this but tools warn about it and it's confusing.
-// Merged into the single import block below.
+// FIX: added approveWithdrawalPayout route (was unrouted in §4)
 // ─────────────────────────────────────────────────────────────────────────────
 import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
-  // Analytics
   getPlatformStats,
   getUserGrowthAnalytics,
   getRevenueAnalytics,
-  // Users
   getAllUsers,
   getUserDetail,
   banUser,
   unbanUser,
   deleteUser,
   updateUserRole,
-  // Verifications
   verifyWorker,
   getPendingVerifications,
   getVerificationStats,
-  // Bookings
   getAllBookings,
   getAdminBookingDetail,
   adminUpdateBookingStatus,
-  // Disputes
   getDisputes,
   resolveDispute,
-  // Payments
   getAllPayments,
   getPaymentDetail,
   adminReleasePayment,
   adminRefundPayment,
-  verifyManualPayment, // ← S4 FIX: was in a second duplicate import block
-  rejectManualPayment, // ← S4 FIX: was in a second duplicate import block
-  // Withdrawals
+  verifyManualPayment,
+  rejectManualPayment,
   getAllWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
-  // Categories
   getAllCategories,
   createCategory,
   updateCategory,
   deleteCategory,
-  // Reviews
   getAllReviews,
   deleteReview,
-  // Jobs
   getAllJobPosts,
   getJobPostDetail,
   adminUpdateJobStatus,
   adminDeleteJobPost,
-  // Subscriptions
   getAllSubscriptions,
   adminCancelSubscription,
-  // Featured listings
   getAllFeaturedListings,
   adminRemoveFeaturedListing,
-  // Community posts
   getAllPosts,
   adminDeletePost,
   adminDeleteComment,
-  // Messages
   getAllConversations,
   getConversationMessages,
-  // Notifications
   broadcastNotification,
-  // Video calls
   getAllVideoCalls,
-} from "../controllers/admin.controller.js"; // ← single import, no duplicate
+} from "../controllers/admin.controller.js";
+import {
+  approveWithdrawalPayout, // ← was unrouted (§4 fix)
+} from "../controllers/payment.controller.js";
 import {
   validateCreateCategory,
   validateBroadcast,
@@ -82,11 +65,9 @@ import {
 } from "../utils/validators.js";
 
 const router = Router();
-
-// All admin routes require auth + ADMIN role
 router.use(protect, requireRole("ADMIN"));
 
-// ── Analytics & stats ──────────────────────────────────────────────────────────
+// ── Analytics ──────────────────────────────────────────────────────────────────
 router.get("/stats", getPlatformStats);
 router.get("/analytics/users", getUserGrowthAnalytics);
 router.get("/analytics/revenue", getRevenueAnalytics);
@@ -154,10 +135,6 @@ router.post(
   ...validateUUIDParam("bookingId"),
   adminRefundPayment,
 );
-
-// Manual payment verification (bank transfer + crypto)
-// PATCH /api/admin/payments/:bookingId/verify        — approve + move to HELD
-// PATCH /api/admin/payments/:bookingId/reject-manual — reject + set to FAILED
 router.patch(
   "/payments/:bookingId/verify",
   ...validateUUIDParam("bookingId"),
@@ -180,6 +157,12 @@ router.patch(
   "/withdrawals/:withdrawalId/reject",
   ...validateUUIDParam("withdrawalId"),
   rejectWithdrawal,
+);
+// Process the actual bank payout (calls Paystack Transfers API)
+router.post(
+  "/withdrawals/:withdrawalId/payout",
+  ...validateUUIDParam("withdrawalId"),
+  approveWithdrawalPayout,
 );
 
 // ── Categories ─────────────────────────────────────────────────────────────────
@@ -247,7 +230,7 @@ router.delete(
   adminDeleteComment,
 );
 
-// ── Messages (read-only admin oversight) ──────────────────────────────────────
+// ── Messages ───────────────────────────────────────────────────────────────────
 router.get("/conversations", validatePagination, getAllConversations);
 router.get(
   "/conversations/:conversationId",
@@ -255,7 +238,7 @@ router.get(
   getConversationMessages,
 );
 
-// ── Broadcast notification ─────────────────────────────────────────────────────
+// ── Notifications ──────────────────────────────────────────────────────────────
 router.post("/broadcast", validateBroadcast, broadcastNotification);
 
 // ── Video calls ────────────────────────────────────────────────────────────────

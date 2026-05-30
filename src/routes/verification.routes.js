@@ -21,7 +21,13 @@ import {
   uploadSingle,
   normaliseFile,
 } from "../middleware/upload.middleware.js";
-import { validateUUIDParam, validatePagination } from "../utils/validators.js";
+import {
+  validateUUIDParam,
+  validatePagination,
+  validateSubmitIdVerification,
+  validateSubmitCertification,
+  validateSubmitHirerVerification,
+} from "../utils/validators.js";
 
 const router = Router();
 
@@ -39,6 +45,7 @@ router.post(
   requireRole("WORKER"),
   uploadSingle,
   normaliseFile,
+  validateSubmitIdVerification,
   submitIdVerification,
 );
 
@@ -49,6 +56,7 @@ router.post(
   requireRole("WORKER"),
   uploadSingle,
   normaliseFile,
+  validateSubmitCertification,
   submitCertification,
 );
 
@@ -80,6 +88,7 @@ router.post(
   requireRole("HIRER"),
   uploadSingle,
   normaliseFile,
+  validateSubmitHirerVerification,
   submitHirerVerification,
 );
 

@@ -1,9 +1,8 @@
 
 ════════════════════════════════════════════════════════════════════════════════
-  SkilledProz — Full Platform Audit
-  Generated : 5/30/2026, 6:22:19 PM
+  SkilledProz — Full Platform Audit  v2
+  Generated : 5/30/2026, 6:41:42 PM
   Root      : /Users/onwukwennamdi/Desktop/skilledpro-backend
-  Src       : /Users/onwukwennamdi/Desktop/skilledpro-backend/src
 ════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
@@ -85,12 +84,11 @@
         cloudinary.js
         database.js
         fees.js
-  ✅  src/socket/  (1 file)
+  ✅  src/socket/  (1 files)
         index.js
-  ❌  src/prisma/  (empty or missing)
-  ❌  src/generated/  (empty or missing)
+  ❌  src/prisma/  (0 files)
 
-  📁  scripts/  (31 files)
+  📁  scripts/ (31 files)
         add-jobs-tables.js
         add-negotiated-booking-fields.js
         add-payment-and-sos-fields.js
@@ -500,817 +498,498 @@
   § 3  ALL ROUTES
 ════════════════════════════════════════════════════════════════════════════════
 
-  ┌─ admin.routes.js  (47 routes)
-  │   🌐PUB  ⬜     GET     /stats                                   → rout
-  │   🌐PUB  ✅VAL  GET     /analytics/users                         → route
-  │   🌐PUB  ✅VAL  GET     /analytics/revenue                       → userId
-  │   🌐PUB  ✅VAL  GET     /users                                   → valid
-  │   🌐PUB  ✅VAL  GET     /users/:userId                           → valida
-  │   🌐PUB  ✅VAL  PATCH   /users/:userId/ban                       → role
-  │   🌐PUB  ✅VAL  PATCH   /users/:userId/unban                     → updateUserRole
-  │   🌐PUB  ✅VAL  DELETE  /users/:userId                           → verifica
-  │   🌐PUB  ✅VAL  PATCH   /users/:userId/role                      → ro
-  │   🌐PUB  ✅VAL  GET     /verifications/stats                     → verifyWorker
-  │   🌐PUB  ✅VAL  GET     /verifications/pending                   → verifyWorker
-  │   🌐PUB  ✅VAL  PATCH   /users/:userId/verify                    → getAllBookings
-  │   🌐PUB  ✅VAL  GET     /bookings                                → adminUpdat
-  │   🌐PUB  ✅VAL  GET     /bookings/:bookingId                     → adminUpdateBookingStatus
-  │   🌐PUB  ✅VAL  PATCH   /bookings/:bookingId/status              → disputes
-  │   🌐PUB  ✅VAL  GET     /disputes                                → payment
-  │   🌐PUB  ✅VAL  PATCH   /disputes/:bookingId/resolve             → getAllPayments
-  │   🌐PUB  ✅VAL  GET     /payments                                → adminReleasePay
-  │   🌐PUB  ✅VAL  GET     /payments/:paymentId                     → bo
-  │   🌐PUB  ✅VAL  POST    /payments/:bookingId/release             → verificat
-  │   🌐PUB  ✅VAL  POST    /payments/:bookingId/refund              → to
-  │   🌐PUB  ✅VAL  PATCH   /payments/:bookingId/verify              → rejectManualPayment
-  │   🌐PUB  ✅VAL  PATCH   /payments/:bookingId/reject-manual       → getAl
-  │   🌐PUB  ✅VAL  GET     /withdrawals                             → with
-  │   🌐PUB  ✅VAL  PATCH   /withdrawals/:withdrawalId/approve       → rejectWithdrawal
-  │   🌐PUB  ✅VAL  PATCH   /withdrawals/:withdrawalId/reject        → getAll
-  │   🌐PUB  ✅VAL  GET     /categories                              → categories
-  │   🌐PUB  ✅VAL  POST    /categories                              → deleteCategor
-  │   🌐PUB  ✅VAL  PATCH   /categories/:categoryId                  → deleteCategory
-  │   🌐PUB  ✅VAL  DELETE  /categories/:categoryId                  → getAllReviews
-  │   🌐PUB  ✅VAL  GET     /reviews                                 → jobs
-  │   🌐PUB  ✅VAL  DELETE  /reviews/:reviewId                       → rou
-  │   🌐PUB  ✅VAL  GET     /jobs                                    → jobs
-  │   🌐PUB  ✅VAL  GET     /jobs/:jobId                             → adminDeleteJobPost
-  │   🌐PUB  ✅VAL  PATCH   /jobs/:jobId/status                      → adminDeleteJobPost
-  │   🌐PUB  ✅VAL  DELETE  /jobs/:jobId                             → getAllSu
-  │   🌐PUB  ✅VAL  GET     /subscriptions                           → listings
-  │   🌐PUB  ✅VAL  PATCH   /subscriptions/:subscriptionId/cancel    → featured
-  │   🌐PUB  ✅VAL  GET     /featured                                → rout
-  │   🌐PUB  ✅VAL  DELETE  /featured/:listingId                     → getA
-  │   🌐PUB  ✅VAL  GET     /posts                                   → adminDeleteComment
-  │   🌐PUB  ✅VAL  DELETE  /posts/:postId                           → admin
-  │   🌐PUB  ✅VAL  DELETE  /posts/comments/:commentId               → getAl
-  │   🌐PUB  ✅VAL  GET     /conversations                           → notification
-  │   🌐PUB  ✅VAL  GET     /conversations/:conversationId           → validateBroadcast
-  │   🌐PUB  ✅VAL  POST    /broadcast                               → default
-  │   🌐PUB  ✅VAL  GET     /video-calls                             → default
+  ┌─ admin.routes.js  (48 routes)
+  │   🔐ROLE ✅VAL  GET     /stats                                   → deleteUser
+  │   🔐ROLE ✅VAL  GET     /analytics/users                         → role
+  │   🔐ROLE ✅VAL  GET     /analytics/revenue                       → updateUserRole
+  │   🔐ROLE ✅VAL  GET     /users                                   → getVerificationStats
+  │   🔐ROLE ✅VAL  GET     /users/:userId                           → pending
+  │   🔐ROLE ✅VAL  PATCH   /users/:userId/ban                       → verif
+  │   🔐ROLE ✅VAL  PATCH   /users/:userId/unban                     → verifyWorker
+  │   🔐ROLE ✅VAL  DELETE  /users/:userId                           → book
+  │   🔐ROLE ✅VAL  PATCH   /users/:userId/role                      → booking
+  │   🔐ROLE ✅VAL  GET     /verifications/stats                     → adminUpdateBookingStat
+  │   🔐ROLE ✅VAL  GET     /verifications/pending                   → adminUpdateBookingStatus
+  │   🔐ROLE ✅VAL  PATCH   /users/:userId/verify                    → getDisputes
+  │   🔐ROLE ✅VAL  GET     /bookings                                → resolveDispute
+  │   🔐ROLE ✅VAL  GET     /bookings/:bookingId                     → getAllPayments
+  │   🔐ROLE ✅VAL  PATCH   /bookings/:bookingId/status              → getPaymentDetail
+  │   🔐ROLE ✅VAL  GET     /disputes                                → adminRefu
+  │   🔐ROLE ✅VAL  PATCH   /disputes/:bookingId/resolve             → verify
+  │   🔐ROLE ✅VAL  GET     /payments                                → rejectManualPayment
+  │   🔐ROLE ✅VAL  GET     /payments/:paymentId                     → rejectManualPayment
+  │   🔐ROLE ✅VAL  POST    /payments/:bookingId/release             → rout
+  │   🔐ROLE ✅VAL  POST    /payments/:bookingId/refund              → approveWithdrawal
+  │   🔐ROLE ✅VAL  PATCH   /payments/:bookingId/verify              → rejectWit
+  │   🔐ROLE ✅VAL  PATCH   /payments/:bookingId/reject-manual       → withdrawals
+  │   🔐ROLE ✅VAL  GET     /withdrawals                             → categories
+  │   🔐ROLE ✅VAL  PATCH   /withdrawals/:withdrawalId/approve       → categories
+  │   🔐ROLE ✅VAL  PATCH   /withdrawals/:withdrawalId/reject        → categoryId
+  │   🔐ROLE ✅VAL  POST    /withdrawals/:withdrawalId/payout        → deleteCategory
+  │   🔐ROLE ✅VAL  GET     /categories                              → deleteReview
+  │   🔐ROLE ✅VAL  POST    /categories                              → deleteReview
+  │   🔐ROLE ✅VAL  PATCH   /categories/:categoryId                  → jobs
+  │   🔐ROLE ✅VAL  DELETE  /categories/:categoryId                  → status
+  │   🔐ROLE ✅VAL  GET     /reviews                                 → adminDeleteJobPost
+  │   🔐ROLE ✅VAL  DELETE  /reviews/:reviewId                       → adminDeleteJobPost
+  │   🔐ROLE ✅VAL  GET     /jobs                                    → adminCancelSubscript
+  │   🔐ROLE ✅VAL  GET     /jobs/:jobId                             → listings
+  │   🔐ROLE ✅VAL  PATCH   /jobs/:jobId/status                      → featured
+  │   🔐ROLE ✅VAL  DELETE  /jobs/:jobId                             → listing
+  │   🔐ROLE ✅VAL  GET     /subscriptions                           → getAllPosts
+  │   🔐ROLE ✅VAL  PATCH   /subscriptions/:subscriptionId/cancel    → postId
+  │   🔐ROLE ✅VAL  GET     /featured                                → adminDeleteComment
+  │   🔐ROLE ✅VAL  DELETE  /featured/:listingId                     → getAllConversatio
+  │   🔐ROLE ✅VAL  GET     /posts                                   → getConversationMessages
+  │   🔐ROLE ✅VAL  DELETE  /posts/:postId                           → broadcast
+  │   🔐ROLE ✅VAL  DELETE  /posts/comments/:commentId               → calls
+  │   🔐ROLE ✅VAL  GET     /conversations                           → export
+  │   🔐ROLE ✅VAL  GET     /conversations/:conversationId           → export
+  │   🔐ROLE ✅VAL  POST    /broadcast                               → export
+  │   🔐ROLE ✅VAL  GET     /video-calls                             → export
   └────────────────────────────────────────────────────────────
 
-  ┌─ ai.routes.js  (1 route)
-  │   🔑AUTH ⬜     POST    /assist                                  → prompt
+  ┌─ ai.routes.js  (1 routes)
+  │   🔑AUTH ⬜     POST    /assist                                  → rawPrompt
   └────────────────────────────────────────────────────────────
 
   ┌─ audit.routes.js  (8 routes)
-  │   🌐PUB  ⬜     GET     /stats                                   → api
-  │   🌐PUB  ⬜     GET     /me                                      → adminId
-  │   🌐PUB  ⬜     GET     /admins                                  → view
-  │   🌐PUB  ⬜     GET     /export                                  → api
-  │   🌐PUB  ⬜     GET     /target/:targetType/:targetId            → specific
-  │   🌐PUB  ⬜     GET     /                                        → id
-  │   🌐PUB  ⬜     GET     /:id                                     → olderThanDay
-  │   🌐PUB  ⬜     DELETE  /purge                                   → default
+  │   🔐ROLE ⬜     GET     /stats                                   → targetId
+  │   🔐ROLE ⬜     GET     /me                                      → targe
+  │   🔐ROLE ⬜     GET     /admins                                  → pagi
+  │   🔐ROLE ⬜     GET     /export                                  → action
+  │   🔐ROLE ⬜     GET     /target/:targetType/:targetId            → admi
+  │   🔐ROLE ⬜     GET     /                                        → export
+  │   🔐ROLE ⬜     GET     /:id                                     → export
+  │   🔐ROLE ⬜     DELETE  /purge                                   → export
   └────────────────────────────────────────────────────────────
 
   ┌─ auth.routes.js  (9 routes)
-  │   🌐PUB  ✅VAL  POST    /register                                → route
-  │   🌐PUB  ✅VAL  POST    /login                                   → va
-  │   🌐PUB  ✅VAL  GET     /verify-email                            → forgotPassword
-  │   🌐PUB  ✅VAL  POST    /resend-verification                     → re
-  │   🌐PUB  ✅VAL  POST    /forgot-password                         → refresh
-  │   🌐PUB  ✅VAL  POST    /reset-password                          → refreshToken
-  │   🔑AUTH ⬜     POST    /refresh                                 → default
-  │   🔑AUTH ⬜     POST    /logout                                  → default
-  │   🔑AUTH ⬜     GET     /me                                      → default
+  │   🌐PUB  ✅VAL  POST    /register                                → refreshToken
+  │   🔑AUTH ✅VAL  POST    /login                                   → logout
+  │   🔑AUTH ✅VAL  GET     /verify-email                            → export
+  │   🔑AUTH ✅VAL  POST    /resend-verification                     → export
+  │   🔑AUTH ✅VAL  POST    /forgot-password                         → export
+  │   🔑AUTH ✅VAL  POST    /reset-password                          → export
+  │   🔑AUTH ⬜     POST    /refresh                                 → export
+  │   🔑AUTH ⬜     POST    /logout                                  → export
+  │   🔑AUTH ⬜     GET     /me                                      → export
   └────────────────────────────────────────────────────────────
 
   ┌─ booking.routes.js  (9 routes)
-  │   🌐PUB  ✅VAL  POST    /                                        → updateBookingStatus
-  │   🌐PUB  ✅VAL  GET     /                                        → check
-  │   🌐PUB  ✅VAL  GET     /:id                                     → id
-  │   🌐PUB  ✅VAL  PATCH   /:id/status                              → checkIn
-  │   🌐PUB  ✅VAL  PATCH   /:id/checkin                             → sos
-  │   🌐PUB  ✅VAL  PATCH   /:id/checkout                            → resolve
-  │   🌐PUB  ✅VAL  POST    /:id/sos                                 → updateEme
-  │   🌐PUB  ✅VAL  PATCH   /:id/sos/resolve                         → ro
-  │   🌐PUB  ✅VAL  PATCH   /:id/emergency-contact                   → default
+  │   🔐ROLE ✅VAL  POST    /                                        → requireRol
+  │   🔐ROLE ✅VAL  GET     /                                        → resolveSOS
+  │   🔐ROLE ✅VAL  GET     /:id                                     → contact
+  │   🔐ROLE ✅VAL  PATCH   /:id/status                              → updateEmergencyContact
+  │   🔐ROLE ✅VAL  PATCH   /:id/checkin                             → export
+  │   🔐ROLE ✅VAL  PATCH   /:id/checkout                            → export
+  │   🔐ROLE ✅VAL  POST    /:id/sos                                 → export
+  │   🔐ROLE ✅VAL  PATCH   /:id/sos/resolve                         → export
+  │   🔑AUTH ✅VAL  PATCH   /:id/emergency-contact                   → export
   └────────────────────────────────────────────────────────────
 
   ┌─ campaign.routes.js  (14 routes)
-  │   🌐PUB  ✅VAL  GET     /my-tasks                                → reportSocialFollow
-  │   🌐PUB  ✅VAL  POST    /my-tasks/social                         → these
-  │   🌐PUB  ✅VAL  GET     /status                                  → tod
-  │   🌐PUB  ✅VAL  GET     /referrals                               → history
-  │   🌐PUB  ✅VAL  POST    /submit                                  → balanc
-  │   🌐PUB  ✅VAL  GET     /submissions                             → campaign
-  │   🌐PUB  ✅VAL  GET     /wallet                                  → withdrawCampaignEarnings
-  │   🌐PUB  ✅VAL  POST    /withdraw                                → ambiguity
-  │   🌐PUB  ✅VAL  GET     /admin/stats                             → camp
-  │   🌐PUB  ✅VAL  GET     /admin/submissions                       → approv
-  │   🌐PUB  ✅VAL  PATCH   /admin/submissions/:id/review            → req
-  │   🌐PUB  ✅VAL  GET     /admin/withdrawals                       → id
-  │   🌐PUB  ✅VAL  PATCH   /admin/withdrawals/:id/approve           → withdrawa
-  │   🌐PUB  ✅VAL  PATCH   /admin/withdrawals/:id/reject            → default
+  │   🔑AUTH ✅VAL  GET     /my-tasks                                → referr
+  │   🔑AUTH ✅VAL  POST    /my-tasks/social                         → submit
+  │   🔑AUTH ✅VAL  GET     /status                                  → getCampaignWallet
+  │   🔑AUTH ✅VAL  GET     /referrals                               → withdra
+  │   🔑AUTH ✅VAL  POST    /submit                                  → required
+  │   🔑AUTH ✅VAL  GET     /submissions                             → ambiguity
+  │   🔐ROLE ✅VAL  GET     /wallet                                  → stats
+  │   🔐ROLE ✅VAL  POST    /withdraw                                → submissions
+  │   🔐ROLE ✅VAL  GET     /admin/stats                             → withdrawals
+  │   🔐ROLE ✅VAL  GET     /admin/submissions                       → adminGetCampaignWithdrawals
+  │   🔐ROLE ✅VAL  PATCH   /admin/submissions/:id/review            → reject
+  │   🔐ROLE ✅VAL  GET     /admin/withdrawals                       → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/withdrawals/:id/approve           → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/withdrawals/:id/reject            → export
   └────────────────────────────────────────────────────────────
 
   ┌─ category.routes.js  (5 routes)
-  │   🔐ROLE ⬜     GET     /                                        → was
-  │   🔐ROLE ⬜     GET     /:slug                                   → optiona
-  │   🔐ROLE ⬜     DELETE  /:id                                     → suggest
-  │   🔐ROLE ⬜     PATCH   /:id                                     → default
-  │   👁️OPT ⬜     POST    /suggest                                 → default
+  │   🔐ROLE ✅VAL  GET     /                                        → export
+  │   🔐ROLE ✅VAL  GET     /:slug                                   → export
+  │   🔐ROLE ✅VAL  PATCH   /:id                                     → export
+  │   🔐ROLE ✅VAL  DELETE  /:id                                     → export
+  │   👁️OPT  ⬜     POST    /suggest                                 → export
   └────────────────────────────────────────────────────────────
 
   ┌─ dispute.routes.js  (6 routes)
-  │   🌐PUB  ✅VAL  POST    /                                        → boo
-  │   🌐PUB  ✅VAL  GET     /my                                      → requireR
-  │   🌐PUB  ✅VAL  GET     /:bookingId                              → bookingId
-  │   🌐PUB  ✅VAL  PATCH   /:bookingId/cancel                       → va
-  │   🌐PUB  ✅VAL  GET     /                                        → default
-  │   🌐PUB  ✅VAL  PATCH   /:bookingId/resolve                      → default
+  │   🔐ROLE ✅VAL  POST    /                                        → export
+  │   🔐ROLE ✅VAL  GET     /my                                      → export
+  │   🔐ROLE ✅VAL  GET     /:bookingId                              → export
+  │   🔐ROLE ✅VAL  PATCH   /:bookingId/cancel                       → export
+  │   🔐ROLE ✅VAL  GET     /                                        → export
+  │   🔐ROLE ✅VAL  PATCH   /:bookingId/resolve                      → export
   └────────────────────────────────────────────────────────────
 
   ┌─ featured.routes.js  (6 routes)
-  │   🌐PUB  ⬜     GET     /packages                                → listin
-  │   🌐PUB  ⬜     GET     /                                        → checkout
-  │   🌐PUB  ✅VAL  GET     /my                                      → validateFeatu
-  │   🌐PUB  ✅VAL  POST    /checkout                                → invo
-  │   🌐PUB  ✅VAL  POST    /verify                                  → default
-  │   🌐PUB  ⬜     GET     /invoice/:sessionId                      → default
+  │   🔑AUTH ✅VAL  GET     /packages                                → listing
+  │   🔑AUTH ✅VAL  GET     /                                        → sessionId
+  │   🔑AUTH ✅VAL  GET     /my                                      → export
+  │   🔑AUTH ✅VAL  POST    /checkout                                → export
+  │   🔑AUTH ✅VAL  POST    /verify                                  → export
+  │   🔑AUTH ⬜     GET     /invoice/:sessionId                      → export
   └────────────────────────────────────────────────────────────
 
   ┌─ hirer.routes.js  (15 routes)
-  │   🔐ROLE ⬜     GET     /me/profile                              → bookings
-  │   🔐ROLE ✅VAL  PUT     /me/profile                              → getHirerBookings
-  │   🔐ROLE ✅VAL  GET     /me/dashboard                            → shortlist
+  │   🔐ROLE ✅VAL  GET     /me/profile                              → worke
+  │   🔐ROLE ✅VAL  PUT     /me/profile                              → booking
+  │   🔐ROLE ✅VAL  GET     /me/dashboard                            → workers
   │   🔐ROLE ✅VAL  GET     /me/bookings                             → workers
-  │   🔐ROLE ✅VAL  GET     /me/saved-workers                        → workerId
-  │   🔐ROLE ✅VAL  POST    /me/saved-workers/:workerId              → wor
-  │   🔐ROLE ✅VAL  DELETE  /me/saved-workers/:workerId              → getHiredWorkers
-  │   🔐ROLE ⬜     GET     /me/hired-workers                        → markNoti
-  │   🔑AUTH ⬜     GET     /me/notifications                        → prote
-  │   🔐ROLE ✅VAL  PATCH   /me/notifications/read                   → getHirerReviews
-  │   🔐ROLE ✅VAL  GET     /me/reviews/received                     → rout
-  │   🔐ROLE ✅VAL  GET     /me/reviews/given                        → legac
-  │   🔐ROLE ✅VAL  GET     /me/reviews                              → userId
-  │   🌐PUB  ✅VAL  GET     /:userId                                 → default
-  │   🌐PUB  ✅VAL  GET     /:userId/profile                         → default
+  │   🔐ROLE ✅VAL  GET     /me/saved-workers                        → getNot
+  │   🔐ROLE ✅VAL  POST    /me/saved-workers/:workerId              → markNotificationsRead
+  │   🔐ROLE ✅VAL  DELETE  /me/saved-workers/:workerId              → received
+  │   🔐ROLE ✅VAL  GET     /me/hired-workers                        → getMyGivenR
+  │   🔐ROLE ✅VAL  GET     /me/notifications                        → must
+  │   🔐ROLE ✅VAL  PATCH   /me/notifications/read                   → last
+  │   🔐ROLE ✅VAL  GET     /me/reviews/received                     → getHirerPublicPr
+  │   🔐ROLE ✅VAL  GET     /me/reviews/given                        → export
+  │   🔐ROLE ✅VAL  GET     /me/reviews                              → export
+  │   🌐PUB  ✅VAL  GET     /:userId                                 → export
+  │   🌐PUB  ✅VAL  GET     /:userId/profile                         → export
   └────────────────────────────────────────────────────────────
 
   ┌─ insurance.routes.js  (4 routes)
-  │   🌐PUB  ⬜     GET     /plans                                   → bookingId
-  │   🌐PUB  ✅VAL  GET     /my                                      → ins
-  │   🌐PUB  ✅VAL  POST    /checkout                                → default
-  │   🌐PUB  ✅VAL  POST    /verify                                  → default
+  │   🔑AUTH ✅VAL  GET     /plans                                   → export
+  │   🔑AUTH ✅VAL  GET     /my                                      → export
+  │   🔑AUTH ✅VAL  POST    /checkout                                → export
+  │   🔑AUTH ✅VAL  POST    /verify                                  → export
   └────────────────────────────────────────────────────────────
 
   ┌─ job.routes.js  (12 routes)
-  │   🔑AUTH ✅VAL  GET     /                                        → them
-  │   🌐PUB  ✅VAL  GET     /hirer/me                                → getMyApplications
-  │   🌐PUB  ✅VAL  GET     /my/applications                         → saved
-  │   👁️OPT ✅VAL  GET     /saved                                   → id
-  │   👁️OPT ✅VAL  GET     /:id                                     → validateUUIDP
-  │   🌐PUB  ✅VAL  POST    /                                        → applications
-  │   🌐PUB  ✅VAL  PATCH   /:id/status                              → applications
-  │   🌐PUB  ✅VAL  GET     /:id/applications                        → validateUUIDParam
-  │   🌐PUB  ✅VAL  PATCH   /:id/applications/:appId/status          → vali
-  │   🌐PUB  ✅VAL  POST    /:id/apply                               → vali
-  │   🌐PUB  ✅VAL  POST    /:id/save                                → default
-  │   🌐PUB  ✅VAL  DELETE  /:id/save                                → default
+  │   🔐ROLE ✅VAL  GET     /                                        → saved
+  │   🔐ROLE ✅VAL  GET     /hirer/me                                → logged
+  │   🔐ROLE ✅VAL  GET     /my/applications                         → createJobPost
+  │   🔐ROLE ✅VAL  GET     /saved                                   → view
+  │   🔐ROLE ✅VAL  GET     /:id                                     → validat
+  │   🔐ROLE ✅VAL  POST    /                                        → apply
+  │   🔐ROLE ✅VAL  PATCH   /:id/status                              → applyToJob
+  │   🔐ROLE ✅VAL  GET     /:id/applications                        → requireR
+  │   🔐ROLE ✅VAL  PATCH   /:id/applications/:appId/status          → export
+  │   🔐ROLE ✅VAL  POST    /:id/apply                               → export
+  │   🔐ROLE ✅VAL  POST    /:id/save                                → export
+  │   🔐ROLE ✅VAL  DELETE  /:id/save                                → export
   └────────────────────────────────────────────────────────────
 
   ┌─ message.routes.js  (4 routes)
-  │   🌐PUB  ✅VAL  GET     /conversations                           → conversation
-  │   🌐PUB  ✅VAL  GET     /:conversationId                         → markConversationRead
-  │   🌐PUB  ✅VAL  POST    /                                        → default
-  │   🌐PUB  ⬜     PATCH   /:conversationId/read                    → default
+  │   🔑AUTH ✅VAL  GET     /conversations                           → export
+  │   🔑AUTH ✅VAL  GET     /:conversationId                         → export
+  │   🔑AUTH ✅VAL  POST    /                                        → export
+  │   🔑AUTH ⬜     PATCH   /:conversationId/read                    → export
   └────────────────────────────────────────────────────────────
 
   ┌─ notification.routes.js  (10 routes)
-  │   🌐PUB  ⬜     GET     /                                        → custom
-  │   🌐PUB  ⬜     PATCH   /read-all                                → requests
-  │   🌐PUB  ⬜     PATCH   /:id/read                                → pre
-  │   🌐PUB  ⬜     DELETE  /clear-all                               → po
-  │   🌐PUB  ⬜     DELETE  /:id                                     → request
-  │   🌐PUB  ⬜     POST    /request                                 → token
-  │   🌐PUB  ⬜     POST    /token                                   → for
-  │   🌐PUB  ⬜     DELETE  /token                                   → debugging
-  │   🌐PUB  ⬜     DELETE  /tokens                                  → default
-  │   🌐PUB  ⬜     GET     /tokens                                  → default
+  │   🔑AUTH ⬜     GET     /                                        → login
+  │   🔑AUTH ⬜     PATCH   /read-all                                → token
+  │   🔑AUTH ⬜     PATCH   /:id/read                                → platfor
+  │   🔑AUTH ⬜     DELETE  /clear-all                               → android
+  │   🔑AUTH ⬜     DELETE  /:id                                     → specific
+  │   🔑AUTH ⬜     POST    /request                                 → user
+  │   🔑AUTH ⬜     POST    /token                                   → export
+  │   🔑AUTH ⬜     DELETE  /token                                   → export
+  │   🔑AUTH ⬜     DELETE  /tokens                                  → export
+  │   🔑AUTH ⬜     GET     /tokens                                  → export
   └────────────────────────────────────────────────────────────
 
   ┌─ payment.routes.js  (19 routes)
-  │   🌐PUB  ⬜     POST    /webhook/flutterwave                     → verifyPaystack
-  │   🌐PUB  ⬜     POST    /webhook/paystack                        → getBanksByCountry
-  │   🔑AUTH ⬜     GET     /verify/flutterwave                      → ve
-  │   🔑AUTH ✅VAL  GET     /verify/paystack                         → verifyBank
-  │   🔑AUTH ✅VAL  GET     /banks                                   → bookin
-  │   🌐PUB  ✅VAL  POST    /verify-account                          → requ
-  │   🌐PUB  ✅VAL  POST    /initiate/:bookingId                     → in
-  │   🌐PUB  ✅VAL  POST    /bank-transfer/:bookingId                → validateConfirmBankTransfer
-  │   🌐PUB  ✅VAL  PATCH   /bank-transfer/:bookingId/confirm        → initiateCryptoPaym
-  │   🌐PUB  ✅VAL  POST    /crypto/:bookingId                       → confirmCrypto
-  │   🌐PUB  ✅VAL  PATCH   /crypto/:bookingId/confirm               → rou
-  │   🌐PUB  ✅VAL  POST    /release/:bookingId                      → rou
-  │   🌐PUB  ✅VAL  GET     /hirer                                   → getWorkerEarnings
-  │   🌐PUB  ✅VAL  GET     /earnings                                → withdrawals
-  │   🌐PUB  ✅VAL  POST    /withdraw                                → getWithdrawals
-  │   🌐PUB  ✅VAL  GET     /withdrawals                             → book
-  │   🌐PUB  ✅VAL  GET     /                                        → bookingId
-  │   🌐PUB  ✅VAL  POST    /refund/:bookingId                       → default
-  │   🌐PUB  ✅VAL  GET     /:bookingId                              → default
+  │   🔐ROLE ✅VAL  POST    /webhook/flutterwave                     → bookingId
+  │   🔐ROLE ✅VAL  POST    /webhook/paystack                        → bookingI
+  │   🔐ROLE ✅VAL  GET     /verify/flutterwave                      → initiateBankTransfer
+  │   🔐ROLE ✅VAL  GET     /verify/paystack                         → require
+  │   🔐ROLE ✅VAL  GET     /banks                                   → confirmBankTransfer
+  │   🔐ROLE ✅VAL  POST    /verify-account                          → initiateCry
+  │   🔐ROLE ✅VAL  POST    /initiate/:bookingId                     → validat
+  │   🔐ROLE ✅VAL  POST    /bank-transfer/:bookingId                → bookingId
+  │   🔐ROLE ✅VAL  PATCH   /bank-transfer/:bookingId/confirm        → getHirerPayments
+  │   🔐ROLE ✅VAL  POST    /crypto/:bookingId                       → getWorkerEarnings
+  │   🔐ROLE ✅VAL  PATCH   /crypto/:bookingId/confirm               → withdrawals
+  │   🔐ROLE ✅VAL  POST    /release/:bookingId                      → getWithdrawals
+  │   🔐ROLE ✅VAL  GET     /hirer                                   → refundPayment
+  │   🔐ROLE ✅VAL  GET     /earnings                                → getPayment
+  │   🔐ROLE ✅VAL  POST    /withdraw                                → export
+  │   🔐ROLE ✅VAL  GET     /withdrawals                             → export
+  │   🔐ROLE ✅VAL  GET     /                                        → export
+  │   🔑AUTH ✅VAL  POST    /refund/:bookingId                       → export
+  │   🔑AUTH ✅VAL  GET     /:bookingId                              → export
   └────────────────────────────────────────────────────────────
 
   ┌─ post.routes.js  (13 routes)
-  │   🌐PUB  ✅VAL  GET     /feed                                    → validateUUIDParam
-  │   🌐PUB  ✅VAL  GET     /my                                      → getPost
-  │   🌐PUB  ✅VAL  GET     /user/:userId                            → getPost
-  │   🌐PUB  ✅VAL  GET     /:id                                     → validateUpdatePost
-  │   🌐PUB  ✅VAL  POST    /                                        → deletePost
-  │   🌐PUB  ✅VAL  PUT     /:id                                     → id
-  │   🌐PUB  ✅VAL  DELETE  /:id                                     → repost
-  │   🌐PUB  ✅VAL  POST    /:id/repost                              → reactToPost
-  │   🌐PUB  ✅VAL  POST    /:id/react                               → getReactions
-  │   🌐PUB  ✅VAL  GET     /:id/reactions                           → validate
-  │   🌐PUB  ✅VAL  POST    /:id/comments                            → comment
-  │   🌐PUB  ✅VAL  GET     /:id/comments                            → default
-  │   🌐PUB  ✅VAL  DELETE  /comments/:commentId                     → default
+  │   🔑AUTH ✅VAL  GET     /feed                                    → deletePost
+  │   🔑AUTH ✅VAL  GET     /my                                      → repost
+  │   🔑AUTH ✅VAL  GET     /user/:userId                            → repost
+  │   🔑AUTH ✅VAL  GET     /:id                                     → react
+  │   🔑AUTH ✅VAL  POST    /                                        → reactions
+  │   🔑AUTH ✅VAL  PUT     /:id                                     → getReactions
+  │   🔑AUTH ✅VAL  DELETE  /:id                                     → getReactions
+  │   🔑AUTH ✅VAL  POST    /:id/repost                              → comments
+  │   🔑AUTH ✅VAL  POST    /:id/react                               → export
+  │   🔑AUTH ✅VAL  GET     /:id/reactions                           → export
+  │   🔑AUTH ✅VAL  POST    /:id/comments                            → export
+  │   🔑AUTH ✅VAL  GET     /:id/comments                            → export
+  │   🔑AUTH ✅VAL  DELETE  /comments/:commentId                     → export
   └────────────────────────────────────────────────────────────
 
   ┌─ referral.routes.js  (12 routes)
-  │   🌐PUB  ✅VAL  GET     /validate/:code                          → route
-  │   🌐PUB  ⬜     GET     /code                                    → histor
-  │   🌐PUB  ✅VAL  GET     /dashboard                               → pla
-  │   🌐PUB  ✅VAL  GET     /wallet                                  → bank
-  │   🌐PUB  ✅VAL  GET     /leaderboard                             → withdrawReferralEarnings
-  │   🌐PUB  ✅VAL  POST    /withdraw                                → etc
-  │   🌐PUB  ✅VAL  GET     /admin                                   → stats
-  │   🌐PUB  ✅VAL  GET     /admin/stats                             → admin
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/flag                          → admin
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/expire                        → reason
-  │   🌐PUB  ✅VAL  POST    /admin/:id/reward                        → type
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/wallet                        → default
+  │   🔑AUTH ✅VAL  GET     /validate/:code                          → histo
+  │   🔑AUTH ✅VAL  GET     /code                                    → withdrawReferralEarnings
+  │   🔑AUTH ✅VAL  GET     /dashboard                               → admin
+  │   🔑AUTH ✅VAL  GET     /wallet                                  → dashboard
+  │   🔐ROLE ✅VAL  GET     /leaderboard                             → admin
+  │   🔐ROLE ✅VAL  POST    /withdraw                                → stats
+  │   🔐ROLE ✅VAL  GET     /admin                                   → expire
+  │   🔐ROLE ✅VAL  GET     /admin/stats                             → amount
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/flag                          → adjust
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/expire                        → export
+  │   🔐ROLE ✅VAL  POST    /admin/:id/reward                        → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/wallet                        → export
   └────────────────────────────────────────────────────────────
 
   ┌─ report.routes.js  (11 routes)
-  │   🌐PUB  ✅VAL  POST    /                                        → routes
-  │   🌐PUB  ✅VAL  GET     /my                                      → stats
-  │   🌐PUB  ✅VAL  DELETE  /:id                                     → admin
-  │   🌐PUB  ✅VAL  GET     /admin/stats                             → adminGetReportsByTarget
-  │   🌐PUB  ✅VAL  GET     /admin                                   → adm
-  │   🌐PUB  ✅VAL  GET     /admin/target/:targetType/:targetId      → requir
-  │   🌐PUB  ✅VAL  PATCH   /admin/bulk-dismiss                      → ad
-  │   🌐PUB  ✅VAL  GET     /admin/:id                               → rout
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/review                        → pat
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/resolve                       → export
-  │   🌐PUB  ✅VAL  PATCH   /admin/:id/dismiss                       → default
+  │   🔐ROLE ✅VAL  POST    /                                        → valida
+  │   🔐ROLE ✅VAL  GET     /my                                      → adminBulkDismiss
+  │   🔐ROLE ✅VAL  DELETE  /:id                                     → admin
+  │   🔐ROLE ✅VAL  GET     /admin/stats                             → adminStartReview
+  │   🔐ROLE ✅VAL  GET     /admin                                   → resolve
+  │   🔐ROLE ✅VAL  GET     /admin/target/:targetType/:targetId      → requireRo
+  │   🔐ROLE ✅VAL  PATCH   /admin/bulk-dismiss                      → export
+  │   🔐ROLE ✅VAL  GET     /admin/:id                               → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/review                        → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/resolve                       → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/:id/dismiss                       → export
   └────────────────────────────────────────────────────────────
 
   ┌─ review.routes.js  (7 routes)
-  │   🌐PUB  ✅VAL  POST    /                                        → bookin
-  │   🌐PUB  ✅VAL  GET     /my/given                                → va
-  │   🌐PUB  ✅VAL  GET     /my/received                             → us
-  │   🌐PUB  ✅VAL  GET     /check/:bookingId                        → user
-  │   🌐PUB  ✅VAL  DELETE  /:reviewId                               → userId
-  │   🌐PUB  ✅VAL  GET     /worker/:userId                          → exp
-  │   🌐PUB  ✅VAL  GET     /hirer/:userId                           → default
+  │   🔑AUTH ✅VAL  POST    /                                        → export
+  │   🔑AUTH ✅VAL  GET     /my/given                                → export
+  │   🔑AUTH ✅VAL  GET     /my/received                             → export
+  │   🔑AUTH ✅VAL  GET     /check/:bookingId                        → export
+  │   🔑AUTH ✅VAL  DELETE  /:reviewId                               → export
+  │   🔑AUTH ✅VAL  GET     /worker/:userId                          → export
+  │   🔑AUTH ✅VAL  GET     /hirer/:userId                           → export
   └────────────────────────────────────────────────────────────
 
   ┌─ search.routes.js  (4 routes)
-  │   🌐PUB  ✅VAL  GET     /                                        → ro
-  │   🌐PUB  ✅VAL  GET     /nearby                                  → default
-  │   🌐PUB  ⬜     GET     /trending                                → default
-  │   🌐PUB  ⬜     GET     /filters                                 → default
+  │   🌐PUB  ✅VAL  GET     /                                        → export
+  │   🌐PUB  ✅VAL  GET     /nearby                                  → export
+  │   🌐PUB  ⬜     GET     /trending                                → export
+  │   🌐PUB  ⬜     GET     /filters                                 → export
   └────────────────────────────────────────────────────────────
 
   ┌─ settings.routes.js  (14 routes)
-  │   🌐PUB  ✅VAL  GET     /profile                                 → validateUpdateWorkerProfile
-  │   🌐PUB  ✅VAL  PATCH   /profile                                 → updateHir
-  │   🌐PUB  ✅VAL  POST    /avatar                                  → chang
-  │   🌐PUB  ✅VAL  PATCH   /worker-profile                          → security
-  │   🌐PUB  ✅VAL  PATCH   /hirer-profile                           → updateN
-  │   🌐PUB  ✅VAL  PATCH   /password                                → rout
-  │   🌐PUB  ⬜     GET     /security                                → updatePrivacySettings
-  │   🌐PUB  ⬜     GET     /notifications                           → getPaymentMethods
-  │   🌐PUB  ⬜     PATCH   /notifications                           → del
-  │   🌐PUB  ⬜     GET     /privacy                                 → defa
-  │   🌐PUB  ⬜     PATCH   /privacy                                 → default
-  │   🌐PUB  ⬜     GET     /payment-methods                         → default
-  │   🌐PUB  ⬜     GET     /activity                                → default
-  │   🌐PUB  ⬜     DELETE  /account                                 → default
+  │   🔑AUTH ✅VAL  GET     /profile                                 → getPri
+  │   🔑AUTH ✅VAL  PATCH   /profile                                 → privac
+  │   🔑AUTH ✅VAL  POST    /avatar                                  → updatePrivacySettings
+  │   🔑AUTH ✅VAL  PATCH   /worker-profile                          → activity
+  │   🔑AUTH ✅VAL  PATCH   /hirer-profile                           → export
+  │   🔑AUTH ✅VAL  PATCH   /password                                → export
+  │   🔑AUTH ✅VAL  GET     /security                                → export
+  │   🔑AUTH ✅VAL  GET     /notifications                           → export
+  │   🔑AUTH ✅VAL  PATCH   /notifications                           → export
+  │   🔑AUTH ✅VAL  GET     /privacy                                 → export
+  │   🔑AUTH ✅VAL  PATCH   /privacy                                 → export
+  │   🔑AUTH ⬜     GET     /payment-methods                         → export
+  │   🔑AUTH ⬜     GET     /activity                                → export
+  │   🔑AUTH ⬜     DELETE  /account                                 → export
   └────────────────────────────────────────────────────────────
 
   ┌─ subscription.routes.js  (7 routes)
-  │   🔑AUTH ⬜     POST    /webhook                                 → plans
-  │   🌐PUB  ⬜     GET     /plans                                   → checkout
-  │   🌐PUB  ✅VAL  GET     /my                                      → createCheckout
-  │   🌐PUB  ✅VAL  POST    /checkout                                → cancel
-  │   🌐PUB  ✅VAL  POST    /verify                                  → invoice
-  │   🌐PUB  ⬜     POST    /cancel                                  → default
-  │   🌐PUB  ⬜     GET     /invoice/:reference                      → default
+  │   🔑AUTH ✅VAL  POST    /webhook                                 → verify
+  │   🔑AUTH ✅VAL  GET     /plans                                   → cancel
+  │   🔑AUTH ✅VAL  GET     /my                                      → refe
+  │   🔑AUTH ✅VAL  POST    /checkout                                → export
+  │   🔑AUTH ✅VAL  POST    /verify                                  → export
+  │   🔑AUTH ⬜     POST    /cancel                                  → export
+  │   🔑AUTH ⬜     GET     /invoice/:reference                      → export
   └────────────────────────────────────────────────────────────
 
-  ┌─ translate.routes.js  (1 route)
-  │   🌐PUB  ✅VAL  POST    /                                        → su
+  ┌─ translate.routes.js  (1 routes)
+  │   🔑AUTH ✅VAL  POST    /                                        → quotes
   └────────────────────────────────────────────────────────────
 
   ┌─ user.routes.js  (4 routes)
-  │   🔑AUTH ✅VAL  PUT     /me                                      → getProfile
-  │   🔑AUTH ✅VAL  PUT     /me/avatar                               → default
-  │   🔑AUTH ✅VAL  DELETE  /me                                      → default
-  │   👁️OPT ✅VAL  GET     /:id                                     → default
+  │   🔑AUTH ✅VAL  PUT     /me                                      → export
+  │   🔑AUTH ✅VAL  PUT     /me/avatar                               → export
+  │   🔑AUTH ✅VAL  DELETE  /me                                      → export
+  │   👁️OPT  ✅VAL  GET     /:id                                     → export
   └────────────────────────────────────────────────────────────
 
   ┌─ verification.routes.js  (14 routes)
-  │   🔐ROLE ⬜     GET     /status                                  → submitIdVerificatio
-  │   🔐ROLE ⬜     POST    /submit-id                               → submi
-  │   🔐ROLE ⬜     POST    /submit-certification                    → protec
-  │   🔐ROLE ✅VAL  DELETE  /certifications/:certId                  → routes
-  │   🔐ROLE ⬜     GET     /hirer/status                            → submit
-  │   🔐ROLE ⬜     POST    /hirer/submit                            → routes
-  │   🔐ROLE ✅VAL  GET     /admin/stats                             → getPendingVerifications
-  │   🔐ROLE ✅VAL  GET     /admin/pending                           → prote
-  │   🔐ROLE ✅VAL  GET     /admin/verified                          → pr
-  │   🔐ROLE ✅VAL  GET     /admin/hirers/pending                    → us
-  │   🔐ROLE ✅VAL  PATCH   /admin/certifications/:certId/verify     → admin
-  │   🔐ROLE ✅VAL  PATCH   /admin/:userId/review                    → che
-  │   🔐ROLE ✅VAL  PATCH   /admin/:userId/background-check          → review
-  │   🔐ROLE ✅VAL  PATCH   /admin/hirers/:userId/review             → default
+  │   🔐ROLE ✅VAL  GET     /status                                  → certifica
+  │   🔐ROLE ✅VAL  POST    /submit-id                               → deleteCertification
+  │   🔐ROLE ✅VAL  POST    /submit-certification                    → verificat
+  │   🔐ROLE ✅VAL  DELETE  /certifications/:certId                  → protec
+  │   🔐ROLE ✅VAL  GET     /hirer/status                            → conflicts
+  │   🔐ROLE ✅VAL  POST    /hirer/submit                            → pendin
+  │   🔐ROLE ✅VAL  GET     /admin/stats                             → pending
+  │   🔐ROLE ✅VAL  GET     /admin/pending                           → path
+  │   🔐ROLE ✅VAL  GET     /admin/verified                          → verifyCertification
+  │   🔐ROLE ✅VAL  GET     /admin/hirers/pending                    → revie
+  │   🔐ROLE ✅VAL  PATCH   /admin/certifications/:certId/verify     → verificatio
+  │   🔐ROLE ✅VAL  PATCH   /admin/:userId/review                    → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/:userId/background-check          → export
+  │   🔐ROLE ✅VAL  PATCH   /admin/hirers/:userId/review             → export
   └────────────────────────────────────────────────────────────
 
   ┌─ videocall.routes.js  (5 routes)
-  │   🌐PUB  ✅VAL  POST    /:bookingId/initiate                     → bookingId
-  │   🌐PUB  ✅VAL  PATCH   /:bookingId/accept                       → bookingId
-  │   🌐PUB  ✅VAL  PATCH   /:bookingId/decline                      → bookingId
-  │   🌐PUB  ✅VAL  PATCH   /:bookingId/end                          → default
-  │   🌐PUB  ✅VAL  GET     /:bookingId                              → default
+  │   🔑AUTH ✅VAL  POST    /:bookingId/initiate                     → bookingId
+  │   🔑AUTH ✅VAL  PATCH   /:bookingId/accept                       → export
+  │   🔑AUTH ✅VAL  PATCH   /:bookingId/decline                      → export
+  │   🔑AUTH ✅VAL  PATCH   /:bookingId/end                          → export
+  │   🔑AUTH ✅VAL  GET     /:bookingId                              → export
   └────────────────────────────────────────────────────────────
 
   ┌─ worker.routes.js  (16 routes)
-  │   👁️OPT ✅VAL  GET     /search                                  → dashboard
-  │   🌐PUB  ✅VAL  GET     /dashboard                               → cate
-  │   🌐PUB  ✅VAL  GET     /dashboard/reviews                       → id
-  │   🌐PUB  ✅VAL  PUT     /profile                                 → portfolio
-  │   🌐PUB  ✅VAL  POST    /categories                              → addPortfolio
-  │   🌐PUB  ✅VAL  DELETE  /categories/:id                          → va
-  │   🌐PUB  ✅VAL  POST    /portfolio                               → addCerti
-  │   🌐PUB  ✅VAL  DELETE  /portfolio/:id                           → route
-  │   🌐PUB  ⬜     POST    /certifications                          → updateAvailability
-  │   🌐PUB  ⬜     PUT     /availability                            → deleteVideoI
-  │   🌐PUB  ⬜     POST    /availability                            → notifications
-  │   🌐PUB  ✅VAL  POST    /video-intro                             → all
-  │   🌐PUB  ✅VAL  DELETE  /video-intro                             → markAllNotificationsRead
-  │   🌐PUB  ✅VAL  GET     /notifications                           → route
-  │   🌐PUB  ⬜     PATCH   /notifications/read-all                  → here
-  │   👁️OPT ✅VAL  GET     /:userId                                 → default
+  │   🔑AUTH ✅VAL  GET     /search                                  → updateWorkerPr
+  │   🔑AUTH ✅VAL  GET     /dashboard                               → cert
+  │   🔑AUTH ✅VAL  GET     /dashboard/reviews                       → certifications
+  │   🔑AUTH ✅VAL  PUT     /profile                                 → availability
+  │   🔑AUTH ✅VAL  POST    /categories                              → availability
+  │   🔑AUTH ✅VAL  DELETE  /categories/:id                          → updateAvailability
+  │   🔑AUTH ✅VAL  POST    /portfolio                               → dele
+  │   🔑AUTH ✅VAL  DELETE  /portfolio/:id                           → deleteVideoIntro
+  │   🔑AUTH ✅VAL  POST    /certifications                          → read
+  │   🔑AUTH ✅VAL  PUT     /availability                            → markAllNotificationsRead
+  │   🔑AUTH ✅VAL  POST    /availability                            → here
+  │   🔑AUTH ✅VAL  POST    /video-intro                             → optional
+  │   🔑AUTH ✅VAL  DELETE  /video-intro                             → defau
+  │   🔑AUTH ✅VAL  GET     /notifications                           → export
+  │   🔑AUTH ✅VAL  PATCH   /notifications/read-all                  → export
+  │   🔑AUTH ✅VAL  GET     /:userId                                 → export
   └────────────────────────────────────────────────────────────
 
-  Total: 27 route files, 277 endpoints
+  Total: 27 route files, 278 endpoints
 
 ════════════════════════════════════════════════════════════════════════════════
   § 4  UNUSED CONTROLLER EXPORTS (not mapped to any route)
 ════════════════════════════════════════════════════════════════════════════════
-
-  ⚠️  admin.controller.js
-       not routed: broadcastNotification
-       not routed: getAllCategories
-       not routed: getAllConversations
-       not routed: getAllFeaturedListings
-       not routed: getAllJobPosts
-       not routed: getAllPosts
-       not routed: getAllSubscriptions
-       not routed: getAllUsers
-       not routed: getAllVideoCalls
-       not routed: getAllWithdrawals
-       not routed: getDisputes
-       not routed: getPlatformStats
-
-  ⚠️  booking.controller.js
-       not routed: getBooking
-       not routed: resolveSOS
-
-  ⚠️  dispute.controller.js
-       not routed: cancelDispute
-       not routed: getMyDisputes
-
-  ⚠️  hirer.controller.js
-       not routed: saveWorker
-       not routed: unsaveWorker
-
-  ⚠️  job.controller.js
-       not routed: getSavedJobs
-
-  ⚠️  notification.controller.js
-       not routed: registerDeviceToken
-       not routed: submitNotificationRequest
-
-  ⚠️  payment.controller.js
-       not routed: approveWithdrawalPayout
-
-  ⚠️  referral.controller.js
-       not routed: adminAdjustWallet
-       not routed: adminExpireReferral
-       not routed: adminFlagReferral
-       not routed: adminGetAllReferrals
-       not routed: adminGetReferralStats
-       not routed: adminManualReward
-       not routed: getMyReferralCode
-       not routed: getMyReferralDashboard
-       not routed: getMyWallet
-       not routed: getReferralLeaderboard
-       not routed: validateReferralCode
-
-  33 function(s) exported but not reachable via any route.
+  ✅  All exported functions are reachable via routes.
 
 ════════════════════════════════════════════════════════════════════════════════
   § 5  BROKEN ROUTE IMPORTS
 ════════════════════════════════════════════════════════════════════════════════
-
-  ❌  admin.routes.js  ← admin.controller.js
-       ✗  "..."  → not found
-       ✗  "// Analytics
-  getPlatformStats"  → not found
-       ✗  "// Users
-  getAllUsers"  → not found
-       ✗  "// Verifications
-  verifyWorker"  → not found
-       ✗  "// Bookings
-  getAllBookings"  → not found
-       ✗  "// Disputes
-  getDisputes"  → not found
-       ✗  "// Payments
-  getAllPayments"  → not found
-       ✗  "// ← S4 FIX: was in a second duplicate import block
-  rejectManualPayment"  → not found
-       ✗  "// ← S4 FIX: was in a second duplicate import block
-  // Withdrawals
-  getAllWithdrawals"  → not found
-       ✗  "// Categories
-  getAllCategories"  → not found
-       ✗  "// Reviews
-  getAllReviews"  → not found
-       ✗  "// Jobs
-  getAllJobPosts"  → not found
-       ✗  "// Subscriptions
-  getAllSubscriptions"  → not found
-       ✗  "// Featured listings
-  getAllFeaturedListings"  → not found
-       ✗  "// Community posts
-  getAllPosts"  → not found
-       ✗  "// Messages
-  getAllConversations"  → not found
-       ✗  "// Notifications
-  broadcastNotification"  → not found
-       ✗  "// Video calls
-  getAllVideoCalls"  → not found
-
-  ❌  booking.routes.js  ← booking.controller.js
-       ✗  "// was: getBookings       ← FIXED
-  getBooking"  → not found
-       ✗  "// was: getBookingById     ← FIXED
-  updateBookingStatus"  → not found
-       ✗  "// was: triggerSOS         ← FIXED
-  resolveSOS"  → not found
-
-  ❌  dispute.routes.js  ← dispute.controller.js
-       ✗  "// was: createDispute     ← FIXED
-  getMyDisputes"  → not found
-       ✗  "// was: getDispute        ← FIXED
-  cancelDispute"  → not found
-
-  ❌  hirer.routes.js  ← hirer.controller.js
-       ✗  "// ← now uses SavedWorker model (explicit bookmarks)
-  saveWorker"  → not found
-       ✗  "// ← NEW
-  unsaveWorker"  → not found
-       ✗  "// ← NEW
-  getHiredWorkers"  → not found
-       ✗  "// ← NEW: previous booking-based "saved" renamed here
-  getHirerReviews"  → not found
-
-  ❌  job.routes.js  ← job.controller.js
-       ✗  "// Saved jobs (NEW)
-  getSavedJobs"  → not found
-
-  ❌  message.routes.js  ← message.controller.js
-       ✗  "// NOTE: markConversationRead does NOT exist in message.controller.js
-  //       The controller only exports: getConversations"  → not found
-       ✗  "sendMessage
-  //       Remove the route or add the function to the controller if needed."  → not found
-
-  ❌  notification.routes.js  ← notification.controller.js
-       ✗  "// In-app notifications
-  getNotifications"  → not found
-       ✗  "// Device token management (push notifications)
-  registerDeviceToken"  → not found
-       ✗  "// Support request
-  submitNotificationRequest"  → not found
-
-  ❌  referral.routes.js  ← referral.controller.js
-       ✗  "// ── User-facing functions ──────────────────────────────────────────────────
-  getMyReferralCode"  → not found
-       ✗  "// GET  /code
-  getMyReferralDashboard"  → not found
-       ✗  "// GET  /dashboard
-  getMyWallet"  → not found
-       ✗  "// GET  /wallet
-  getReferralLeaderboard"  → not found
-       ✗  "// GET  /leaderboard
-  withdrawReferralEarnings"  → not found
-       ✗  "// POST /withdraw
-  validateReferralCode"  → not found
-       ✗  "// GET  /validate/:code  (public)
-  // ── Admin functions ────────────────────────────────────────────────────────
-  adminGetAllReferrals"  → not found
-       ✗  "// GET  /admin
-  adminGetReferralStats"  → not found
-       ✗  "// GET  /admin/stats
-  adminFlagReferral"  → not found
-       ✗  "// PATCH /admin/:id/flag
-  adminExpireReferral"  → not found
-       ✗  "// PATCH /admin/:id/expire
-  adminManualReward"  → not found
-       ✗  "// POST  /admin/:id/reward
-  adminAdjustWallet"  → not found
-       ✗  "// PATCH /admin/:id/wallet"  → not found
-
-  ❌  review.routes.js  ← review.controller.js
-       ✗  "// was: checkReview         ← FIXED
-  deleteReview"  → not found
-       ✗  "// was: getHirerReviews     ← FIXED"  → not found
-
-  48 broken import(s) found. Fix these first — server crashes on startup.
+  ✅  All route imports resolve to real controller exports.
 
 ════════════════════════════════════════════════════════════════════════════════
   § 6  AUTH MIDDLEWARE COVERAGE
 ════════════════════════════════════════════════════════════════════════════════
 
-  ⚠️  admin.routes.js — routes missing auth middleware:
-       PATCH   /users/:userId/ban
-       PATCH   /users/:userId/unban
-       DELETE  /users/:userId
-       PATCH   /users/:userId/role
-       PATCH   /users/:userId/verify
-       PATCH   /bookings/:bookingId/status
-       PATCH   /disputes/:bookingId/resolve
-       POST    /payments/:bookingId/release
-       POST    /payments/:bookingId/refund
-       PATCH   /payments/:bookingId/verify
-       PATCH   /payments/:bookingId/reject-manual
-       PATCH   /withdrawals/:withdrawalId/approve
-       PATCH   /withdrawals/:withdrawalId/reject
-       POST    /categories
-       PATCH   /categories/:categoryId
-       DELETE  /categories/:categoryId
-       DELETE  /reviews/:reviewId
-       PATCH   /jobs/:jobId/status
-       DELETE  /jobs/:jobId
-       PATCH   /subscriptions/:subscriptionId/cancel
-       DELETE  /featured/:listingId
-       DELETE  /posts/:postId
-       DELETE  /posts/comments/:commentId
-       POST    /broadcast
-
-  ⚠️  audit.routes.js — routes missing auth middleware:
-       DELETE  /purge
-
-  ⚠️  auth.routes.js — routes missing auth middleware:
+  ⚠️  auth.routes.js
        POST    /register
-       POST    /login
-       POST    /resend-verification
-       POST    /forgot-password
-       POST    /reset-password
-
-  ⚠️  booking.routes.js — routes missing auth middleware:
-       PATCH   /:id/emergency-contact
-
-  ⚠️  campaign.routes.js — routes missing auth middleware:
-       POST    /my-tasks/social
-       POST    /submit
-       POST    /withdraw
-
-  ⚠️  dispute.routes.js — routes missing auth middleware:
-       POST    /
-
-  ⚠️  featured.routes.js — routes missing auth middleware:
-       POST    /checkout
-       POST    /verify
-
-  ⚠️  insurance.routes.js — routes missing auth middleware:
-       POST    /checkout
-       POST    /verify
-
-  ⚠️  message.routes.js — routes missing auth middleware:
-       POST    /
-       PATCH   /:conversationId/read
-
-  ⚠️  notification.routes.js — routes missing auth middleware:
-       PATCH   /read-all
-       PATCH   /:id/read
-       DELETE  /clear-all
-       DELETE  /:id
-       POST    /request
-       POST    /token
-       DELETE  /token
-       DELETE  /tokens
-
-  ⚠️  payment.routes.js — routes missing auth middleware:
-       POST    /refund/:bookingId
-
-  ⚠️  post.routes.js — routes missing auth middleware:
-       POST    /
-       PUT     /:id
-       DELETE  /:id
-       POST    /:id/repost
-       POST    /:id/react
-       POST    /:id/comments
-       DELETE  /comments/:commentId
-
-  ⚠️  referral.routes.js — routes missing auth middleware:
-       POST    /withdraw
-
-  ⚠️  report.routes.js — routes missing auth middleware:
-       POST    /
-
-  ⚠️  review.routes.js — routes missing auth middleware:
-       POST    /
-       DELETE  /:reviewId
-
-  ⚠️  settings.routes.js — routes missing auth middleware:
-       PATCH   /profile
-       POST    /avatar
-       PATCH   /worker-profile
-       PATCH   /hirer-profile
-       PATCH   /password
-       PATCH   /notifications
-       PATCH   /privacy
-       DELETE  /account
-
-  ⚠️  subscription.routes.js — routes missing auth middleware:
-       POST    /checkout
-       POST    /verify
-       POST    /cancel
-
-  ⚠️  translate.routes.js — routes missing auth middleware:
-       POST    /
-
-  ⚠️  videocall.routes.js — routes missing auth middleware:
-       POST    /:bookingId/initiate
-       PATCH   /:bookingId/accept
-       PATCH   /:bookingId/decline
-       PATCH   /:bookingId/end
-
-  ⚠️  worker.routes.js — routes missing auth middleware:
-       PUT     /profile
-       POST    /categories
-       DELETE  /categories/:id
-       POST    /portfolio
-       DELETE  /portfolio/:id
-       POST    /certifications
-       PUT     /availability
-       POST    /availability
-       POST    /video-intro
-       DELETE  /video-intro
-       PATCH   /notifications/read-all
 
 ════════════════════════════════════════════════════════════════════════════════
-  § 7  VALIDATION COVERAGE (POST/PATCH/PUT missing validators)
+  § 7  VALIDATION COVERAGE (POST/PATCH/PUT without body validators)
 ════════════════════════════════════════════════════════════════════════════════
 
   ⚠️  ai.routes.js
-       POST    /assist                                  → prompt
+       POST    /assist                                  → rawPrompt
 
   ⚠️  auth.routes.js
-       POST    /refresh                                 → default
-       POST    /logout                                  → default
+       POST    /refresh                                 → export
+       POST    /logout                                  → export
 
   ⚠️  category.routes.js
-       PATCH   /:id                                     → default
-       POST    /suggest                                 → default
+       POST    /suggest                                 → export
 
   ⚠️  message.routes.js
-       PATCH   /:conversationId/read                    → default
+       PATCH   /:conversationId/read                    → export
 
   ⚠️  notification.routes.js
-       PATCH   /read-all                                → requests
-       PATCH   /:id/read                                → pre
-       POST    /request                                 → token
-       POST    /token                                   → for
-
-  ⚠️  settings.routes.js
-       PATCH   /notifications                           → del
-       PATCH   /privacy                                 → default
+       PATCH   /read-all                                → token
+       PATCH   /:id/read                                → platfor
+       POST    /request                                 → user
+       POST    /token                                   → export
 
   ⚠️  subscription.routes.js
-       POST    /cancel                                  → default
+       POST    /cancel                                  → export
 
-  ⚠️  verification.routes.js
-       POST    /submit-id                               → submi
-       POST    /submit-certification                    → protec
-       POST    /hirer/submit                            → routes
-
-  ⚠️  worker.routes.js
-       POST    /certifications                          → updateAvailability
-       PUT     /availability                            → deleteVideoI
-       POST    /availability                            → notifications
-       PATCH   /notifications/read-all                  → here
-
-  20 route(s) modifying data without input validation.
+  10 route(s) modifying data without input validation.
 
 ════════════════════════════════════════════════════════════════════════════════
-  § 8  PAGINATION COVERAGE (GET list routes missing validatePagination)
+  § 8  PAGINATION COVERAGE
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  All known list endpoints use validatePagination.
+  ✅  All list endpoints use validatePagination.
 
 ════════════════════════════════════════════════════════════════════════════════
   § 9  SERVICE FILES
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  services/auth.service.js                JWT + token management
-  ✅  services/email.service.js               Resend / Nodemailer email sending
-  ✅  services/notification.service.js        In-app + push notification helpers
-  ✅  services/push.service.js                Expo push notification API
-  ✅  services/payment.service.js             Shared payment utilities (Paystack/Flutterwave)
+  ✅  auth.service.js                JWT + token management
+  ✅  email.service.js               Email sending
+  ✅  notification.service.js        In-app + push notifications
+  ✅  push.service.js                Expo push API
+  ✅  payment.service.js             Paystack/Flutterwave utilities
 
-  Extra service files found:
+  Extra:
        matching.service.js
 
 ════════════════════════════════════════════════════════════════════════════════
   § 10  MIDDLEWARE FILES
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  middleware/auth.middleware.js           protect, requireRole, optionalProtect
-  ✅  middleware/upload.middleware.js         uploadSingle, uploadMultiple, normaliseFile
-  ✅  middleware/rateLimit.middleware.js      14 named limiters
-  ✅  middleware/error.middleware.js          Global error handler (optional but recommended)
-       ✅  protect
-       ✅  requireRole
-       ✅  optionalProtect
+  ✅  auth.middleware.js           protect, requireRole, optionalProtect
+  ✅  upload.middleware.js         uploadSingle, normaliseFile
+  ✅  rateLimit.middleware.js      Named limiters
+  ✅  error.middleware.js          Global error handler
 
 ════════════════════════════════════════════════════════════════════════════════
   § 11  UTILITY FILES
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  utils/response.js          sendResponse, sendError, sendPaginated, …
-       14 exported functions
-  ✅  utils/helpers.js           paginate, fullName, formatCurrency, …
-       47 exported functions
-  ✅  utils/validators.js        All input validators (22 sections)
-       46 exported functions
-  ✅  utils/auditLog.js          logAdminAction, logAdminFailure
-       3 exported functions
+  ✅  utils/response.js      (14 exports)
+  ✅  utils/helpers.js       (47 exports)
+  ✅  utils/validators.js    (53 exports)
+  ✅  utils/auditLog.js      (3 exports)
 
 ════════════════════════════════════════════════════════════════════════════════
   § 12  PLATFORM FEATURE CHECKLIST
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  User registration + login                  auth.controller.js
-  ✅  Email verification                         auth.controller.js
-  ✅  Forgot / reset password                    auth.controller.js
-  ✅  JWT refresh token rotation                 auth.controller.js
-  ✅  User profile settings                      settings.controller.js
-  ✅  Avatar upload                              settings.controller.js
-  ✅  Privacy settings                           settings.controller.js
-  ✅  Activity log                               settings.controller.js
-  ✅  Worker profile                             worker.controller.js
-  ✅  Portfolio management                       worker.controller.js
-  ✅  Availability calendar                      worker.controller.js
-  ✅  Video intro upload                         worker.controller.js
-  ✅  Worker search & discovery                  search.controller.js
-  ✅  Nearby workers (geo)                       search.controller.js
-  ✅  Worker dashboard                           worker.controller.js
-  ✅  Hirer profile                              hirer.controller.js
-  ✅  Hirer dashboard                            hirer.controller.js
-  ✅  Saved workers (shortlist)                  hirer.controller.js
-  ✅  Job post (create/browse)                   job.controller.js
-  ✅  Job applications                           job.controller.js
-  ✅  Saved jobs (worker bookmark)               job.controller.js
-  ✅  Booking lifecycle (CRUD)                   booking.controller.js
-  ✅  Check-in / check-out                       booking.controller.js
-  ✅  SOS emergency alert                        booking.controller.js
-  ✅  Emergency contact                          booking.controller.js
-  ✅  Paystack (card) payment                    payment.controller.js
-  ✅  Flutterwave payment                        payment.controller.js
-  ✅  Bank transfer (manual)                     payment.controller.js
-  ✅  Crypto payment (USDC/USDT)                 payment.controller.js
-  ✅  Escrow release                             payment.controller.js
-  ✅  Worker withdrawal                          payment.controller.js
-  ✅  Bank account verification                  payment.controller.js
-  ✅  Worker & hirer reviews                     review.controller.js
-  ✅  Real-time messaging                        message.controller.js
-  ✅  In-app notifications                       notification.controller.js
-  ✅  Push notifications (Expo)                  notification.controller.js
-  ✅  Device token management                    notification.controller.js
-  ✅  Worker ID verification                     verification.controller.js
-  ✅  Worker certification upload                verification.controller.js
-  ✅  Background check                           verification.controller.js
-  ✅  Hirer business verification                verification.controller.js
-  ✅  Report / flag system                       report.controller.js
-  ✅  Dispute resolution                         dispute.controller.js
-  ✅  Subscription plans                         subscription.controller.js
-  ✅  Featured listings (boost)                  featured.controller.js
-  ✅  Insurance plans                            insurance.controller.js
-  ✅  Referral program (tiered)                  referral.controller.js
-  ✅  Daily campaign (social tasks)              campaign.controller.js
-  ✅  Community posts / feed                     post.controller.js
-  ✅  AI assistant (Anthropic)                   (inline)
-  ✅  Translation endpoint                       (inline)
-  ✅  Video calls (WebRTC)                       videocall.controller.js
-  ✅  Admin user management                      admin.controller.js
-  ✅  Admin analytics & stats                    admin.controller.js
-  ✅  Admin audit log                            audit.controller.js
-  ✅  Admin manual payment verify                admin.controller.js
+  ✅  User registration + login                auth.controller.js          
+  ✅  Email verification                       auth.controller.js          
+  ✅  Forgot / reset password                  auth.controller.js          
+  ✅  JWT refresh token rotation               auth.controller.js          
+  ✅  User profile settings                    settings.controller.js      
+  ✅  Avatar upload                            settings.controller.js      
+  ✅  Privacy settings                         settings.controller.js      
+  ✅  Worker profile                           worker.controller.js        
+  ✅  Portfolio management                     worker.controller.js        
+  ✅  Availability calendar                    worker.controller.js        
+  ✅  Video intro upload                       worker.controller.js        
+  ✅  Worker search (geo + filters)            search.controller.js        
+  ✅  Nearby workers                           search.controller.js        
+  ✅  Worker dashboard                         worker.controller.js        
+  ✅  Hirer profile                            hirer.controller.js         
+  ✅  Hirer dashboard                          hirer.controller.js         
+  ✅  Saved workers (shortlist)                hirer.controller.js         
+  ✅  Job post (create/browse)                 job.controller.js           
+  ✅  Job applications                         job.controller.js           
+  ✅  Saved jobs (worker bookmark)             job.controller.js           
+  ✅  Booking lifecycle                        booking.controller.js       
+  ✅  Check-in / check-out                     booking.controller.js       
+  ✅  SOS emergency alert                      booking.controller.js       
+  ✅  Paystack payment                         payment.controller.js       
+  ✅  Flutterwave payment                      payment.controller.js       
+  ✅  Bank transfer (manual)                   payment.controller.js       
+  ✅  Crypto payment                           payment.controller.js       
+  ✅  Escrow + withdrawal                      payment.controller.js       
+  ✅  Worker & hirer reviews                   review.controller.js        
+  ✅  Real-time messaging                      message.controller.js       
+  ✅  In-app + push notifications              notification.controller.js  
+  ✅  Device token management                  notification.controller.js  
+  ✅  Worker ID verification                   verification.controller.js  
+  ✅  Hirer business verification              verification.controller.js  
+  ✅  Report / flag system                     report.controller.js        
+  ✅  Dispute resolution                       dispute.controller.js       
+  ✅  Subscription plans                       subscription.controller.js  
+  ✅  Featured listings                        featured.controller.js      
+  ✅  Insurance plans                          insurance.controller.js     
+  ✅  Referral program (tiered)                referral.controller.js      
+  ✅  Daily campaign                           campaign.controller.js      
+  ✅  Community posts / feed                   post.controller.js          
+  ✅  AI assistant                             (inline)                    
+  ✅  Translation                              (inline)                    
+  ✅  Video calls                              videocall.controller.js     
+  ✅  Admin panel                              admin.controller.js         
+  ✅  Admin audit log                          audit.controller.js         
+  ✅  Matching service                         matching.service.js         
 
-  56/56 features present  |  0 missing
+  48/48 features present  |  0 missing
 
 ════════════════════════════════════════════════════════════════════════════════
   § 13  APP.JS ROUTE MOUNTS
@@ -1342,64 +1021,60 @@
   ✅  app.use("/api/admin", …)
   ✅  app.use("/api/audit", …)
 
-  26/26 routes mounted  |  0 unmounted
+  26/26 mounted  |  0 unmounted
 
 ════════════════════════════════════════════════════════════════════════════════
-  § 14  ENVIRONMENT VARIABLES (.env check)
+  § 14  ENVIRONMENT VARIABLES
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  DATABASE_URL                 (set)  Railway PostgreSQL connection string
-  ✅  JWT_SECRET                   (set)  Access token signing secret
-  ✅  JWT_REFRESH_SECRET           (set)  Refresh token signing secret
-  ✅  JWT_EXPIRES_IN               (set)  e.g. 7d (default 7d)
-  ✅  JWT_REFRESH_EXPIRES_IN       (set)  e.g. 30d (default 30d)
-  ✅  CLOUDINARY_CLOUD_NAME        (set)  Cloudinary uploads
-  ✅  CLOUDINARY_API_KEY           (set)  
-  ✅  CLOUDINARY_API_SECRET        (set)  
-  ✅  PAYSTACK_SECRET_KEY          (set)  Paystack API secret
-  ✅  FLUTTERWAVE_SECRET_KEY       (set)  Flutterwave API secret
-  ✅  FLUTTERWAVE_PUBLIC_KEY       (set)  
-  ✅  RESEND_API_KEY               (set)  Resend email (or use SMTP)
-  ✅  EMAIL_FROM                   (set)  e.g. noreply@skilledproz.com
-  ✅  NODE_ENV                     (set)  production | development
-  ✅  PORT                         (set)  default 5000
-  ✅  CLIENT_URL                   (set)  Frontend URL for CORS
-  ✅  APP_BASE_URL                 (set)  Backend base URL for links
-  ✅  ANTHROPIC_API_KEY            (set)  For /api/ai endpoint
-  ✅  FACEBOOK_URL                 (set)  SkilledProz Facebook page URL
-  ✅  INSTAGRAM_URL                (set)  SkilledProz Instagram URL
-  ✅  TIKTOK_URL                   (set)  SkilledProz TikTok URL
+  ✅  DATABASE_URL                 (set)
+  ✅  JWT_SECRET                   (set)
+  ✅  JWT_REFRESH_SECRET           (set)
+  ✅  JWT_EXPIRES_IN               (set)
+  ✅  JWT_REFRESH_EXPIRES_IN       (set)
+  ✅  CLOUDINARY_CLOUD_NAME        (set)
+  ✅  CLOUDINARY_API_KEY           (set)
+  ✅  CLOUDINARY_API_SECRET        (set)
+  ✅  PAYSTACK_SECRET_KEY          (set)
+  ✅  FLUTTERWAVE_SECRET_KEY       (set)
+  ✅  RESEND_API_KEY               (set)
+  ✅  EMAIL_FROM                   (set)
+  ✅  NODE_ENV                     (set)
+  ✅  PORT                         (set)
+  ✅  CLIENT_URL                   (set)
+  ✅  APP_BASE_URL                 (set)
+  ✅  ANTHROPIC_API_KEY            (set)
+  ✅  FACEBOOK_URL                 (set)
+  ✅  INSTAGRAM_URL                (set)
+  ✅  TIKTOK_URL                   (set)
 
 ════════════════════════════════════════════════════════════════════════════════
   § 15  SUMMARY & PRIORITY ACTION LIST
 ════════════════════════════════════════════════════════════════════════════════
 
   CRITICAL — Fix before launch:
-  ─────────────────────────────────────────────────────────────────
-  🔴  48 broken route import(s) — server crashes on startup
-  🔴  88 route(s) missing auth middleware — potential security hole
+  ────────────────────────────────────────────────────────────
+  🔴  1 route(s) missing auth middleware
 
   HIGH — Fix before testing:
-  ─────────────────────────────────────────────────────────────────
-  🟠  33 controller function(s) not reachable via any route
+  ────────────────────────────────────────────────────────────
+  ✅  No high-priority issues found!
 
   MEDIUM — Polish before launch:
-  ─────────────────────────────────────────────────────────────────
-  🟡  20 mutating route(s) without input validation
+  ────────────────────────────────────────────────────────────
+  🟡  10 mutating route(s) without input validation
 
-  RECOMMENDED ADDITIONS (not detected in codebase):
-  ─────────────────────────────────────────────────────────────────
-  💡  GET  /health               — health check endpoint for Railway (returns 200 + DB status)
-  💡  POST /api/admin/export/users — CSV export for user data (admin reporting)
-  💡  POST /api/admin/export/payments — payment reconciliation export
-  💡  GET  /api/workers/online   — list currently available workers (real-time status)
-  💡  POST /api/bookings/:id/extend — extend booking duration/deadline
-  💡  GET  /api/payments/invoice/:id — downloadable PDF invoice for hirer
-  💡  POST /api/auth/logout-all  — invalidate all sessions (security feature)
-  💡  PATCH /api/users/me/deactivate — soft disable without deletion (GDPR)
-  💡  GET  /api/admin/dashboard  — single admin overview endpoint (all stats at once)
-  💡  GET  /api/trending          — trending workers, jobs, categories
+  RECOMMENDED ADDITIONS:
+  ────────────────────────────────────────────────────────────
+  💡  GET  /health                     — Railway health check + DB ping
+  💡  GET  /api/admin/dashboard        — single overview endpoint (all stats)
+  💡  POST /api/auth/logout-all        — invalidate all sessions
+  💡  GET  /api/payments/invoice/:id   — PDF invoice download for hirer
+  💡  GET  /api/workers/online         — currently available workers (real-time)
+  💡  POST /api/bookings/:id/extend    — extend booking deadline
+  💡  PATCH /api/users/me/deactivate   — GDPR soft-disable
+  💡  POST /api/admin/export/users     — CSV data export
 
 ────────────────────────────────────────────────────────────────────────────────
-  Audit complete — 5/30/2026, 6:22:19 PM
+  Audit complete — 5/30/2026, 6:41:42 PM
   Report saved: full-audit-report.txt
 ────────────────────────────────────────────────────────────────────────────────
