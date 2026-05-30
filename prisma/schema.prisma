@@ -305,6 +305,9 @@ walletTransactions WalletTransaction[]
    savedWorkers     SavedWorker[] @relation("HirerSavedWorkers")
    savedByHirers    SavedWorker[] @relation("WorkerSavedByHirers")
    savedJobs        SavedJob[]    @relation("WorkerSavedJobs")
+
+   promoCodes       PromoCode[]       @relation("PromoCodesCreated")
+   promoCodeUsages  PromoCodeUsage[]  @relation("PromoCodeUsages")
 }
 
   model Referral {
@@ -481,6 +484,42 @@ model AuditLog {
   @@index([createdAt(sort: Desc)])
   @@index([result])
 }
+
+model PromoCode {
+  id             String           @id @default(uuid())
+  code           String           @unique     // enforced case-insensitive in DB index
+  description    String?
+  discountType   String           @default("PERCENT")  // "PERCENT" | "FIXED"
+  discountValue  Float
+  maxUses        Int?
+  usedCount      Int              @default(0)
+  expiresAt      DateTime?
+  isActive       Boolean          @default(true)
+  applicableTo   String?          // JSON array of plan IDs, null = all plans
+  minPlanAmount  Float            @default(0)
+  createdById    String?
+  createdBy      User?            @relation("PromoCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  usages         PromoCodeUsage[] @relation("PromoCodeUsages")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model PromoCodeUsage {
+  id           String    @id @default(uuid())
+  promoCodeId  String
+  promoCode    PromoCode @relation("PromoCodeUsages", fields: [promoCodeId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation("PromoCodeUsages", fields: [userId], references: [id], onDelete: Cascade)
+  planId       String
+  discountAmt  Float
+  originalAmt  Float
+  finalAmt     Float
+  reference    String?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, promoCodeId])   // one use per user per code
+}
+
 
 
 model WorkerProfile {
