@@ -32,9 +32,7 @@ import {
 import { getPaymentInvoice } from "../controllers/invoice.controller.js"; // ← NEW
 import {
   validateInitiatePayment,
-  validateBankTransfer,
   validateConfirmBankTransfer,
-  validateInitiateCryptoPayment,
   validateConfirmCryptoPayment,
   validateRequestWithdrawal,
   validateVerifyBankAccount,
