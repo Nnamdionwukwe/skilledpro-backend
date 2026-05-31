@@ -1,14 +1,14 @@
 
 ════════════════════════════════════════════════════════════════════════════════
   SkilledProz — Full Platform Audit  v2
-  Generated : 5/30/2026, 6:41:42 PM
+  Generated : 5/31/2026, 1:34:05 PM
   Root      : /Users/onwukwennamdi/Desktop/skilledpro-backend
 ════════════════════════════════════════════════════════════════════════════════
 
 ════════════════════════════════════════════════════════════════════════════════
   § 1  PROJECT FILE TREE
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  src/controllers/  (25 files)
+  ✅  src/controllers/  (27 files)
         admin.controller.js
         audit.controller.js
         auth.controller.js
@@ -19,11 +19,13 @@
         featured.controller.js
         hirer.controller.js
         insurance.controller.js
+        invoice.controller.js
         job.controller.js
         message.controller.js
         notification.controller.js
         payment.controller.js
         post.controller.js
+        promoCode.controller.js
         referral.controller.js
         report.controller.js
         review.controller.js
@@ -34,7 +36,7 @@
         verification.controller.js
         videocall.controller.js
         worker.controller.js
-  ✅  src/routes/  (27 files)
+  ✅  src/routes/  (28 files)
         admin.routes.js
         ai.routes.js
         audit.routes.js
@@ -44,6 +46,7 @@
         category.routes.js
         dispute.routes.js
         featured.routes.js
+        health.routes.js
         hirer.routes.js
         insurance.routes.js
         job.routes.js
@@ -80,15 +83,16 @@
         helpers.js
         response.js
         validators.js
-  ✅  src/config/  (3 files)
+  ✅  src/config/  (4 files)
         cloudinary.js
         database.js
         fees.js
+        plans.js
   ✅  src/socket/  (1 files)
         index.js
   ❌  src/prisma/  (0 files)
 
-  📁  scripts/ (31 files)
+  📁  scripts/ (33 files)
         add-jobs-tables.js
         add-negotiated-booking-fields.js
         add-payment-and-sos-fields.js
@@ -104,6 +108,7 @@
         migrate-campaign.js
         migrate-device-tokens.js
         migrate-jobpost.js
+        migrate-promo-codes.js
         migrate-referral.js
         migrate-report.js
         migrate-saved.js
@@ -116,6 +121,7 @@
         migrate_settings_v2.js
         migrate_worker_registration_fields.js
         seed-audit-log.js
+        seed-referral-campaign.js
         seed-referral.js
         seed-report.js
         seed-test-accounts.js
@@ -125,7 +131,7 @@
   § 2  ALL CONTROLLER EXPORTS
 ════════════════════════════════════════════════════════════════════════════════
 
-  ┌─ admin.controller.js  (47 exports)
+  ┌─ admin.controller.js  (48 exports)
   │   adminCancelSubscription
   │   adminDeleteComment
   │   adminDeleteJobPost
@@ -143,6 +149,7 @@
   │   deleteReview
   │   deleteUser
   │   getAdminBookingDetail
+  │   getAdminDashboard
   │   getAllBookings
   │   getAllCategories
   │   getAllConversations
@@ -186,11 +193,12 @@
   │   purgeAuditLogs
   └────────────────────────────────────────────────────────────
 
-  ┌─ auth.controller.js  (9 exports)
+  ┌─ auth.controller.js  (10 exports)
   │   forgotPassword
   │   getMe
   │   login
   │   logout
+  │   logoutAll
   │   refreshToken
   │   register
   │   resendVerification
@@ -280,6 +288,10 @@
   │   verifyInsuranceCheckout
   └────────────────────────────────────────────────────────────
 
+  ┌─ invoice.controller.js  (1 exports)
+  │   getPaymentInvoice
+  └────────────────────────────────────────────────────────────
+
   ┌─ job.controller.js  (13 exports)
   │   applyToJob
   │   createJobPost
@@ -358,7 +370,19 @@
   │   updatePost
   └────────────────────────────────────────────────────────────
 
-  ┌─ referral.controller.js  (19 exports)
+  ┌─ promoCode.controller.js  (9 exports)
+  │   applyPromoToCheckout
+  │   createPromoCode
+  │   deletePromoCode
+  │   getPromoCodeDetail
+  │   listPromoCodes
+  │   recordPromoUsage
+  │   togglePromoCode
+  │   updatePromoCode
+  │   validatePromoCode
+  └────────────────────────────────────────────────────────────
+
+  ┌─ referral.controller.js  (20 exports)
   │   REFEREE_PERKS
   │   REFERRAL_CONFIG
   │   TIERS
@@ -370,6 +394,7 @@
   │   adminManualReward
   │   applyReferralOnSignup
   │   convertReferral
+  │   getBonusForPhase
   │   getHirerFirstBookingDiscount
   │   getMyReferralCode
   │   getMyReferralDashboard
@@ -428,15 +453,11 @@
   │   updateWorkerProfile
   └────────────────────────────────────────────────────────────
 
-  ┌─ subscription.controller.js  (11 exports)
-  │   FEATURED_PACKAGES
-  │   HIRER_PLANS
-  │   WORKER_PLANS
+  ┌─ subscription.controller.js  (7 exports)
   │   cancelSubscription
   │   createCheckout
   │   getInvoice
   │   getMySubscription
-  │   getPlanCode
   │   getPlans
   │   paystackWebhook
   │   verifyCheckout
@@ -492,14 +513,14 @@
   │   updateWorkerProfile
   └────────────────────────────────────────────────────────────
 
-  Total: 25 controllers, 292 exported functions
+  Total: 27 controllers, 301 exported functions
 
 ════════════════════════════════════════════════════════════════════════════════
   § 3  ALL ROUTES
 ════════════════════════════════════════════════════════════════════════════════
 
   ┌─ admin.routes.js  (48 routes)
-  │   🔐ROLE ✅VAL  GET     /stats                                   → deleteUser
+  │   🔐ROLE ✅VAL  GET     /stats                                   → userId
   │   🔐ROLE ✅VAL  GET     /analytics/users                         → role
   │   🔐ROLE ✅VAL  GET     /analytics/revenue                       → updateUserRole
   │   🔐ROLE ✅VAL  GET     /users                                   → getVerificationStats
@@ -564,16 +585,17 @@
   │   🔐ROLE ⬜     DELETE  /purge                                   → export
   └────────────────────────────────────────────────────────────
 
-  ┌─ auth.routes.js  (9 routes)
-  │   🌐PUB  ✅VAL  POST    /register                                → refreshToken
-  │   🔑AUTH ✅VAL  POST    /login                                   → logout
-  │   🔑AUTH ✅VAL  GET     /verify-email                            → export
-  │   🔑AUTH ✅VAL  POST    /resend-verification                     → export
+  ┌─ auth.routes.js  (10 routes)
+  │   🔑AUTH ✅VAL  POST    /register                                → getMe
+  │   🔑AUTH ✅VAL  POST    /login                                   → simultaneo
+  │   🔑AUTH ✅VAL  GET     /verify-email                            → deactivat
+  │   🔑AUTH ✅VAL  POST    /resend-verification                     → tokens
   │   🔑AUTH ✅VAL  POST    /forgot-password                         → export
   │   🔑AUTH ✅VAL  POST    /reset-password                          → export
   │   🔑AUTH ⬜     POST    /refresh                                 → export
   │   🔑AUTH ⬜     POST    /logout                                  → export
   │   🔑AUTH ⬜     GET     /me                                      → export
+  │   🔑AUTH ⬜     POST    /logout-all                              → export
   └────────────────────────────────────────────────────────────
 
   ┌─ booking.routes.js  (9 routes)
@@ -629,6 +651,10 @@
   │   🔑AUTH ✅VAL  POST    /checkout                                → export
   │   🔑AUTH ✅VAL  POST    /verify                                  → export
   │   🔑AUTH ⬜     GET     /invoice/:sessionId                      → export
+  └────────────────────────────────────────────────────────────
+
+  ┌─ health.routes.js  (1 routes)
+  │   🌐PUB  ⬜     GET     /                                        → envir
   └────────────────────────────────────────────────────────────
 
   ┌─ hirer.routes.js  (15 routes)
@@ -691,25 +717,27 @@
   │   🔑AUTH ⬜     GET     /tokens                                  → export
   └────────────────────────────────────────────────────────────
 
-  ┌─ payment.routes.js  (19 routes)
-  │   🔐ROLE ✅VAL  POST    /webhook/flutterwave                     → bookingId
-  │   🔐ROLE ✅VAL  POST    /webhook/paystack                        → bookingI
-  │   🔐ROLE ✅VAL  GET     /verify/flutterwave                      → initiateBankTransfer
-  │   🔐ROLE ✅VAL  GET     /verify/paystack                         → require
-  │   🔐ROLE ✅VAL  GET     /banks                                   → confirmBankTransfer
-  │   🔐ROLE ✅VAL  POST    /verify-account                          → initiateCry
-  │   🔐ROLE ✅VAL  POST    /initiate/:bookingId                     → validat
-  │   🔐ROLE ✅VAL  POST    /bank-transfer/:bookingId                → bookingId
-  │   🔐ROLE ✅VAL  PATCH   /bank-transfer/:bookingId/confirm        → getHirerPayments
-  │   🔐ROLE ✅VAL  POST    /crypto/:bookingId                       → getWorkerEarnings
-  │   🔐ROLE ✅VAL  PATCH   /crypto/:bookingId/confirm               → withdrawals
-  │   🔐ROLE ✅VAL  POST    /release/:bookingId                      → getWithdrawals
-  │   🔐ROLE ✅VAL  GET     /hirer                                   → refundPayment
-  │   🔐ROLE ✅VAL  GET     /earnings                                → getPayment
-  │   🔐ROLE ✅VAL  POST    /withdraw                                → export
-  │   🔐ROLE ✅VAL  GET     /withdrawals                             → export
+  ┌─ payment.routes.js  (21 routes)
+  │   🔑AUTH ⬜     POST    /webhook/paystack                        → utilities
+  │   🔑AUTH ✅VAL  POST    /webhook/flutterwave                     → getBanksByCountry
+  │   🔑AUTH ✅VAL  GET     /verify/paystack                         → flow
+  │   🔑AUTH ✅VAL  GET     /verify/flutterwave                      → tran
+  │   🔑AUTH ✅VAL  GET     /banks                                   → transfe
+  │   🔑AUTH ✅VAL  POST    /verify-account                          → bookingId
+  │   🔑AUTH ✅VAL  POST    /initiate/:bookingId                     → crypt
+  │   🔑AUTH ✅VAL  POST    /bank-transfer/:bookingId                → bookingId
+  │   🔑AUTH ✅VAL  PATCH   /bank-transfer/:bookingId/confirm        → release
+  │   🔑AUTH ✅VAL  POST    /crypto/:bookingId                       → bookingId
+  │   🔑AUTH ✅VAL  PATCH   /crypto/:bookingId/confirm               → this
+  │   🔑AUTH ✅VAL  POST    /release/:bookingId                      → payment
+  │   🔑AUTH ✅VAL  POST    /refund/:bookingId                       → earnings
+  │   🔑AUTH ✅VAL  GET     /invoice/:bookingId                      → getWithdra
+  │   🔐ROLE ✅VAL  GET     /hirer                                   → payout
+  │   🔐ROLE ✅VAL  GET     /earnings                                → admin
+  │   🔐ROLE ✅VAL  POST    /withdraw                                → bookingId
+  │   🔐ROLE ✅VAL  GET     /withdrawals                             → getP
+  │   🔐ROLE ✅VAL  POST    /withdrawals/:withdrawalId/payout        → export
   │   🔐ROLE ✅VAL  GET     /                                        → export
-  │   🔑AUTH ✅VAL  POST    /refund/:bookingId                       → export
   │   🔑AUTH ✅VAL  GET     /:bookingId                              → export
   └────────────────────────────────────────────────────────────
 
@@ -792,14 +820,21 @@
   │   🔑AUTH ⬜     DELETE  /account                                 → export
   └────────────────────────────────────────────────────────────
 
-  ┌─ subscription.routes.js  (7 routes)
-  │   🔑AUTH ✅VAL  POST    /webhook                                 → verify
-  │   🔑AUTH ✅VAL  GET     /plans                                   → cancel
-  │   🔑AUTH ✅VAL  GET     /my                                      → refe
-  │   🔑AUTH ✅VAL  POST    /checkout                                → export
-  │   🔑AUTH ✅VAL  POST    /verify                                  → export
-  │   🔑AUTH ⬜     POST    /cancel                                  → export
-  │   🔑AUTH ⬜     GET     /invoice/:reference                      → export
+  ┌─ subscription.routes.js  (14 routes)
+  │   🔑AUTH ✅VAL  POST    /webhook                                 → getInvoice
+  │   🔑AUTH ✅VAL  GET     /plans                                   → discoun
+  │   🔑AUTH ✅VAL  GET     /my                                      → originalPrice
+  │   🔑AUTH ✅VAL  POST    /checkout                                → finalPrice
+  │   🔑AUTH ✅VAL  POST    /verify                                  → code
+  │   🔑AUTH ✅VAL  POST    /cancel                                  → code
+  │   🔑AUTH ✅VAL  GET     /invoice/:reference                      → required
+  │   🔐ROLE ✅VAL  GET     /promo/validate/:code                    → discountValue
+  │   🔑AUTH ✅VAL  GET     /admin/promo-codes                       → promo
+  │   🔑AUTH ✅VAL  POST    /admin/promo-codes                       → toggle
+  │   🔑AUTH ✅VAL  GET     /admin/promo-codes/:id                   → togglePromoCode
+  │   🔑AUTH ✅VAL  PATCH   /admin/promo-codes/:id                   → export
+  │   🔑AUTH ✅VAL  PATCH   /admin/promo-codes/:id/toggle            → export
+  │   🔑AUTH ✅VAL  DELETE  /admin/promo-codes/:id                   → export
   └────────────────────────────────────────────────────────────
 
   ┌─ translate.routes.js  (1 routes)
@@ -857,12 +892,20 @@
   │   🔑AUTH ✅VAL  GET     /:userId                                 → export
   └────────────────────────────────────────────────────────────
 
-  Total: 27 route files, 278 endpoints
+  Total: 28 route files, 289 endpoints
 
 ════════════════════════════════════════════════════════════════════════════════
   § 4  UNUSED CONTROLLER EXPORTS (not mapped to any route)
 ════════════════════════════════════════════════════════════════════════════════
-  ✅  All exported functions are reachable via routes.
+
+  ⚠️  promoCode.controller.js
+       not routed: applyPromoToCheckout
+       not routed: recordPromoUsage
+
+  ⚠️  referral.controller.js
+       not routed: getBonusForPhase
+
+  3 function(s) not routed.
 
 ════════════════════════════════════════════════════════════════════════════════
   § 5  BROKEN ROUTE IMPORTS
@@ -872,9 +915,7 @@
 ════════════════════════════════════════════════════════════════════════════════
   § 6  AUTH MIDDLEWARE COVERAGE
 ════════════════════════════════════════════════════════════════════════════════
-
-  ⚠️  auth.routes.js
-       POST    /register
+  ✅  Auth middleware looks complete.
 
 ════════════════════════════════════════════════════════════════════════════════
   § 7  VALIDATION COVERAGE (POST/PATCH/PUT without body validators)
@@ -886,6 +927,7 @@
   ⚠️  auth.routes.js
        POST    /refresh                                 → export
        POST    /logout                                  → export
+       POST    /logout-all                              → export
 
   ⚠️  category.routes.js
        POST    /suggest                                 → export
@@ -898,9 +940,6 @@
        PATCH   /:id/read                                → platfor
        POST    /request                                 → user
        POST    /token                                   → export
-
-  ⚠️  subscription.routes.js
-       POST    /cancel                                  → export
 
   10 route(s) modifying data without input validation.
 
@@ -934,7 +973,7 @@
 ════════════════════════════════════════════════════════════════════════════════
   ✅  utils/response.js      (14 exports)
   ✅  utils/helpers.js       (47 exports)
-  ✅  utils/validators.js    (53 exports)
+  ✅  utils/validators.js    (60 exports)
   ✅  utils/auditLog.js      (3 exports)
 
 ════════════════════════════════════════════════════════════════════════════════
@@ -1053,11 +1092,11 @@
 
   CRITICAL — Fix before launch:
   ────────────────────────────────────────────────────────────
-  🔴  1 route(s) missing auth middleware
+  ✅  No critical issues found!
 
   HIGH — Fix before testing:
   ────────────────────────────────────────────────────────────
-  ✅  No high-priority issues found!
+  🟠  3 controller function(s) not reachable via any route
 
   MEDIUM — Polish before launch:
   ────────────────────────────────────────────────────────────
@@ -1075,6 +1114,6 @@
   💡  POST /api/admin/export/users     — CSV data export
 
 ────────────────────────────────────────────────────────────────────────────────
-  Audit complete — 5/30/2026, 6:41:42 PM
+  Audit complete — 5/31/2026, 1:34:05 PM
   Report saved: full-audit-report.txt
 ────────────────────────────────────────────────────────────────────────────────

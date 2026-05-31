@@ -75,7 +75,6 @@ router.post(
 router.post(
   "/bank-transfer/:bookingId",
   ...validateUUIDParam("bookingId"),
-  validateBankTransfer,
   initiateBankTransfer,
 );
 
@@ -90,7 +89,6 @@ router.patch(
 router.post(
   "/crypto/:bookingId",
   ...validateUUIDParam("bookingId"),
-  validateInitiateCryptoPayment,
   initiateCryptoPayment,
 );
 
