@@ -682,6 +682,9 @@ insurancePaidAt   DateTime?
   isNegotiated    Boolean  @default(false)
 negotiatedRate  Float?
 negotiationNote String?
+
+jobType       String?   // "FULL_TIME" | "PART_TIME" | "CONTRACT" | "TEMPORARY"
+locationType  String?   // "REMOTE" | "ON_SITE" | "HYBRID"
 }
 
 model Payment {

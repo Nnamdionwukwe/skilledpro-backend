@@ -632,10 +632,10 @@ export const validateWithdrawal = [
 
 export const validateConfirmBankTransfer = [
   param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
+  // reference is no longer required — generated server-side if not provided
   body("reference")
+    .optional({ nullable: true, checkFalsy: true })
     .trim()
-    .notEmpty()
-    .withMessage("Transfer reference is required")
     .isLength({ max: 100 })
     .withMessage("Reference must not exceed 100 characters"),
   body("proofUrl")
@@ -658,12 +658,11 @@ export const validateConfirmBankTransfer = [
 
 export const validateConfirmCrypto = [
   param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
-  body("txHash")
+  body("reference")
+    .optional({ nullable: true, checkFalsy: true })
     .trim()
-    .notEmpty()
-    .withMessage("Transaction hash is required")
-    .isLength({ min: 20, max: 150 })
-    .withMessage("Transaction hash must be 20–150 characters"),
+    .isLength({ max: 100 })
+    .withMessage("Reference must not exceed 100 characters"),
   body("reference")
     .trim()
     .notEmpty()
@@ -1922,11 +1921,8 @@ export const validateConfirmCryptoPayment = [
     .trim()
     .notEmpty()
     .withMessage("txHash (transaction hash) is required")
-    .isLength({ min: 20, max: 150 })
-    .withMessage("txHash must be 20–150 characters")
-    .matches(/^[a-fA-F0-9x]+$/)
-    .withMessage("txHash must be a valid hex string"),
-
+    .isLength({ min: 10, max: 200 })
+    .withMessage("txHash must be 10–200 characters"),
   validate,
 ];
 
@@ -1995,8 +1991,11 @@ export const validateVerifyBankAccount = [
 // POST /api/auth/resend-verification
 export const validateResendVerification = [
   body("email")
-    .trim().notEmpty().withMessage("email is required")
-    .isEmail().withMessage("Must be a valid email address")
+    .trim()
+    .notEmpty()
+    .withMessage("email is required")
+    .isEmail()
+    .withMessage("Must be a valid email address")
     .normalizeEmail(),
   validate,
 ];

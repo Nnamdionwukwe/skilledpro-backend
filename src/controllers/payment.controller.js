@@ -1548,12 +1548,11 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
 
 export const confirmBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { reference, proofUrl, senderName, bankName } = req.body;
-
-  if (!reference)
-    return res
-      .status(400)
-      .json({ success: false, message: "Reference required" });
+  const { proofUrl: proofUrlBody, senderName, bankName } = req.body;
+  // Reference is optional — generate one server-side if not sent
+  const reference = req.body.reference || uniqueRef("BT");
+  // Uploaded receipt takes priority over any URL passed in body
+  const proofUrl = req.file?.path || proofUrlBody || null;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -1701,16 +1700,16 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { txHash, cryptoAmount, cryptoCurrency, reference } = req.body;
+  const { txHash, cryptoAmount, cryptoCurrency } = req.body;
+  // Generate reference server-side — client no longer sends it
+  const reference = req.body.reference || uniqueRef("CRYPTO");
+  // Optional uploaded screenshot
+  const proofUrl = req.file?.path || null;
 
   if (!txHash)
     return res
       .status(400)
       .json({ success: false, message: "Transaction hash required" });
-  if (!reference)
-    return res
-      .status(400)
-      .json({ success: false, message: "Reference required" });
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -1758,6 +1757,7 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
+      bankTransferProof: proofUrl,
     },
   });
 

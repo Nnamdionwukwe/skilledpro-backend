@@ -3,7 +3,19 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { notifyProfileViewed } from "../services/notification.service.js";
 import { sendProfileViewedEmail } from "../services/email.service.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+} from "../utils/helpers.js";
+
 export const searchWorkers = async (req, res) => {
   try {
     const {
@@ -69,109 +81,6 @@ export const searchWorkers = async (req, res) => {
   }
 };
 
-// export const getWorkerProfile = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-
-//     // ── Fetch worker + all data ───────────────────────────────────────────────
-//     const worker = await prisma.workerProfile.findUnique({
-//       where: { userId },
-//       include: {
-//         user: {
-//           select: {
-//             id: true,
-//             firstName: true,
-//             lastName: true,
-//             avatar: true,
-//             city: true,
-//             country: true,
-//             state: true,
-//             email: true,
-//             phone: true,
-//             gender: true,
-//             language: true,
-//             createdAt: true,
-//             // Privacy flags
-//             profileVisible: true,
-//             showPhone: true,
-//             showLocation: true,
-//             showEmail: true,
-//             showGender: true,
-//           },
-//         },
-//         categories: { include: { category: true } },
-//         portfolio: true,
-//         certifications: true,
-//         availability: true,
-//       },
-//     });
-
-//     if (!worker) return sendError(res, "Worker not found", 404);
-//     if (!worker.user.profileVisible)
-//       return sendError(res, "This profile is private", 403);
-
-//     // ── Apply privacy rules ───────────────────────────────────────────────────
-//     // The viewer is the *currently authenticated* user (may be null for guests)
-//     // We NEVER change who req.user is — that is always the logged-in person
-//     const isOwnProfile = req.user?.id === userId;
-
-//     const safeUser = {
-//       id: worker.user.id,
-//       firstName: worker.user.firstName,
-//       lastName: worker.user.lastName,
-//       avatar: worker.user.avatar,
-//       language: worker.user.language,
-//       createdAt: worker.user.createdAt,
-//       // Location — respect showLocation
-//       city: isOwnProfile || worker.user.showLocation ? worker.user.city : null,
-//       country:
-//         isOwnProfile || worker.user.showLocation ? worker.user.country : null,
-//       state:
-//         isOwnProfile || worker.user.showLocation ? worker.user.state : null,
-//       // Contact — respect showPhone / showEmail
-//       phone: isOwnProfile || worker.user.showPhone ? worker.user.phone : null,
-//       email: isOwnProfile || worker.user.showEmail ? worker.user.email : null,
-//       // Gender — respect showGender
-//       gender:
-//         isOwnProfile || worker.user.showGender ? worker.user.gender : null,
-//     };
-
-//     // ── Notify worker of profile view (fire-and-forget) ───────────────────────
-//     if (req.user && !isOwnProfile) {
-//       const viewer = await prisma.user.findUnique({
-//         where: { id: req.user.id },
-//         select: { firstName: true, lastName: true, role: true },
-//       });
-//       if (viewer) {
-//         notifyProfileViewed(
-//           userId,
-//           `${viewer.firstName} ${viewer.lastName}`,
-//           viewer.role,
-//         ).catch(() => {});
-//       }
-//     }
-
-//     sendProfileViewedEmail({
-//       to: workerUser.email,
-//       ownerName: worker.user.firstName,
-//       viewerName: `${viewer.firstName} ${viewer.lastName}`,
-//       viewerRole: viewer.role,
-//     }).catch(() => {});
-
-//     return sendResponse(res, {
-//       data: {
-//         worker: {
-//           ...worker,
-//           user: safeUser,
-//         },
-//       },
-//     });
-//   } catch (err) {
-//     console.error("getWorkerProfile error:", err);
-//     return sendError(res, "Failed to fetch worker");
-//   }
-// };
-
 export const getWorkerProfile = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -213,7 +122,31 @@ export const getWorkerProfile = async (req, res) => {
 
     const isOwnProfile = req.user?.id === userId;
 
-    // ── Notify worker of profile view (fire-and-forget) ───────────────────────
+    // ── Build privacy-filtered user object ────────────────────────────────
+    // This is a local variable — completely separate from the safeUser()
+    // utility function imported from helpers.js (which strips passwords).
+    const filteredUser = {
+      id: worker.user.id,
+      firstName: worker.user.firstName,
+      lastName: worker.user.lastName,
+      avatar: worker.user.avatar,
+      language: worker.user.language,
+      createdAt: worker.user.createdAt,
+      // Location — hidden unless owner or showLocation is true
+      city: isOwnProfile || worker.user.showLocation ? worker.user.city : null,
+      country:
+        isOwnProfile || worker.user.showLocation ? worker.user.country : null,
+      state:
+        isOwnProfile || worker.user.showLocation ? worker.user.state : null,
+      // Contact — hidden unless owner or respective flag is true
+      phone: isOwnProfile || worker.user.showPhone ? worker.user.phone : null,
+      email: isOwnProfile || worker.user.showEmail ? worker.user.email : null,
+      // Gender — hidden unless owner or showGender is true
+      gender:
+        isOwnProfile || worker.user.showGender ? worker.user.gender : null,
+    };
+
+    // ── Notify worker of profile view (fire-and-forget) ───────────────────
     if (req.user && !isOwnProfile) {
       prisma.user
         .findUnique({
@@ -224,15 +157,13 @@ export const getWorkerProfile = async (req, res) => {
           if (!viewer) return;
           const viewerName = `${viewer.firstName} ${viewer.lastName}`;
 
-          // In-app notification
           notifyProfileViewed(userId, viewerName, viewer.role).catch(() => {});
 
-          // Email — only if worker has a visible email
           if (worker.user.email) {
             sendProfileViewedEmail({
-              to: worker.user.email, // ✅ was workerUser.email — fixed
+              to: worker.user.email,
               ownerName: worker.user.firstName,
-              viewerName: viewerName,
+              viewerName,
               viewerRole: viewer.role,
             }).catch(() => {});
           }
@@ -244,7 +175,7 @@ export const getWorkerProfile = async (req, res) => {
       data: {
         worker: {
           ...worker,
-          user: safeUser,
+          user: filteredUser,
         },
       },
     });

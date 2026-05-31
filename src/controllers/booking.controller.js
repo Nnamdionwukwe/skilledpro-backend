@@ -36,14 +36,16 @@ export const createBooking = async (req, res) => {
       longitude,
       scheduledAt,
       estimatedHours,
-      estimatedUnit, // ← new
-      estimatedValue, // ← new
-      isNegotiated, // ← ADD
-      negotiatedRate, // ← ADD
-      negotiationNote, // ← ADD
+      estimatedUnit,
+      estimatedValue,
+      isNegotiated,
+      negotiatedRate,
+      negotiationNote,
       agreedRate,
       currency,
       notes,
+      jobType, // ← ADD
+      locationType, // ← ADD
     } = req.body;
 
     const booking = await prisma.booking.create({
@@ -67,6 +69,8 @@ export const createBooking = async (req, res) => {
 
         currency: currency || "USD",
         notes,
+        jobType: jobType || null, // ← ADD
+        locationType: locationType || null, // ← ADD
         isNegotiated: isNegotiated === true || isNegotiated === "true",
         negotiatedRate:
           isNegotiated && negotiatedRate ? parseFloat(negotiatedRate) : null,

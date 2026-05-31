@@ -40,6 +40,11 @@ import {
   validatePagination,
 } from "../utils/validators.js";
 
+import {
+  uploadSingle,
+  normaliseFile,
+} from "../middleware/upload.middleware.js";
+
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +84,8 @@ router.post(
 router.patch(
   "/bank-transfer/:bookingId/confirm",
   ...validateUUIDParam("bookingId"),
+  uploadSingle, // ← multer parses multipart/form-data, populates req.file
+  normaliseFile, // ← normalises req.files → req.file
   validateConfirmBankTransfer,
   confirmBankTransfer,
 );
@@ -93,10 +100,11 @@ router.post(
 router.patch(
   "/crypto/:bookingId/confirm",
   ...validateUUIDParam("bookingId"),
+  uploadSingle, // ← multer parses multipart/form-data, populates req.file
+  normaliseFile,
   validateConfirmCryptoPayment,
   confirmCryptoPayment,
 );
-
 // ── Escrow release ────────────────────────────────────────────────────────────
 router.post(
   "/release/:bookingId",
