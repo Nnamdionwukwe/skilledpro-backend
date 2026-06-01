@@ -80,7 +80,7 @@ export const getPaymentInvoice = async (req, res) => {
           },
         },
         category: { select: { name: true } },
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
 
@@ -99,7 +99,7 @@ export const getPaymentInvoice = async (req, res) => {
         });
     }
 
-    const payment = booking.payment;
+    const payment = booking.payments?.[0];
     if (!payment) {
       return res
         .status(404)

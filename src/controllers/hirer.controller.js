@@ -146,7 +146,7 @@ export const getHirerBookings = async (req, res) => {
             },
           },
           category: true,
-          payment: true,
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
           review: true,
         },
         orderBy: { createdAt: "desc" },

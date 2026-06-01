@@ -23,6 +23,12 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+function computeReferralDiscount(payment) {
+  if (!payment) return 0;
+  const gross = (payment.workerPayout || 0) + (payment.platformFee || 0);
+  return parseFloat(Math.max(0, gross - (payment.amount || 0)).toFixed(2));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ANALYTICS & STATS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -768,7 +774,7 @@ export const getAllBookings = async (req, res) => {
             },
           },
           category: true,
-          payment: true,
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -814,7 +820,7 @@ export const getAdminBookingDetail = async (req, res) => {
           },
         },
         category: true,
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
         reviews: {
           include: {
             giver: { select: { id: true, firstName: true, lastName: true } },
@@ -854,7 +860,7 @@ export const adminUpdateBookingStatus = async (req, res) => {
 
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.bookingId },
-      include: { payment: true },
+      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
     if (!booking) return sendError(res, "Booking not found", 404);
 
@@ -931,7 +937,7 @@ export const getDisputes = async (req, res) => {
             },
           },
           category: true,
-          payment: true,
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
         },
         orderBy: { updatedAt: "asc" }, // oldest disputes first
       }),
@@ -956,7 +962,7 @@ export const resolveDispute = async (req, res) => {
     const { resolution, refundHirer, releaseToWorker, notes } = req.body;
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.bookingId },
-      include: { payment: true },
+      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
     if (!booking) return sendError(res, "Booking not found", 404);
 
@@ -1082,10 +1088,13 @@ export const getPaymentDetail = async (req, res) => {
 export const adminReleasePayment = async (req, res) => {
   try {
     const { notes } = req.body;
+
     const payment = await prisma.payment.findFirst({
-      where: { bookingId: req.params.bookingId },
+      where: { bookingId: req.params.bookingId, status: "HELD" },
+      orderBy: { createdAt: "desc" },
       include: { booking: true },
     });
+
     if (!payment) return sendError(res, "Payment not found", 404);
     if (payment.status !== "HELD")
       return sendError(res, "Payment is not HELD", 400);
@@ -1127,10 +1136,16 @@ export const adminReleasePayment = async (req, res) => {
 export const adminRefundPayment = async (req, res) => {
   try {
     const { notes } = req.body;
+
     const payment = await prisma.payment.findFirst({
-      where: { bookingId: req.params.bookingId },
+      where: {
+        bookingId: req.params.bookingId,
+        status: { in: ["HELD", "RELEASED"] },
+      },
+      orderBy: { createdAt: "desc" },
       include: { booking: true },
     });
+
     if (!payment) return sendError(res, "Payment not found", 404);
     if (!["HELD", "RELEASED"].includes(payment.status)) {
       return sendError(
@@ -2403,4 +2418,399 @@ export const getAdminDashboard = async (req, res) => {
       .status(500)
       .json({ success: false, message: "Failed to load admin dashboard" });
   }
+};
+
+export const adminGetManualPayments = async (req, res) => {
+  const {
+    provider,
+    status,
+    from,
+    to,
+    search,
+    page = 1,
+    limit = 20,
+  } = req.query;
+
+  const { skip, take } = paginate(page, limit);
+
+  // Base: only manual-method payments unless a specific provider is given
+  const providerFilter =
+    provider && provider !== "ALL"
+      ? { provider }
+      : { provider: { in: ["bank_transfer", "crypto"] } };
+
+  const statusFilter = status && status !== "ALL" ? { status } : {};
+
+  const dateFilter =
+    from || to
+      ? {
+          createdAt: {
+            ...(from ? { gte: new Date(from) } : {}),
+            ...(to ? { lte: new Date(to) } : {}),
+          },
+        }
+      : {};
+
+  const baseWhere = { ...providerFilter, ...statusFilter, ...dateFilter };
+
+  // Build search condition across refs, names, titles, hashes
+  const searchWhere = search?.trim()
+    ? {
+        OR: [
+          { providerRef: { contains: search, mode: "insensitive" } },
+          { cryptoTxHash: { contains: search, mode: "insensitive" } },
+          { accountName: { contains: search, mode: "insensitive" } },
+          { bankName: { contains: search, mode: "insensitive" } },
+          {
+            booking: {
+              OR: [
+                { title: { contains: search, mode: "insensitive" } },
+                {
+                  hirer: {
+                    OR: [
+                      { firstName: { contains: search, mode: "insensitive" } },
+                      { lastName: { contains: search, mode: "insensitive" } },
+                      { email: { contains: search, mode: "insensitive" } },
+                    ],
+                  },
+                },
+                {
+                  worker: {
+                    OR: [
+                      { firstName: { contains: search, mode: "insensitive" } },
+                      { lastName: { contains: search, mode: "insensitive" } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }
+    : {};
+
+  const where = { ...baseWhere, ...searchWhere };
+
+  const [payments, total, statusCounts] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      include: {
+        booking: {
+          include: {
+            hirer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                avatar: true,
+                phone: true,
+              },
+            },
+            worker: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+    }),
+    prisma.payment.count({ where }),
+
+    // Status breakdown counts for the summary bar (always across manual methods)
+    prisma.payment.groupBy({
+      by: ["status"],
+      where: { provider: { in: ["bank_transfer", "crypto"] } },
+      _count: { id: true },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  // Annotate each payment with computed referral discount
+  const annotated = payments.map((p) => ({
+    ...p,
+    referralDiscount: computeReferralDiscount(p),
+  }));
+
+  // Build summary map  { PENDING: { count, gmv }, HELD: {...}, ... }
+  const summary = statusCounts.reduce((acc, row) => {
+    acc[row.status] = {
+      count: row._count.id,
+      gmv: row._sum.amount ?? 0,
+    };
+    return acc;
+  }, {});
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      payments: annotated,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / take),
+      summary,
+    },
+  });
+};
+
+export const adminGetPaymentAttempts = async (req, res) => {
+  const { bookingId } = req.params;
+
+  const attempts = await prisma.payment.findMany({
+    where: { bookingId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const annotated = attempts.map((p) => ({
+    ...p,
+    referralDiscount: computeReferralDiscount(p),
+    attemptNumber: 0, // filled below
+  }));
+
+  // Number the attempts oldest→newest
+  annotated.reverse().forEach((a, i) => {
+    a.attemptNumber = i + 1;
+  });
+  annotated.reverse();
+
+  return res.status(200).json({
+    success: true,
+    data: { attempts: annotated, total: annotated.length },
+  });
+};
+
+export const adminVerifyManualPayment = async (req, res) => {
+  const { bookingId } = req.params;
+  const { notes } = req.body;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      payments: { orderBy: { createdAt: "desc" }, take: 1 },
+      hirer: {
+        select: { id: true, firstName: true, lastName: true, email: true },
+      },
+      worker: { select: { id: true, firstName: true, lastName: true } },
+    },
+  });
+
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+
+  // Find the most recent PENDING manual payment for this booking
+  const payment = await prisma.payment.findFirst({
+    where: {
+      bookingId,
+      provider: { in: ["bank_transfer", "crypto"] },
+      status: "PENDING",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!payment)
+    return res.status(404).json({
+      success: false,
+      message: "No pending manual payment found for this booking",
+    });
+
+  // Atomically update payment + booking
+  await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: "HELD" },
+    }),
+    prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: "ACCEPTED" },
+    }),
+  ]);
+
+  // Notifications
+  await prisma.notification.createMany({
+    data: [
+      {
+        userId: booking.hirerId,
+        title: "Payment Verified ✅",
+        body: `Your ${payment.provider === "bank_transfer" ? "bank transfer" : "crypto"} payment for "${booking.title}" has been verified and is now held in escrow.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId, paymentId: payment.id },
+      },
+      {
+        userId: booking.workerId,
+        title: "Payment Received 💳",
+        body: `Payment for "${booking.title}" is now in escrow. You can check in to start the job.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId, paymentId: payment.id },
+      },
+    ],
+  });
+
+  // Audit log (non-blocking)
+  logAdminAction(req.user.id, "MANUAL_PAYMENT_VERIFIED", {
+    bookingId,
+    paymentId: payment.id,
+    provider: payment.provider,
+    amount: payment.amount,
+    currency: payment.currency,
+    notes: notes || null,
+  }).catch(() => {});
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment verified — funds are now held in escrow",
+    data: { paymentId: payment.id, bookingId, status: "HELD" },
+  });
+};
+
+export const adminRejectManualPayment = async (req, res) => {
+  const { bookingId } = req.params;
+  const { reason } = req.body;
+
+  if (!reason?.trim())
+    return res
+      .status(400)
+      .json({ success: false, message: "Rejection reason is required" });
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { hirer: { select: { id: true, firstName: true } } },
+  });
+
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+
+  const payment = await prisma.payment.findFirst({
+    where: {
+      bookingId,
+      provider: { in: ["bank_transfer", "crypto"] },
+      status: "PENDING",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!payment)
+    return res.status(404).json({
+      success: false,
+      message: "No pending manual payment found for this booking",
+    });
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      status: "FAILED",
+      // Store the rejection reason in providerRef notes for audit trail
+      notes: JSON.stringify({
+        rejectedAt: new Date().toISOString(),
+        rejectedBy: req.user.id,
+        reason,
+      }),
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: booking.hirerId,
+      title: "Payment Not Verified ❌",
+      body: `Your ${payment.provider === "bank_transfer" ? "bank transfer" : "crypto payment"} for "${booking.title}" could not be verified. Reason: ${reason}. Please try again or use a different payment method.`,
+      type: "PAYMENT_FAILED",
+      data: { bookingId, paymentId: payment.id, reason },
+    },
+  });
+
+  logAdminAction(req.user.id, "MANUAL_PAYMENT_REJECTED", {
+    bookingId,
+    paymentId: payment.id,
+    reason,
+  }).catch(() => {});
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment rejected — hirer has been notified",
+    data: { paymentId: payment.id, bookingId, status: "FAILED" },
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § E  ADMIN — MANUAL PAYMENT STATS SUMMARY
+// GET /api/admin/payments/stats
+// Returns aggregate stats broken down by provider and status for the dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+export const adminManualPaymentStats = async (req, res) => {
+  const { from, to } = req.query;
+
+  const dateFilter =
+    from || to
+      ? {
+          createdAt: {
+            ...(from ? { gte: new Date(from) } : {}),
+            ...(to ? { lte: new Date(to) } : {}),
+          },
+        }
+      : {};
+
+  const [byStatus, byProvider, recentActivity] = await Promise.all([
+    prisma.payment.groupBy({
+      by: ["status"],
+      where: { provider: { in: ["bank_transfer", "crypto"] }, ...dateFilter },
+      _count: { id: true },
+      _sum: { amount: true },
+    }),
+    prisma.payment.groupBy({
+      by: ["provider"],
+      where: { provider: { in: ["bank_transfer", "crypto"] }, ...dateFilter },
+      _count: { id: true },
+      _sum: { amount: true },
+    }),
+    // Most recent 5 payments
+    prisma.payment.findMany({
+      where: { provider: { in: ["bank_transfer", "crypto"] } },
+      include: {
+        booking: {
+          select: {
+            title: true,
+            hirer: { select: { firstName: true, lastName: true } },
+            worker: { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      byStatus: byStatus.reduce(
+        (acc, r) => ({
+          ...acc,
+          [r.status]: { count: r._count.id, gmv: r._sum.amount ?? 0 },
+        }),
+        {},
+      ),
+      byProvider: byProvider.reduce(
+        (acc, r) => ({
+          ...acc,
+          [r.provider]: { count: r._count.id, gmv: r._sum.amount ?? 0 },
+        }),
+        {},
+      ),
+      recentActivity: recentActivity.map((p) => ({
+        ...p,
+        referralDiscount: computeReferralDiscount(p),
+      })),
+    },
+  });
 };

@@ -1,62 +1,79 @@
 // src/routes/admin.routes.js
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX: added approveWithdrawalPayout route (was unrouted in §4)
-// ─────────────────────────────────────────────────────────────────────────────
 import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
+  // Analytics
   getPlatformStats,
+  getAdminDashboard,
   getUserGrowthAnalytics,
   getRevenueAnalytics,
+  // Users
   getAllUsers,
   getUserDetail,
   banUser,
   unbanUser,
   deleteUser,
   updateUserRole,
+  // Verifications
   verifyWorker,
   getPendingVerifications,
   getVerificationStats,
+  // Bookings
   getAllBookings,
   getAdminBookingDetail,
   adminUpdateBookingStatus,
+  // Disputes
   getDisputes,
   resolveDispute,
+  // Payments — general
   getAllPayments,
   getPaymentDetail,
   adminReleasePayment,
   adminRefundPayment,
-  verifyManualPayment,
-  rejectManualPayment,
+  // Payments — manual verification (these REPLACE verifyManualPayment / rejectManualPayment)
+  adminGetManualPayments,
+  adminGetPaymentAttempts,
+  adminVerifyManualPayment,
+  adminRejectManualPayment,
+  adminManualPaymentStats,
+  // Withdrawals
   getAllWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
+  // Categories
   getAllCategories,
   createCategory,
   updateCategory,
   deleteCategory,
+  // Reviews
   getAllReviews,
   deleteReview,
+  // Jobs
   getAllJobPosts,
   getJobPostDetail,
   adminUpdateJobStatus,
   adminDeleteJobPost,
+  // Subscriptions
   getAllSubscriptions,
   adminCancelSubscription,
+  // Featured listings
   getAllFeaturedListings,
   adminRemoveFeaturedListing,
+  // Community posts
   getAllPosts,
   adminDeletePost,
   adminDeleteComment,
+  // Messages
   getAllConversations,
   getConversationMessages,
+  // Notifications
   broadcastNotification,
+  // Video calls
   getAllVideoCalls,
-  getAdminDashboard,
 } from "../controllers/admin.controller.js";
-import {
-  approveWithdrawalPayout, // ← was unrouted (§4 fix)
-} from "../controllers/payment.controller.js";
+
+import { approveWithdrawalPayout } from "../controllers/payment.controller.js";
+
 import {
   validateCreateCategory,
   validateBroadcast,
@@ -70,21 +87,26 @@ router.use(protect, requireRole("ADMIN"));
 
 // ── Analytics ──────────────────────────────────────────────────────────────────
 router.get("/stats", getPlatformStats);
-getAdminDashboard;
+router.get("/dashboard", getAdminDashboard); // FIX: was bare `getAdminDashboard;` — never registered
 router.get("/analytics/users", getUserGrowthAnalytics);
 router.get("/analytics/revenue", getRevenueAnalytics);
 
 // ── Users ──────────────────────────────────────────────────────────────────────
-router.get("/users", validatePagination, getAllUsers);
+router.get(
+  "/users",
+  ...validateUUIDParam("userId", false),
+  validatePagination,
+  getAllUsers,
+);
 router.get("/users/:userId", ...validateUUIDParam("userId"), getUserDetail);
 router.patch("/users/:userId/ban", ...validateUUIDParam("userId"), banUser);
 router.patch("/users/:userId/unban", ...validateUUIDParam("userId"), unbanUser);
-router.delete("/users/:userId", ...validateUUIDParam("userId"), deleteUser);
 router.patch(
   "/users/:userId/role",
   ...validateUUIDParam("userId"),
   updateUserRole,
 );
+router.delete("/users/:userId", ...validateUUIDParam("userId"), deleteUser);
 
 // ── Verifications ──────────────────────────────────────────────────────────────
 router.get("/verifications/stats", getVerificationStats);
@@ -121,12 +143,35 @@ router.patch(
 );
 
 // ── Payments ───────────────────────────────────────────────────────────────────
-router.get("/payments", validatePagination, getAllPayments);
+// CRITICAL ORDER: specific static paths MUST come before parameterized ones.
+// /payments/stats          ← must be before /payments/:paymentId
+// /payments/booking/…      ← must be before /payments/:paymentId
+// /payments/:paymentId     ← catch-all for single payment lookup, comes last
+//
+// FIX 1: /payments/stats was registered AFTER /payments/:paymentId — Express
+//         would match "stats" as a paymentId UUID, validateUUIDParam would 400.
+// FIX 2: GET /payments was registered twice (getAllPayments + adminGetManualPayments).
+//         Express uses the first match so adminGetManualPayments never ran.
+//         Replaced the first registration with adminGetManualPayments everywhere.
+// FIX 3: PATCH verify + reject-manual were each registered twice (old + new functions).
+//         Removed the old verifyManualPayment / rejectManualPayment duplicates.
+
+router.get("/payments/stats", adminManualPaymentStats); // static — MUST be first
+
+router.get(
+  "/payments/booking/:bookingId/attempts",
+  ...validateUUIDParam("bookingId"),
+  adminGetPaymentAttempts,
+); // static sub-path — before /:paymentId
+
+router.get("/payments", validatePagination, adminGetManualPayments); // list — returns bank+crypto, all statuses, with referralDiscount
+
 router.get(
   "/payments/:paymentId",
   ...validateUUIDParam("paymentId"),
   getPaymentDetail,
-);
+); // single lookup — last
+
 router.post(
   "/payments/:bookingId/release",
   ...validateUUIDParam("bookingId"),
@@ -137,16 +182,17 @@ router.post(
   ...validateUUIDParam("bookingId"),
   adminRefundPayment,
 );
+
 router.patch(
   "/payments/:bookingId/verify",
   ...validateUUIDParam("bookingId"),
-  verifyManualPayment,
-);
+  adminVerifyManualPayment,
+); // FIX: was verifyManualPayment (duplicate removed)
 router.patch(
   "/payments/:bookingId/reject-manual",
   ...validateUUIDParam("bookingId"),
-  rejectManualPayment,
-);
+  adminRejectManualPayment,
+); // FIX: was rejectManualPayment (duplicate removed)
 
 // ── Withdrawals ────────────────────────────────────────────────────────────────
 router.get("/withdrawals", validatePagination, getAllWithdrawals);
@@ -160,7 +206,6 @@ router.patch(
   ...validateUUIDParam("withdrawalId"),
   rejectWithdrawal,
 );
-// Process the actual bank payout (calls Paystack Transfers API)
 router.post(
   "/withdrawals/:withdrawalId/payout",
   ...validateUUIDParam("withdrawalId"),
@@ -220,17 +265,18 @@ router.delete(
 );
 
 // ── Community posts ────────────────────────────────────────────────────────────
+// NOTE: /posts/comments/:commentId MUST come before /posts/:postId
 router.get("/posts", validatePagination, getAllPosts);
-router.delete(
-  "/posts/:postId",
-  ...validateUUIDParam("postId"),
-  adminDeletePost,
-);
 router.delete(
   "/posts/comments/:commentId",
   ...validateUUIDParam("commentId"),
   adminDeleteComment,
-);
+); // static sub-path first
+router.delete(
+  "/posts/:postId",
+  ...validateUUIDParam("postId"),
+  adminDeletePost,
+); // parameterized after
 
 // ── Messages ───────────────────────────────────────────────────────────────────
 router.get("/conversations", validatePagination, getAllConversations);

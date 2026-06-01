@@ -321,7 +321,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
-      payment: true,
+      payments: { orderBy: { createdAt: "desc" }, take: 1 },
       hirer: { select: { email: true, firstName: true, lastName: true } },
     },
   });
@@ -338,25 +338,19 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       message: "Booking must be ACCEPTED before payment",
     });
 
-  // Block if already paid
-  if (booking.payment?.status === "HELD")
+  // Block if any payment is already held / released — check most recent
+  const latestPayment = await prisma.payment.findFirst({
+    where: { bookingId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (latestPayment?.status === "HELD")
     return res
       .status(400)
       .json({ success: false, message: "Payment is already in escrow" });
-  if (booking.payment?.status === "RELEASED")
+  if (latestPayment?.status === "RELEASED")
     return res
       .status(400)
       .json({ success: false, message: "Payment has already been released" });
-
-  // Delete stale PENDING / FAILED records so we can re-initiate cleanly
-  if (
-    booking.payment &&
-    ["PENDING", "FAILED"].includes(booking.payment.status)
-  ) {
-    await prisma.payment
-      .delete({ where: { id: booking.payment.id } })
-      .catch(() => {});
-  }
 
   const currency = (booking.currency ?? "USD").toUpperCase();
   const fees = FEE_CONFIG.compute(booking.agreedRate);
@@ -719,24 +713,26 @@ export const releasePayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== hirerId)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (!booking.payment || booking.payment.status !== "HELD")
+
+  const payment = await prisma.payment.findFirst({
+    where: { bookingId, status: "HELD" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!payment)
     return res
       .status(400)
       .json({ success: false, message: "No payment in escrow" });
 
-  const [payment] = await Promise.all([
+  const [updatedPayment] = await Promise.all([
     prisma.payment.update({
-      where: { id: booking.payment.id },
+      where: { id: payment.id },
       data: { status: "RELEASED", escrowReleasedAt: new Date() },
     }),
     prisma.booking.update({
@@ -747,13 +743,11 @@ export const releasePayment = asyncHandler(async (req, res) => {
       where: { userId: booking.workerId },
       data: { completedJobs: { increment: 1 } },
     }),
-    // Trigger referral conversion for the worker — non-blocking
-    _convertReferral(booking.workerId, booking.payment.amount).catch((err) =>
+    _convertReferral(booking.workerId, payment.amount).catch((err) =>
       console.error("convertReferral (release) error:", err),
     ),
   ]);
 
-  // Notify worker
   await prisma.notification.create({
     data: {
       userId: booking.workerId,
@@ -767,7 +761,7 @@ export const releasePayment = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     message: "Payment released to worker",
-    data: payment,
+    data: updatedPayment,
   });
 });
 
@@ -778,23 +772,25 @@ export const releasePayment = asyncHandler(async (req, res) => {
 export const refundPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (req.user.role !== "ADMIN" && booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (!booking.payment)
+
+  const payment = await prisma.payment.findFirst({
+    where: { bookingId, status: { in: ["HELD", "RELEASED"] } },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!payment)
     return res
       .status(400)
-      .json({ success: false, message: "No payment found" });
+      .json({ success: false, message: "No refundable payment found" });
 
-  const payment = await prisma.payment.update({
-    where: { id: booking.payment.id },
+  const updatedPayment = await prisma.payment.update({
+    where: { id: payment.id },
     data: { status: "REFUNDED", refundedAt: new Date() },
   });
   await prisma.booking.update({
@@ -823,7 +819,7 @@ export const refundPayment = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json({ success: true, message: "Refund processed", data: payment });
+    .json({ success: true, message: "Refund processed", data: updatedPayment });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1498,25 +1494,27 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
 export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
-
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (["HELD", "RELEASED"].includes(booking.payment?.status))
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment already completed" });
   if (booking.status !== "ACCEPTED")
     return res
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
+
+  // Check most recent payment — block only if already locked
+  const latestPayment = await prisma.payment.findFirst({
+    where: { bookingId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (["HELD", "RELEASED"].includes(latestPayment?.status))
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment already completed" });
 
   const fees = FEE_CONFIG.compute(booking.agreedRate);
   const {
@@ -1549,31 +1547,28 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
 export const confirmBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const { proofUrl: proofUrlBody, senderName, bankName } = req.body;
-  // Reference is optional — generate one server-side if not sent
   const reference = req.body.reference || uniqueRef("BT");
-  // Uploaded receipt takes priority over any URL passed in body
   const proofUrl = req.file?.path || proofUrlBody || null;
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+
+  // Block only if payment already succeeded
+  const latestPayment = await prisma.payment.findFirst({
+    where: { bookingId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (["HELD", "RELEASED"].includes(latestPayment?.status))
     return res
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  if (booking.payment?.status === "PENDING")
-    await prisma.payment
-      .delete({ where: { id: booking.payment.id } })
-      .catch(() => {});
-
+  // Always create a NEW payment record — preserves full retry history
   const fees = FEE_CONFIG.compute(booking.agreedRate);
   const {
     platformFeeFromHirer: platformFee,
@@ -1654,7 +1649,7 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { payment: true },
+    include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!booking)
     return res
@@ -1662,7 +1657,7 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+  if (["HELD", "RELEASED"].includes(booking.payments?.[0]?.status))
     return res
       .status(400)
       .json({ success: false, message: "Payment already completed" });
@@ -1701,9 +1696,7 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const { txHash, cryptoAmount, cryptoCurrency } = req.body;
-  // Generate reference server-side — client no longer sends it
   const reference = req.body.reference || uniqueRef("CRYPTO");
-  // Optional uploaded screenshot
   const proofUrl = req.file?.path || null;
 
   if (!txHash)
@@ -1711,25 +1704,23 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Transaction hash required" });
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { payment: true },
-  });
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
       .status(404)
       .json({ success: false, message: "Booking not found" });
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
-  if (["HELD", "RELEASED"].includes(booking.payment?.status))
+
+  // Block only if payment already succeeded
+  const latestPayment = await prisma.payment.findFirst({
+    where: { bookingId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (["HELD", "RELEASED"].includes(latestPayment?.status))
     return res
       .status(400)
       .json({ success: false, message: "Payment already completed" });
-
-  if (booking.payment?.status === "PENDING")
-    await prisma.payment
-      .delete({ where: { id: booking.payment.id } })
-      .catch(() => {});
 
   const wallet =
     CRYPTO_WALLETS[(cryptoCurrency ?? "USDC").toUpperCase()] ??
@@ -1741,6 +1732,7 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
     workerPayout,
   } = fees;
 
+  // Always create a NEW record — preserves full retry history
   const payment = await prisma.payment.create({
     data: {
       bookingId,
@@ -1757,7 +1749,7 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-      bankTransferProof: proofUrl,
+      bankTransferProof: proofUrl, // screenshot stored here
     },
   });
 
@@ -1837,7 +1829,6 @@ export const getAllPayments = asyncHandler(async (req, res) => {
 export const getPayment = asyncHandler(async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.bookingId },
-    include: { payment: true },
   });
   if (!booking)
     return res
@@ -1850,7 +1841,16 @@ export const getPayment = asyncHandler(async (req, res) => {
   )
     return res.status(403).json({ success: false, message: "Forbidden" });
 
-  return res.status(200).json({ success: true, data: booking.payment });
+  // Return most recent non-failed payment; fallback to most recent overall
+  const payment = await prisma.payment.findFirst({
+    where: { bookingId: req.params.bookingId },
+    orderBy: [
+      { status: "desc" }, // RELEASED > HELD > PENDING > FAILED
+      { createdAt: "desc" },
+    ],
+  });
+
+  return res.status(200).json({ success: true, data: payment });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -665,7 +665,7 @@ model Booking {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  payment      Payment?
+    payments   Payment[]        // one booking → many payment attempts
   reviews      Review[]
   conversation Conversation?
   emergencyContact  String?
@@ -689,7 +689,7 @@ locationType  String?   // "REMOTE" | "ON_SITE" | "HYBRID"
 
 model Payment {
   id                String        @id @default(uuid())
-  bookingId         String        @unique
+   bookingId  String            // ← remove @unique — bookings can have many attempts
   booking           Booking       @relation(fields: [bookingId], references: [id])
   userId            String
   user              User          @relation(fields: [userId], references: [id])

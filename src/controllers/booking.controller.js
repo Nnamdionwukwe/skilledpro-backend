@@ -139,7 +139,7 @@ export const getMyBookings = async (req, res) => {
             select: { id: true, firstName: true, lastName: true, avatar: true },
           },
           category: true,
-          payment: true,
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -184,7 +184,7 @@ export const getBooking = async (req, res) => {
           },
         },
         category: true,
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
         reviews: {
           include: {
             giver: {

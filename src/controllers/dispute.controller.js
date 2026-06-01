@@ -24,7 +24,7 @@ export const raiseDispute = async (req, res) => {
         worker: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
 
@@ -56,7 +56,7 @@ export const raiseDispute = async (req, res) => {
     });
 
     // Freeze payment if exists
-    if (booking.payment && booking.payment.status === "HELD") {
+    if (booking.payments?.[0] && booking.payments?.[0].status === "HELD") {
       await prisma.payment.update({
         where: { bookingId },
         data: { status: "HELD" }, // Keep held, admin will release or refund
@@ -129,7 +129,7 @@ export const getMyDisputes = async (req, res) => {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
         category: true,
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -169,7 +169,7 @@ export const getDisputeDetail = async (req, res) => {
           },
         },
         category: true,
-        payment: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
         review: true,
         conversation: {
           include: {
@@ -217,7 +217,7 @@ export const resolveDispute = async (req, res) => {
 
     const booking = await prisma.booking.findUnique({
       where: { id: req.params.bookingId },
-      include: { payment: true },
+      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
 
     if (!booking) return sendError(res, "Booking not found", 404);
@@ -236,7 +236,7 @@ export const resolveDispute = async (req, res) => {
     });
 
     // Update payment
-    if (booking.payment) {
+    if (booking.payments?.[0]) {
       await prisma.payment.update({
         where: { bookingId: req.params.bookingId },
         data: {
@@ -362,7 +362,7 @@ export const getAllDisputes = async (req, res) => {
             },
           },
           category: true,
-          payment: true,
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
         },
         orderBy: { updatedAt: "desc" },
       }),
