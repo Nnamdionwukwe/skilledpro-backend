@@ -1,13 +1,10 @@
-// src/routes/message.routes.js
 import { Router } from "express";
 import { protect } from "../middleware/auth.middleware.js";
 import {
   getConversations,
   getMessages,
   sendMessage,
-  // NOTE: markConversationRead does NOT exist in message.controller.js
-  //       The controller only exports: getConversations, getMessages, sendMessage
-  //       Remove the route or add the function to the controller if needed.
+  markConversationRead,
 } from "../controllers/message.controller.js";
 import {
   validateSendMessage,
@@ -18,14 +15,21 @@ import {
 const router = Router();
 router.use(protect);
 
-router.get("/conversations", validatePagination, getConversations);
+// Named routes FIRST — before /:conversationId or Express swallows them
+router.get("/conversations", getConversations);
+router.post("/", validateSendMessage, sendMessage);
+
+// Param routes after
+router.patch(
+  "/:conversationId/read",
+  ...validateUUIDParam("conversationId"),
+  markConversationRead,
+);
 router.get(
   "/:conversationId",
   ...validateUUIDParam("conversationId"),
   validatePagination,
   getMessages,
 );
-router.post("/", validateSendMessage, sendMessage);
-// router.patch("/:conversationId/read",  markConversationRead);  ← removed: function not in controller
 
 export default router;

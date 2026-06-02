@@ -720,6 +720,8 @@ model Payment {
   cryptoCurrency       String?
 
    feePhase  Int?  @default(1)   // ← ADD THIS — tracks which fee phase was applied
+
+   notes             String?       
 }
 
 model Withdrawal {

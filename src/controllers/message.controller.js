@@ -1,6 +1,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import { paginate } from "../utils/helpers.js";
+
 export const getConversations = async (req, res) => {
   try {
     const convos = await prisma.conversation.findMany({
@@ -19,7 +20,6 @@ export const getConversations = async (req, res) => {
           },
         },
         messages: { orderBy: { createdAt: "desc" }, take: 1 },
-        // ← REMOVED _count: false   (invalid Prisma — was breaking unread counts for Hirers)
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -53,14 +53,20 @@ export const getConversations = async (req, res) => {
   }
 };
 
-// In getMessages — REMOVE the updateMany, just fetch:
-// In getMessages — REMOVE the updateMany, just fetch:
 export const getMessages = async (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
+    const { conversationId } = req.params;
+    const { page = 1, limit = 100 } = req.query;
     const { skip, take } = paginate(page, limit);
+
+    // Verify the requesting user is a participant
+    const membership = await prisma.conversationUser.findFirst({
+      where: { conversationId, userId: req.user.id },
+    });
+    if (!membership) return sendError(res, "Conversation not found", 404);
+
     const messages = await prisma.message.findMany({
-      where: { conversationId: req.params.conversationId },
+      where: { conversationId },
       skip,
       take,
       include: {
@@ -70,10 +76,36 @@ export const getMessages = async (req, res) => {
       },
       orderBy: { createdAt: "asc" },
     });
-    // ← No more updateMany here
+
     return sendResponse(res, { data: { messages } });
   } catch (err) {
+    console.error("getMessages error:", err);
     return sendError(res, "Failed to fetch messages");
+  }
+};
+
+export const markConversationRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const membership = await prisma.conversationUser.findFirst({
+      where: { conversationId, userId: req.user.id },
+    });
+    if (!membership) return sendError(res, "Conversation not found", 404);
+
+    await prisma.message.updateMany({
+      where: {
+        conversationId,
+        receiverId: req.user.id,
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+
+    return sendResponse(res, { message: "Marked as read" });
+  } catch (err) {
+    console.error("markConversationRead error:", err);
+    return sendError(res, "Failed to mark as read");
   }
 };
 
@@ -81,24 +113,21 @@ export const sendMessage = async (req, res) => {
   try {
     const { receiverId, content, conversationId } = req.body;
 
-    if (!receiverId) {
-      return sendError(res, "receiverId is required", 400);
-    }
+    if (!receiverId) return sendError(res, "receiverId is required", 400);
 
-    // ── Normalise file — upload.any() puts it in req.files[], not req.file ──
     const file = req.file || (req.files?.length > 0 ? req.files[0] : null);
-
     if (!content?.trim() && !file) {
       return sendError(res, "Message content or file is required", 400);
     }
 
-    // ── Resolve conversation ──────────────────────────────────────────────────
     let convoId = conversationId || null;
 
     if (!convoId) {
+      // ── Find ANY existing 1-on-1 conversation between these two users ──────
+      // Remove bookingId: null filter — conversations can be booking-linked
+      // or direct. We match on participants only.
       const existing = await prisma.conversation.findFirst({
         where: {
-          bookingId: null,
           AND: [
             { users: { some: { userId: req.user.id } } },
             { users: { some: { userId: receiverId } } },
@@ -107,6 +136,7 @@ export const sendMessage = async (req, res) => {
         include: { users: { select: { userId: true } } },
       });
 
+      // Confirm it's exactly these two users (no group convos leaking in)
       const isExact =
         existing?.users?.length === 2 &&
         existing.users.some((u) => u.userId === req.user.id) &&
@@ -126,7 +156,6 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    // ── Resolve file + content ────────────────────────────────────────────────
     const fileUrl = file?.path || null;
     let messageContent = content?.trim() || "";
 
@@ -139,7 +168,6 @@ export const sendMessage = async (req, res) => {
       else messageContent = messageContent || file.originalname || "[File]";
     }
 
-    // ── Create message ────────────────────────────────────────────────────────
     const message = await prisma.message.create({
       data: {
         conversationId: convoId,
