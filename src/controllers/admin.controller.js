@@ -405,7 +405,11 @@ export const getUserDetail = async (req, res) => {
           orderBy: { createdAt: "desc" },
           include: {
             category: true,
-            payment: { select: { status: true, amount: true } },
+            payments: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { status: true, amount: true },
+            },
           },
         },
         bookingsAsWorker: {
@@ -413,7 +417,11 @@ export const getUserDetail = async (req, res) => {
           orderBy: { createdAt: "desc" },
           include: {
             category: true,
-            payment: { select: { status: true, amount: true } },
+            payments: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { status: true, amount: true },
+            },
           },
         },
         reviewsReceived: {

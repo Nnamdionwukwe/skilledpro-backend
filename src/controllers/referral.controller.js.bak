@@ -306,7 +306,7 @@ export const applyReferralOnSignup = async (newUserId, referralCode) => {
         status: "PENDING",
         referredRole: newUser.role,
         referrerBonus: bonus,
-        refereePerk: perk,
+        refereePerk: JSON.stringify(perk),
         currency: REFERRAL_CONFIG.CURRENCY,
         expiresAt: expiryDate(),
       },
@@ -942,7 +942,7 @@ export const getHirerFirstBookingDiscount = async (hirerId, bookingAmount) => {
 
     if (!referral || referral.referredRole !== "HIRER") return 0;
     if (completedBookings > 0) return 0; // only on very first booking
-    if (["EXPIRED", "FLAGGED"].includes(referral.status)) return 0;
+    if (!["PENDING", "QUALIFIED"].includes(referral.status)) return 0;
 
     const perk = REFEREE_PERKS.HIRER;
     const discount = Math.min(
