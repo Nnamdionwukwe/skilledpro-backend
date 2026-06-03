@@ -426,7 +426,9 @@ export const getWorkerDashboard = async (req, res) => {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
         category: { select: { name: true, slug: true, icon: true } },
-        payment: {
+        payments: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
           select: {
             amount: true,
             currency: true,
