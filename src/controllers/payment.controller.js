@@ -18,6 +18,7 @@ import crypto from "crypto";
 import prisma from "../config/database.js";
 import { asyncHandler } from "../middleware/error.middleware.js";
 import { FEE_CONFIG } from "../config/fees.js";
+import bcrypt from "bcryptjs";
 import {
   convertReferral as _convertReferral,
   getHirerFirstBookingDiscount,
@@ -37,6 +38,10 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+
+const PIN_MAX_ATTEMPTS = 3;
+const PIN_LOCKOUT_MINS = 30;
+const PIN_DIGITS_RE = /^\d{4}$/;
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
@@ -841,6 +846,7 @@ export const refundPayment = asyncHandler(async (req, res) => {
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const {
+    pin, // ← NEW: 4-digit withdrawal PIN
     amount,
     currency = "NGN",
     method = "bank_transfer",
@@ -861,12 +867,68 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     country = "NG",
   } = req.body;
 
-  if (!amount || parseFloat(amount) <= 0)
+  // ── 1. Validate amount ────────────────────────────────────────────────────
+  if (!amount || parseFloat(amount) <= 0) {
     return res
       .status(400)
       .json({ success: false, message: "Valid amount required" });
+  }
 
-  // ── Check available balance ───────────────────────────────────────────────
+  // ── 2. PIN check ──────────────────────────────────────────────────────────
+  const user = await prisma.user.findUnique({
+    where: { id: workerId },
+    select: {
+      id: true,
+      withdrawalPin: true,
+      withdrawalPinSet: true,
+      withdrawalPinAttempts: true,
+      withdrawalPinLockedUntil: true,
+    },
+  });
+
+  // Enforce PIN is set before any withdrawal
+  if (!user.withdrawalPinSet) {
+    return res.status(403).json({
+      success: false,
+      message:
+        "You must set a 4-digit withdrawal PIN before withdrawing. POST /api/payments/pin/set",
+    });
+  }
+
+  if (!pin) {
+    return res.status(400).json({
+      success: false,
+      message: "Withdrawal PIN is required",
+    });
+  }
+
+  const pinCheck = await _verifyPin(user, pin);
+
+  if (!pinCheck.ok) {
+    if (pinCheck.reason === "locked") {
+      return res.status(429).json({
+        success: false,
+        message: `Too many wrong PIN attempts. Try again in ${pinCheck.mins} minute(s).`,
+      });
+    }
+    if (pinCheck.reason === "no_pin") {
+      return res.status(403).json({
+        success: false,
+        message: "No withdrawal PIN set. POST /api/payments/pin/set first.",
+      });
+    }
+    return res.status(401).json({
+      success: false,
+      message:
+        pinCheck.remaining > 0
+          ? `Incorrect PIN. ${pinCheck.remaining} attempt(s) remaining before lockout.`
+          : "Too many wrong attempts. Account locked for 30 minutes.",
+      attemptsRemaining: pinCheck.remaining,
+      locked: pinCheck.locked,
+    });
+  }
+
+  // ── 3. Check available balance ────────────────────────────────────────────
   const [earnedAgg, withdrawnAgg] = await Promise.all([
     prisma.payment.aggregate({
       where: { booking: { workerId }, status: "RELEASED" },
@@ -889,32 +951,35 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Build destination / method-specific data ──────────────────────────────
+  // ── 4. Build destination ──────────────────────────────────────────────────
   let destination = "";
   let methodMeta = {};
 
   if (method === "bank_transfer") {
-    if (!accountNumber || !bankCode)
+    if (!accountNumber || !bankCode) {
       return res.status(400).json({
         success: false,
         message: "Bank code and account number required",
       });
+    }
     destination = accountNumber;
     methodMeta = { bankCode, bankName, accountNumber, accountName, country };
   } else if (method === "mobile_money") {
-    if (!mobileNumber || !mobileProvider)
+    if (!mobileNumber || !mobileProvider) {
       return res.status(400).json({
         success: false,
         message: "Mobile number and provider required",
       });
+    }
     destination = mobileNumber;
     methodMeta = { mobileNumber, mobileName, mobileProvider, country };
   } else if (method === "crypto") {
-    if (!cryptoAddress || !cryptoCurrency)
+    if (!cryptoAddress || !cryptoCurrency) {
       return res.status(400).json({
         success: false,
         message: "Crypto address and currency required",
       });
+    }
     destination = cryptoAddress;
     methodMeta = {
       cryptoAddress,
@@ -1526,7 +1591,9 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
     req.user.id,
     booking.agreedRate,
   );
-  const totalCharged = parseFloat((totalToSend - referralDiscountPreview).toFixed(2));
+  const totalCharged = parseFloat(
+    (totalToSend - referralDiscountPreview).toFixed(2),
+  );
   const reference = uniqueRef("BT");
 
   return res.status(200).json({
@@ -1589,7 +1656,9 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     req.user.id,
     booking.agreedRate,
   );
-  const chargedAmount = parseFloat((totalToSend - referralDiscountBank).toFixed(2));
+  const chargedAmount = parseFloat(
+    (totalToSend - referralDiscountBank).toFixed(2),
+  );
 
   const payment = await prisma.payment.create({
     data: {
@@ -1914,6 +1983,221 @@ async function _notifyPaymentHeld(bookingId) {
     ],
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WITHDRAWAL PIN — additions to payment.controller.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Add this import at the top of payment.controller.js (alongside existing imports):
+//
+//   import bcrypt from "bcryptjs";
+//
+// Then add the four exports below anywhere before the final export block.
+// Also replace requestWithdrawal with the new version at the bottom.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Internal helper — verifies PIN and handles lockout ────────────────────────
+async function _verifyPin(user, pin) {
+  // Not set yet
+  if (!user.withdrawalPinSet || !user.withdrawalPin) {
+    return { ok: false, reason: "no_pin" };
+  }
+
+  // Locked out?
+  if (
+    user.withdrawalPinLockedUntil &&
+    new Date() < user.withdrawalPinLockedUntil
+  ) {
+    const mins = Math.ceil(
+      (user.withdrawalPinLockedUntil - Date.now()) / 60000,
+    );
+    return { ok: false, reason: "locked", mins };
+  }
+
+  const match = await bcrypt.compare(String(pin), user.withdrawalPin);
+
+  if (!match) {
+    const attempts = user.withdrawalPinAttempts + 1;
+    const lockedUntil =
+      attempts >= PIN_MAX_ATTEMPTS
+        ? new Date(Date.now() + PIN_LOCKOUT_MINS * 60000)
+        : null;
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        withdrawalPinAttempts: attempts,
+        withdrawalPinLockedUntil: lockedUntil,
+      },
+    });
+
+    const remaining = PIN_MAX_ATTEMPTS - attempts;
+    return {
+      ok: false,
+      reason: "wrong_pin",
+      remaining: Math.max(0, remaining),
+      locked: attempts >= PIN_MAX_ATTEMPTS,
+    };
+  }
+
+  // Correct — reset attempts
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { withdrawalPinAttempts: 0, withdrawalPinLockedUntil: null },
+  });
+
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § A  SET WITHDRAWAL PIN (first time)
+// POST /api/payments/pin/set
+// Body: { pin: "1234" }
+// ─────────────────────────────────────────────────────────────────────────────
+export const setWithdrawalPin = asyncHandler(async (req, res) => {
+  const { pin } = req.body;
+
+  if (!pin || !PIN_DIGITS_RE.test(String(pin))) {
+    return res.status(400).json({
+      success: false,
+      message: "PIN must be exactly 4 digits",
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { id: true, withdrawalPinSet: true },
+  });
+
+  if (user.withdrawalPinSet) {
+    return res.status(400).json({
+      success: false,
+      message: "PIN already set. Use /pin/change to update it.",
+    });
+  }
+
+  const hashed = await bcrypt.hash(String(pin), 10);
+
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      withdrawalPin: hashed,
+      withdrawalPinSet: true,
+      withdrawalPinAttempts: 0,
+      withdrawalPinLockedUntil: null,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Withdrawal PIN set successfully.",
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § B  CHANGE WITHDRAWAL PIN
+// POST /api/payments/pin/change
+// Body: { currentPin: "1234", newPin: "5678" }
+// ─────────────────────────────────────────────────────────────────────────────
+export const changeWithdrawalPin = asyncHandler(async (req, res) => {
+  const { currentPin, newPin } = req.body;
+
+  if (!newPin || !PIN_DIGITS_RE.test(String(newPin))) {
+    return res.status(400).json({
+      success: false,
+      message: "New PIN must be exactly 4 digits",
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      id: true,
+      withdrawalPin: true,
+      withdrawalPinSet: true,
+      withdrawalPinAttempts: true,
+      withdrawalPinLockedUntil: true,
+    },
+  });
+
+  if (!user.withdrawalPinSet) {
+    return res.status(400).json({
+      success: false,
+      message: "No PIN set yet. Use /pin/set first.",
+    });
+  }
+
+  const check = await _verifyPin(user, currentPin);
+  if (!check.ok) {
+    if (check.reason === "locked") {
+      return res.status(429).json({
+        success: false,
+        message: `Too many wrong attempts. Try again in ${check.mins} minute(s).`,
+      });
+    }
+    return res.status(401).json({
+      success: false,
+      message:
+        check.remaining > 0
+          ? `Incorrect PIN. ${check.remaining} attempt(s) remaining.`
+          : "Account locked for 30 minutes due to too many wrong attempts.",
+    });
+  }
+
+  if (String(currentPin) === String(newPin)) {
+    return res.status(400).json({
+      success: false,
+      message: "New PIN must be different from current PIN.",
+    });
+  }
+
+  const hashed = await bcrypt.hash(String(newPin), 10);
+
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      withdrawalPin: hashed,
+      withdrawalPinAttempts: 0,
+      withdrawalPinLockedUntil: null,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Withdrawal PIN changed successfully.",
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § C  CHECK PIN STATUS
+// GET /api/payments/pin/status
+// Returns whether the worker has a PIN set (does NOT expose the PIN)
+// ─────────────────────────────────────────────────────────────────────────────
+export const getWithdrawalPinStatus = asyncHandler(async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      withdrawalPinSet: true,
+      withdrawalPinAttempts: true,
+      withdrawalPinLockedUntil: true,
+    },
+  });
+
+  const isLocked =
+    !!user.withdrawalPinLockedUntil &&
+    new Date() < user.withdrawalPinLockedUntil;
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      pinSet: user.withdrawalPinSet,
+      isLocked,
+      attemptsRemaining: isLocked
+        ? 0
+        : Math.max(0, PIN_MAX_ATTEMPTS - user.withdrawalPinAttempts),
+      lockedUntil: isLocked ? user.withdrawalPinLockedUntil : null,
+    },
+  });
+});
 
 function _parseMeta(notes) {
   try {

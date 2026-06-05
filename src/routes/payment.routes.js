@@ -28,6 +28,9 @@ import {
   verifyBankAccount,
   getPayment,
   getAllPayments,
+  setWithdrawalPin,
+  changeWithdrawalPin,
+  getWithdrawalPinStatus,
 } from "../controllers/payment.controller.js";
 import { getPaymentInvoice } from "../controllers/invoice.controller.js"; // ← NEW
 import {
@@ -133,6 +136,13 @@ router.get("/hirer", validatePagination, getHirerPayments);
 
 // ── Worker earnings ───────────────────────────────────────────────────────────
 router.get("/earnings", validatePagination, getWorkerEarnings);
+
+// ── Withdrawal PIN management (workers only) ──────────────────────────────────
+router.get("/pin/status", requireRole("WORKER"), getWithdrawalPinStatus);
+
+router.post("/pin/set", requireRole("WORKER"), setWithdrawalPin);
+
+router.post("/pin/change", requireRole("WORKER"), changeWithdrawalPin);
 
 // ── Worker withdrawal ─────────────────────────────────────────────────────────
 router.post("/withdraw", validateRequestWithdrawal, requestWithdrawal);

@@ -308,6 +308,12 @@ walletTransactions WalletTransaction[]
 
    promoCodes       PromoCode[]       @relation("PromoCodesCreated")
    promoCodeUsages  PromoCodeUsage[]  @relation("PromoCodeUsages")
+
+  withdrawalPin             String?      // bcrypt-hashed 4-digit PIN
+  withdrawalPinSet          Boolean      @default(false)
+  withdrawalPinAttempts     Int          @default(0)    // wrong-attempt counter
+  withdrawalPinLockedUntil  DateTime?    // locked until this time after 3 wrong attempts
+
 }
 
   model Referral {
