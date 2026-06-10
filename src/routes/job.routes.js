@@ -48,7 +48,7 @@ router.get(
 
 // Worker: my applications
 router.get(
-  "/my/applications",
+  "/worker/my-applications",
   requireRole("WORKER"),
   validatePagination,
   getMyApplications,
