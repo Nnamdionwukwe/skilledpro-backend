@@ -5,7 +5,19 @@ import {
   sendNewJobMatchEmail,
 } from "../services/email.service.js";
 import { notifyNewJobMatch } from "../services/notification.service.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ── POST /api/jobs ─────────────────────────────────────────────────────────────
 // Hirer creates a public job post
 export const createJobPost = async (req, res) => {
@@ -687,7 +699,6 @@ export const getHirerPublicProfile = async (req, res) => {
               gender: true,
               language: true,
               createdAt: true,
-              // Privacy flags
               profileVisible: true,
               showPhone: true,
               showLocation: true,
@@ -730,9 +741,24 @@ export const getHirerPublicProfile = async (req, res) => {
       return sendError(res, "This profile is private", 403);
     }
 
-    // ── Apply privacy rules ───────────────────────────────────────────────────
     const isOwnProfile = req.user?.id === userId;
     const u = hirerProfile.user;
+
+    // Build privacy-filtered user object
+    const filteredUser = {
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      avatar: u.avatar,
+      language: u.language,
+      createdAt: u.createdAt,
+      city: isOwnProfile || u.showLocation ? u.city : null,
+      country: isOwnProfile || u.showLocation ? u.country : null,
+      state: isOwnProfile || u.showLocation ? u.state : null,
+      phone: isOwnProfile || u.showPhone ? u.phone : null,
+      email: isOwnProfile || u.showEmail ? u.email : null,
+      gender: isOwnProfile || u.showGender ? u.gender : null,
+    };
 
     const reviewStats = await prisma.review.aggregate({
       where: { receiverId: userId },
@@ -742,7 +768,7 @@ export const getHirerPublicProfile = async (req, res) => {
 
     return sendResponse(res, {
       data: {
-        profile: { ...hirerProfile, user: safeUser },
+        profile: { ...hirerProfile, user: filteredUser },
         jobPosts,
         reviews,
         stats: {

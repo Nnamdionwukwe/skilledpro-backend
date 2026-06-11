@@ -1,6 +1,10 @@
 // src/routes/hirer.routes.js
 import { Router } from "express";
-import { protect, requireRole } from "../middleware/auth.middleware.js";
+import {
+  protect,
+  requireRole,
+  optionalProtect,
+} from "../middleware/auth.middleware.js";
 import {
   getMyHirerProfile,
   updateHirerProfile,
@@ -95,6 +99,7 @@ router.get(
 router.get("/:userId", ...validateUUIDParam("userId"), getHirerProfile);
 router.get(
   "/:userId/profile",
+  optionalProtect,
   ...validateUUIDParam("userId"),
   getHirerPublicProfile,
 );
