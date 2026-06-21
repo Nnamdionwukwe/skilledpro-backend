@@ -11,9 +11,14 @@ function getPrisma() {
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: false,
+      max: 20, // Increase pool size
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
     });
     const adapter = new PrismaPg(pool);
     prisma = new PrismaClient({ adapter });
+    // Set statement timeout to 60 seconds to prevent hanging queries
+    prisma.$executeRaw`SET statement_timeout = '60000'`;
   }
   return prisma;
 }

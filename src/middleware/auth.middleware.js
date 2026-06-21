@@ -2,6 +2,9 @@
 import jwt from "jsonwebtoken";
 import prisma from "../config/database.js";
 
+import NodeCache from "node-cache";
+const userCache = new NodeCache({ stdTTL: 60 }); // 60 seconds TTL
+
 // ─── protect ──────────────────────────────────────────────────────────────────
 // Requires a valid Bearer JWT. Attaches user to req.user.
 export const protect = async (req, res, next) => {
@@ -20,7 +23,6 @@ export const protect = async (req, res, next) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);
     } catch (jwtErr) {
-      // Give a specific message for expired tokens so clients can refresh
       if (jwtErr.name === "TokenExpiredError") {
         return res
           .status(401)
@@ -33,18 +35,25 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, message: "Invalid token" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        firstName: true,
-        lastName: true,
-        isActive: true,
-        isBanned: true,
-      },
-    });
+    // ── Check cache first ──────────────────────────────────────────────────
+    let user = userCache.get(decoded.id);
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          firstName: true,
+          lastName: true,
+          isActive: true,
+          isBanned: true,
+        },
+      });
+      if (user) {
+        userCache.set(decoded.id, user);
+      }
+    }
 
     if (!user) {
       return res

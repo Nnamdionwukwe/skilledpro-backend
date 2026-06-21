@@ -23,6 +23,10 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+import NodeCache from "node-cache";
+const statsCache = new NodeCache({ stdTTL: 60 }); // 60 seconds TTL
+const dashboardCache = new NodeCache({ stdTTL: 30 }); // 30 seconds TTL
+
 function computeReferralDiscount(payment) {
   if (!payment) return 0;
   const gross = (payment.workerPayout || 0) + (payment.platformFee || 0);
@@ -34,6 +38,12 @@ function computeReferralDiscount(payment) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getPlatformStats = async (req, res) => {
+  const cacheKey = "platformStats";
+  const cached = statsCache.get(cacheKey);
+  if (cached) {
+    return sendResponse(res, { data: cached });
+  }
+
   try {
     const [
       totalUsers,
@@ -176,36 +186,37 @@ export const getPlatformStats = async (req, res) => {
       { stage: "Completed", count: completedBookings },
     ];
 
-    return sendResponse(res, {
-      data: {
-        overview: {
-          totalUsers,
-          totalWorkers,
-          totalHirers,
-          totalBookings,
-          activeBookings,
-          completedBookings,
-          cancelledBookings,
-          disputedBookings,
-          totalCategories,
-          totalJobPosts,
-          openJobPosts,
-          totalReviews,
-          totalRevenue: totalRevenue._sum.platformFee || 0,
-          totalGMV: totalRevenue._sum.amount || 0,
-          pendingPayouts: pendingWithdrawals._sum.amount || 0,
-          pendingPayoutCount: pendingWithdrawals._count || 0,
-          newUsersToday,
-          newBookingsToday,
-        },
-        monthlyRevenue,
-        monthlySignups,
-        topCategories,
-        topWorkers,
-        topHirers,
-        bookingFunnel,
+    const data = {
+      overview: {
+        totalUsers,
+        totalWorkers,
+        totalHirers,
+        totalBookings,
+        activeBookings,
+        completedBookings,
+        cancelledBookings,
+        disputedBookings,
+        totalCategories,
+        totalJobPosts,
+        openJobPosts,
+        totalReviews,
+        totalRevenue: totalRevenue._sum.platformFee || 0,
+        totalGMV: totalRevenue._sum.amount || 0,
+        pendingPayouts: pendingWithdrawals._sum.amount || 0,
+        pendingPayoutCount: pendingWithdrawals._count || 0,
+        newUsersToday,
+        newBookingsToday,
       },
-    });
+      monthlyRevenue,
+      monthlySignups,
+      topCategories,
+      topWorkers,
+      topHirers,
+      bookingFunnel,
+    };
+
+    statsCache.set(cacheKey, data);
+    return sendResponse(res, { data });
   } catch (err) {
     console.error(err);
     return sendError(res, "Failed to fetch platform stats");
@@ -2219,6 +2230,12 @@ export const rejectManualPayment = async (req, res) => {
 // Single endpoint that loads everything an admin needs on first open.
 // Returns in ~200–300ms via Promise.all parallelism.
 export const getAdminDashboard = async (req, res) => {
+  const cacheKey = "adminDashboard";
+  const cached = dashboardCache.get(cacheKey);
+  if (cached) {
+    return res.json({ success: true, data: cached });
+  }
+
   try {
     const now = new Date();
     const todayStart = new Date(
@@ -2357,69 +2374,68 @@ export const getAdminDashboard = async (req, res) => {
       }),
     ]);
 
-    return res.json({
-      success: true,
-      data: {
-        users: {
-          total: totalUsers,
-          workers: totalWorkers,
-          hirers: totalHirers,
-          banned: bannedUsers,
-          newToday: newUsersToday,
-          newWeek: newUsersWeek,
-          workerVerificationRate:
-            totalWorkers > 0
-              ? Math.round((verifiedWorkers / totalWorkers) * 100)
-              : 0,
-        },
-
-        bookings: {
-          total: totalBookings,
-          active: activeBookings,
-          completed: completedBookings,
-          disputed: disputedBookings,
-          newToday: newBookingsToday,
-          completionRate:
-            totalBookings > 0
-              ? Math.round((completedBookings / totalBookings) * 100)
-              : 0,
-        },
-
-        revenue: {
-          today: revenueToday._sum.platformFee || 0,
-          week: revenueWeek._sum.platformFee || 0,
-          month: revenueMonth._sum.platformFee || 0,
-          allTime: revenueAllTime._sum.platformFee || 0,
-          totalGMV: revenueAllTime._sum.amount || 0,
-          escrowHeld: pendingEscrow._sum.amount || 0,
-          currency: "NGN",
-        },
-
-        // Items that need admin attention right now
-        pendingActions: {
-          verifications: pendingVerifications,
-          withdrawals: pendingWithdrawals,
-          withdrawalsAmountNGN: pendingWithdrawalsAmount._sum.amount || 0,
-          disputes: openDisputes,
-          reports: pendingReports,
-          campaignSubmissions: pendingCampaignSubmissions,
-          total:
-            pendingVerifications +
-            pendingWithdrawals +
-            openDisputes +
-            pendingReports +
-            pendingCampaignSubmissions,
-        },
-
-        recent: {
-          users: recentUsers,
-          bookings: recentBookings,
-          payments: recentPayments,
-        },
-
-        generatedAt: new Date().toISOString(),
+    const data = {
+      users: {
+        total: totalUsers,
+        workers: totalWorkers,
+        hirers: totalHirers,
+        banned: bannedUsers,
+        newToday: newUsersToday,
+        newWeek: newUsersWeek,
+        workerVerificationRate:
+          totalWorkers > 0
+            ? Math.round((verifiedWorkers / totalWorkers) * 100)
+            : 0,
       },
-    });
+
+      bookings: {
+        total: totalBookings,
+        active: activeBookings,
+        completed: completedBookings,
+        disputed: disputedBookings,
+        newToday: newBookingsToday,
+        completionRate:
+          totalBookings > 0
+            ? Math.round((completedBookings / totalBookings) * 100)
+            : 0,
+      },
+
+      revenue: {
+        today: revenueToday._sum.platformFee || 0,
+        week: revenueWeek._sum.platformFee || 0,
+        month: revenueMonth._sum.platformFee || 0,
+        allTime: revenueAllTime._sum.platformFee || 0,
+        totalGMV: revenueAllTime._sum.amount || 0,
+        escrowHeld: pendingEscrow._sum.amount || 0,
+        currency: "NGN",
+      },
+
+      pendingActions: {
+        verifications: pendingVerifications,
+        withdrawals: pendingWithdrawals,
+        withdrawalsAmountNGN: pendingWithdrawalsAmount._sum.amount || 0,
+        disputes: openDisputes,
+        reports: pendingReports,
+        campaignSubmissions: pendingCampaignSubmissions,
+        total:
+          pendingVerifications +
+          pendingWithdrawals +
+          openDisputes +
+          pendingReports +
+          pendingCampaignSubmissions,
+      },
+
+      recent: {
+        users: recentUsers,
+        bookings: recentBookings,
+        payments: recentPayments,
+      },
+
+      generatedAt: new Date().toISOString(),
+    };
+
+    dashboardCache.set(cacheKey, data);
+    return res.json({ success: true, data });
   } catch (err) {
     console.error("getAdminDashboard error:", err);
     return res
