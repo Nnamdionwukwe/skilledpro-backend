@@ -29,6 +29,11 @@ export const adminCreateJobPost = async (req, res, next) => {
       categoryIds = [],
       expiryDate,
       isActive = true,
+      salaryAmount,
+      salaryCurrency,
+      salaryPeriod,
+      locationType,
+      educationLevel,
     } = req.body;
 
     // ── Validation ────────────────────────────────────────────────────────────
@@ -83,6 +88,12 @@ export const adminCreateJobPost = async (req, res, next) => {
       currency: "NGN",
       scheduledAt: new Date(),
       estimatedHours: 0,
+
+      salaryAmount: salaryAmount ? parseFloat(salaryAmount) : null,
+      salaryCurrency: salaryCurrency || null,
+      salaryPeriod: salaryPeriod || null,
+      educationLevel: educationLevel || null,
+      locationType: locationType || "REMOTE",
     };
 
     const job = await prisma.jobPost.create({
@@ -233,6 +244,11 @@ export const adminUpdateJobPost = async (req, res, next) => {
       expiryDate,
       status,
       isActive,
+      salaryAmount,
+      salaryCurrency,
+      salaryPeriod,
+      educationLevel,
+      locationType,
     } = req.body;
 
     // Check existence
@@ -282,6 +298,18 @@ export const adminUpdateJobPost = async (req, res, next) => {
     if (status !== undefined) updateData.status = status;
     if (isActive !== undefined)
       updateData.status = isActive ? "OPEN" : "CANCELLED";
+
+    // New fields
+    if (salaryAmount !== undefined)
+      updateData.salaryAmount = salaryAmount ? parseFloat(salaryAmount) : null;
+    if (salaryCurrency !== undefined)
+      updateData.salaryCurrency = salaryCurrency || null;
+    if (salaryPeriod !== undefined)
+      updateData.salaryPeriod = salaryPeriod || null;
+    if (educationLevel !== undefined)
+      updateData.educationLevel = educationLevel || null;
+    if (locationType !== undefined)
+      updateData.locationType = locationType || null;
 
     // Handle categories update (replace)
     if (categoryIds !== undefined) {

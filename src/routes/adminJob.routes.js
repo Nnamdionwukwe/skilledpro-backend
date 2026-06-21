@@ -20,19 +20,23 @@ import {
 const router = Router();
 router.use(protect, requireRole("ADMIN"));
 
-// Admin Job management
-router.post("/jobs", validateAdminCreateJob, adminCreateJobPost);
-router.get("/jobs", validatePagination, adminGetAllJobPosts);
-router.get("/jobs/:id", ...validateUUIDParam("id"), adminGetJobPost);
-router.put("/jobs/:id", validateAdminUpdateJob, adminUpdateJobPost);
-router.patch("/jobs/:id", validateAdminUpdateJob, adminUpdateJobPost);
+// Admin External Job management (previously /jobs)
+router.post("/external/jobs", validateAdminCreateJob, adminCreateJobPost);
+router.get("/external/jobs", validatePagination, adminGetAllJobPosts);
+router.get("/external/jobs/:id", ...validateUUIDParam("id"), adminGetJobPost);
+router.put("/external/jobs/:id", validateAdminUpdateJob, adminUpdateJobPost);
+router.patch("/external/jobs/:id", validateAdminUpdateJob, adminUpdateJobPost);
 router.patch(
-  "/jobs/:id/status",
+  "/external/jobs/:id/status",
   ...validateUUIDParam("id"),
   adminToggleJobStatus,
 );
-router.delete("/jobs/:id", ...validateUUIDParam("id"), adminDeleteJobPost);
-router.patch("/jobs/bulk/status", adminBulkUpdateStatus);
-router.delete("/jobs/bulk", adminBulkDelete);
+router.delete(
+  "/external/jobs/:id",
+  ...validateUUIDParam("id"),
+  adminDeleteJobPost,
+);
+router.patch("/external/jobs/bulk/status", adminBulkUpdateStatus);
+router.delete("/external/jobs/bulk", adminBulkDelete);
 
 export default router;

@@ -202,6 +202,25 @@ enum AuditTargetType {
   SYSTEM
 }
 
+// Add new enums
+enum SalaryPeriod {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum EducationLevel {
+  HIGH_SCHOOL
+  DIPLOMA
+  BACHELOR
+  MASTER
+  DOCTORATE
+  CERTIFICATION
+  OTHER
+}
+
 enum AuditResult {
   SUCCESS
   FAILED
@@ -863,6 +882,16 @@ model JobPost {
   // NEW fields for external job display
   companyName String? // e.g., "Leading Edge Insperogel"
   salaryText  String? // e.g., "₦350,000 a month"
+
+  // ... existing fields ...
+  salaryAmount    Float?
+  salaryCurrency  String?          // e.g., "USD", "NGN"
+  salaryPeriod    SalaryPeriod?
+  educationLevel  EducationLevel?
+  // languageRequirement already exists (String)
+  // applicantLocation already exists (String)
+  // locationType already exists (LocationType enum)
+  // experienceLevel already exists (String) – could later change to enum
 }
 
 // Join table for Job ↔ Category

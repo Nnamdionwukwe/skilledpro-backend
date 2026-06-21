@@ -235,15 +235,20 @@ router.delete(
 );
 
 // ── Jobs ───────────────────────────────────────────────────────────────────────
-router.get("/jobs", validatePagination, getAllJobPosts);
-router.get("/jobs/:jobId", ...validateUUIDParam("jobId"), getJobPostDetail);
+// ── Jobs (Platform) ──────────────────────────────────────────────────────────
+router.get("/platform/jobs", validatePagination, getAllJobPosts);
+router.get(
+  "/platform/jobs/:jobId",
+  ...validateUUIDParam("jobId"),
+  getJobPostDetail,
+);
 router.patch(
-  "/jobs/:jobId/status",
+  "/platform/jobs/:jobId/status",
   ...validateUUIDParam("jobId"),
   adminUpdateJobStatus,
 );
 router.delete(
-  "/jobs/:jobId",
+  "/platform/jobs/:jobId",
   ...validateUUIDParam("jobId"),
   adminDeleteJobPost,
 );

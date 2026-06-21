@@ -1,4 +1,3 @@
-// scripts/add-external-job-fields.js
 import pg from "pg";
 import dotenv from "dotenv";
 dotenv.config();
@@ -14,36 +13,19 @@ async function migrate() {
     console.log("🔌 Connected to Railway database...");
     await client.query("BEGIN");
 
-    // Create enum types
-    await client.query(`
-      DO $$ BEGIN
-        CREATE TYPE "SalaryPeriod" AS ENUM ('HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY');
-      EXCEPTION
-        WHEN duplicate_object THEN null;
-      END $$;
-    `);
-    console.log("  ✅ SalaryPeriod enum created");
-
-    await client.query(`
-      DO $$ BEGIN
-        CREATE TYPE "EducationLevel" AS ENUM ('HIGH_SCHOOL', 'DIPLOMA', 'BACHELOR', 'MASTER', 'DOCTORATE', 'CERTIFICATION', 'OTHER');
-      EXCEPTION
-        WHEN duplicate_object THEN null;
-      END $$;
-    `);
-    console.log("  ✅ EducationLevel enum created");
-
-    // Add columns if they don't exist
+    // Add new columns to JobPost
     await client.query(`
       ALTER TABLE "JobPost"
         ADD COLUMN IF NOT EXISTS "salaryAmount"    DOUBLE PRECISION,
         ADD COLUMN IF NOT EXISTS "salaryCurrency"  TEXT,
-        ADD COLUMN IF NOT EXISTS "salaryPeriod"    "SalaryPeriod",
-        ADD COLUMN IF NOT EXISTS "educationLevel"  "EducationLevel";
+        ADD COLUMN IF NOT EXISTS "salaryPeriod"    TEXT,
+        ADD COLUMN IF NOT EXISTS "educationLevel"  TEXT;
     `);
-    console.log("  ✅ Added columns with enum types");
+    console.log(
+      "  ✅ Added salaryAmount, salaryCurrency, salaryPeriod, educationLevel",
+    );
 
-    // Add indexes
+    // Optionally add indexes
     await client.query(`
       CREATE INDEX IF NOT EXISTS "JobPost_salaryCurrency_idx" ON "JobPost"("salaryCurrency");
       CREATE INDEX IF NOT EXISTS "JobPost_salaryPeriod_idx" ON "JobPost"("salaryPeriod");

@@ -30,6 +30,55 @@ export const validate = (req, res, next) => {
   });
 };
 
+const CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "NGN",
+  "GHS",
+  "KES",
+  "ZAR",
+  "INR",
+  "CAD",
+  "AUD",
+  "JPY",
+  "CNY",
+  "BRL",
+  "MXN",
+  "EGP",
+  "TZS",
+  "UGX",
+  "RWF",
+  "XOF",
+  "MAD",
+  "PHP",
+  "IDR",
+  "VND",
+  "THB",
+  "BDT",
+  "PKR",
+  "AED",
+  "SAR",
+  "QAR",
+  "MYR",
+  "SGD",
+  "HKD",
+  "USDC",
+  "USDT",
+];
+
+const SALARY_PERIODS = ["HOURLY", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"];
+const EDUCATION_LEVELS = [
+  "HIGH_SCHOOL",
+  "DIPLOMA",
+  "BACHELOR",
+  "MASTER",
+  "DOCTORATE",
+  "CERTIFICATION",
+  "OTHER",
+];
+// const LOCATION_TYPES = ["REMOTE", "ON_SITE", "HYBRID"];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 0.1  SHARED REUSABLE FIELD RULES (internal helpers)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2077,6 +2126,28 @@ export const validateAdminCreateJob = [
     .isBoolean()
     .withMessage("isActive must be a boolean"),
   validate,
+
+  body("salaryAmount")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary amount must be a positive number"),
+  body("salaryCurrency")
+    .optional()
+    .trim()
+    .isIn(CURRENCIES)
+    .withMessage("Invalid currency code"),
+  body("salaryPeriod")
+    .optional()
+    .isIn(SALARY_PERIODS)
+    .withMessage("Invalid salary period"),
+  body("educationLevel")
+    .optional()
+    .isIn(EDUCATION_LEVELS)
+    .withMessage("Invalid education level"),
+  body("locationType")
+    .optional()
+    .isIn(LOCATION_TYPES)
+    .withMessage("Invalid location type"),
 ];
 
 // PUT/PATCH /api/admin/jobs/:id
@@ -2131,5 +2202,27 @@ export const validateAdminUpdateJob = [
     .optional()
     .isBoolean()
     .withMessage("isActive must be a boolean"),
+  // New fields
+  body("salaryAmount")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary amount must be a positive number"),
+  body("salaryCurrency")
+    .optional()
+    .trim()
+    .isIn(CURRENCIES)
+    .withMessage("Invalid currency code"),
+  body("salaryPeriod")
+    .optional()
+    .isIn(SALARY_PERIODS)
+    .withMessage("Invalid salary period"),
+  body("educationLevel")
+    .optional()
+    .isIn(EDUCATION_LEVELS)
+    .withMessage("Invalid education level"),
+  body("locationType")
+    .optional()
+    .isIn(LOCATION_TYPES)
+    .withMessage("Invalid location type"),
   validate,
 ];
