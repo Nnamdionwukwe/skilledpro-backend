@@ -1999,3 +1999,137 @@ export const validateResendVerification = [
     .normalizeEmail(),
   validate,
 ];
+
+// ─── ADMIN JOB VALIDATORS ─────────────────────────────────────────────────────
+
+// POST /api/admin/jobs
+export const validateAdminCreateJob = [
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("Title is required")
+    .isLength({ max: 200 })
+    .withMessage("Title must not exceed 200 characters"),
+  body("companyName")
+    .trim()
+    .notEmpty()
+    .withMessage("Company name is required")
+    .isLength({ max: 150 })
+    .withMessage("Company name must not exceed 150 characters"),
+  body("location")
+    .trim()
+    .notEmpty()
+    .withMessage("Location is required")
+    .isLength({ max: 300 })
+    .withMessage("Location must not exceed 300 characters"),
+  body("applicationUrl")
+    .trim()
+    .notEmpty()
+    .withMessage("Application URL is required")
+    .isURL()
+    .withMessage("Application URL must be a valid URL"),
+  body("jobType")
+    .optional()
+    .isIn(["FULL_TIME", "PART_TIME", "CONTRACT", "TEMPORARY", "INTERNSHIP"])
+    .withMessage("Invalid job type"),
+  body("salaryText")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Salary text too long"),
+  body("description")
+    .optional()
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("Description too long"),
+  body("responsibilities").optional().trim().isLength({ max: 5000 }),
+  body("requirements").optional().trim().isLength({ max: 5000 }),
+  body("minQualification").optional().trim().isLength({ max: 255 }),
+  body("experienceLevel")
+    .optional()
+    .isIn(["Entry level", "Mid level", "Senior level"])
+    .withMessage(
+      "Experience level must be Entry level, Mid level, or Senior level",
+    ),
+  body("experienceLength").optional().trim().isLength({ max: 50 }),
+  body("languageRequirement").optional().trim().isLength({ max: 50 }),
+  body("workingHours").optional().trim().isLength({ max: 100 }),
+  body("applicantLocation").optional().trim().isLength({ max: 255 }),
+  body("sourcePlatform").optional().trim().isLength({ max: 100 }),
+  body("categoryIds")
+    .optional()
+    .isArray()
+    .withMessage("categoryIds must be an array")
+    .custom((value) =>
+      value.every((id) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          id,
+        ),
+      ),
+    )
+    .withMessage("Each category ID must be a valid UUID"),
+  body("expiryDate")
+    .optional()
+    .isISO8601()
+    .withMessage("expiryDate must be a valid date"),
+  body("isActive")
+    .optional()
+    .isBoolean()
+    .withMessage("isActive must be a boolean"),
+  validate,
+];
+
+// PUT/PATCH /api/admin/jobs/:id
+export const validateAdminUpdateJob = [
+  param("id").isUUID(4).withMessage("Invalid job ID"),
+  // All fields are optional; reuse the same rules but mark as optional
+  body("title").optional().trim().isLength({ max: 200 }),
+  body("companyName").optional().trim().isLength({ max: 150 }),
+  body("location").optional().trim().isLength({ max: 300 }),
+  body("applicationUrl")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Application URL must be a valid URL"),
+  body("jobType")
+    .optional()
+    .isIn(["FULL_TIME", "PART_TIME", "CONTRACT", "TEMPORARY", "INTERNSHIP"]),
+  body("salaryText").optional().trim().isLength({ max: 100 }),
+  body("description").optional().trim().isLength({ max: 5000 }),
+  body("responsibilities").optional().trim().isLength({ max: 5000 }),
+  body("requirements").optional().trim().isLength({ max: 5000 }),
+  body("minQualification").optional().trim().isLength({ max: 255 }),
+  body("experienceLevel")
+    .optional()
+    .isIn(["Entry level", "Mid level", "Senior level"]),
+  body("experienceLength").optional().trim().isLength({ max: 50 }),
+  body("languageRequirement").optional().trim().isLength({ max: 50 }),
+  body("workingHours").optional().trim().isLength({ max: 100 }),
+  body("applicantLocation").optional().trim().isLength({ max: 255 }),
+  body("sourcePlatform").optional().trim().isLength({ max: 100 }),
+  body("categoryIds")
+    .optional()
+    .isArray()
+    .withMessage("categoryIds must be an array")
+    .custom((value) =>
+      value.every((id) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          id,
+        ),
+      ),
+    )
+    .withMessage("Each category ID must be a valid UUID"),
+  body("expiryDate")
+    .optional()
+    .isISO8601()
+    .withMessage("expiryDate must be a valid date"),
+  body("status")
+    .optional()
+    .isIn(["OPEN", "FILLED", "CANCELLED"])
+    .withMessage("Invalid status"),
+  body("isActive")
+    .optional()
+    .isBoolean()
+    .withMessage("isActive must be a boolean"),
+  validate,
+];

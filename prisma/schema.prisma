@@ -136,12 +136,12 @@ enum AuditAction {
   USER_ROLE_CHANGED
   USER_VERIFIED
   USER_VERIFICATION_REJECTED
-  USER_SUSPENDED           // from report resolution
+  USER_SUSPENDED // from report resolution
   // ── Payment management ───────────────────────────────────────────────────
   PAYMENT_RELEASED
   PAYMENT_REFUNDED
-  PAYMENT_MANUAL_VERIFIED  // bank transfer / crypto confirmed
-  PAYMENT_MANUAL_REJECTED  // bank transfer / crypto rejected
+  PAYMENT_MANUAL_VERIFIED // bank transfer / crypto confirmed
+  PAYMENT_MANUAL_REJECTED // bank transfer / crypto rejected
   // ── Withdrawal management ────────────────────────────────────────────────
   WITHDRAWAL_APPROVED
   WITHDRAWAL_REJECTED
@@ -177,6 +177,9 @@ enum AuditAction {
   // ── System ───────────────────────────────────────────────────────────────
   ADMIN_LOGIN
   SETTINGS_CHANGED
+
+  JOB_CREATED
+  JOB_UPDATED
 }
 
 enum AuditTargetType {
@@ -206,9 +209,9 @@ enum AuditResult {
 }
 
 model User {
-  id                  String             @id @default(uuid())
-  email               String             @unique
-  phone               String?            @unique
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  phone               String?   @unique
   password            String
   role                Role
   firstName           String
@@ -221,176 +224,176 @@ model User {
   address             String?
   latitude            Float?
   longitude           Float?
-  currency            String             @default("USD")
-  language            String             @default("en")
-  isEmailVerified     Boolean            @default(false)
-  isPhoneVerified     Boolean            @default(false)
-  isActive            Boolean            @default(true)
-  isBanned            Boolean            @default(false)
+  currency            String    @default("USD")
+  language            String    @default("en")
+  isEmailVerified     Boolean   @default(false)
+  isPhoneVerified     Boolean   @default(false)
+  isActive            Boolean   @default(true)
+  isBanned            Boolean   @default(false)
   emailVerifyToken    String?
   passwordResetToken  String?
   passwordResetExpiry DateTime?
   refreshToken        String?
   lastSeen            DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  workerProfile    WorkerProfile?
-  hirerProfile     HirerProfile?
-  bookingsAsHirer  Booking[]          @relation("HirerBookings")
-  bookingsAsWorker Booking[]          @relation("WorkerBookings")
-  reviewsGiven     Review[]           @relation("ReviewsGiven")
-  reviewsReceived  Review[]           @relation("ReviewsReceived")
-  sentMessages     Message[]          @relation("SentMessages")
-  receivedMessages Message[]          @relation("ReceivedMessages")
-  conversations    ConversationUser[]
-  notifications    Notification[]
-  payments         Payment[]
-  jobPosts         JobPost[]          @relation("HirerJobPosts")
-  jobApplications  JobApplication[]   @relation("WorkerJobApplications")
-  withdrawals      Withdrawal[]
-  subscriptions    Subscription[]
-featuredListings FeaturedListing[]
-posts         Post[]         @relation("UserPosts")
-postReactions PostReaction[] @relation("UserReactions")
-postComments  PostComment[]  @relation("UserComments")
-callsInitiated VideoCall[] @relation("CallsInitiated")
-callsReceived  VideoCall[] @relation("CallsReceived")
-  theme             String?  @default("system")  // "light" | "dark" | "system"
-  notifBookings     Boolean  @default(true)
-  notifMessages     Boolean  @default(true)
-  notifPayments     Boolean  @default(true)
-  notifReviews      Boolean  @default(true)
-  notifMarketing    Boolean  @default(false)
-  profileVisible    Boolean  @default(true)
-  showPhone         Boolean  @default(false)
-  showLocation      Boolean  @default(true)
-  twoFactorEnabled  Boolean  @default(false) 
-  dashboardCurrency String?  @default("USD") 
-paymentCurrency   String?  @default("USD")  
-showEmail         Boolean  @default(false)
- 
-showGender        Boolean  @default(false)
-defaultEstUnit    String?
-defaultEstValue   String?
+  workerProfile     WorkerProfile?
+  hirerProfile      HirerProfile?
+  bookingsAsHirer   Booking[]          @relation("HirerBookings")
+  bookingsAsWorker  Booking[]          @relation("WorkerBookings")
+  reviewsGiven      Review[]           @relation("ReviewsGiven")
+  reviewsReceived   Review[]           @relation("ReviewsReceived")
+  sentMessages      Message[]          @relation("SentMessages")
+  receivedMessages  Message[]          @relation("ReceivedMessages")
+  conversations     ConversationUser[]
+  notifications     Notification[]
+  payments          Payment[]
+  jobPosts          JobPost[]          @relation("HirerJobPosts")
+  jobApplications   JobApplication[]   @relation("WorkerJobApplications")
+  withdrawals       Withdrawal[]
+  subscriptions     Subscription[]
+  featuredListings  FeaturedListing[]
+  posts             Post[]             @relation("UserPosts")
+  postReactions     PostReaction[]     @relation("UserReactions")
+  postComments      PostComment[]      @relation("UserComments")
+  callsInitiated    VideoCall[]        @relation("CallsInitiated")
+  callsReceived     VideoCall[]        @relation("CallsReceived")
+  theme             String?            @default("system") // "light" | "dark" | "system"
+  notifBookings     Boolean            @default(true)
+  notifMessages     Boolean            @default(true)
+  notifPayments     Boolean            @default(true)
+  notifReviews      Boolean            @default(true)
+  notifMarketing    Boolean            @default(false)
+  profileVisible    Boolean            @default(true)
+  showPhone         Boolean            @default(false)
+  showLocation      Boolean            @default(true)
+  twoFactorEnabled  Boolean            @default(false)
+  dashboardCurrency String?            @default("USD")
+  paymentCurrency   String?            @default("USD")
+  showEmail         Boolean            @default(false)
 
-  gender    String?   // "Male" | "Female" | "Non-binary" | "Prefer not to say"
+  showGender      Boolean @default(false)
+  defaultEstUnit  String?
+  defaultEstValue String?
 
-  referralCode        String?       @unique
-referredById        String?
-referredBy          User?         @relation("UserReferrals", fields: [referredById], references: [id])
-referrals           User[]        @relation("UserReferrals")
-walletBalance       Float         @default(0)
-walletLifetimeTotal Float         @default(0)
-referralTier        ReferralTier  @default(BRONZE)
-totalReferrals      Int           @default(0)
-successfulReferrals Int           @default(0)
-referralsGiven     Referral[]          @relation("ReferrerReferrals")
-referralReceived   Referral?           @relation("ReferredReferral")
-walletTransactions WalletTransaction[]
+  gender String? // "Male" | "Female" | "Non-binary" | "Prefer not to say"
 
-  campaignWalletBalance       Float  @default(0)
-   campaignWalletLifetimeTotal Float  @default(0)
-   campaignReferralsGiven      CampaignReferral[] @relation("CampaignReferrer")
-   campaignReferralReceived    CampaignReferral?  @relation("CampaignReferred")
-   campaignSubmissions         CampaignSubmission[]
-   campaignTransactions        CampaignTransaction[]
-   campaignWithdrawals         CampaignWithdrawal[]
+  referralCode        String?             @unique
+  referredById        String?
+  referredBy          User?               @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals           User[]              @relation("UserReferrals")
+  walletBalance       Float               @default(0)
+  walletLifetimeTotal Float               @default(0)
+  referralTier        ReferralTier        @default(BRONZE)
+  totalReferrals      Int                 @default(0)
+  successfulReferrals Int                 @default(0)
+  referralsGiven      Referral[]          @relation("ReferrerReferrals")
+  referralReceived    Referral?           @relation("ReferredReferral")
+  walletTransactions  WalletTransaction[]
 
-   reportsGiven     Report[] @relation("ReportsGiven")
-   reportsReviewed  Report[] @relation("ReportsReviewed")
-   auditLogs    AuditLog[]  @relation("AuditLogs") 
-   deviceTokens DeviceToken[] @relation("DeviceTokens")
+  campaignWalletBalance       Float                 @default(0)
+  campaignWalletLifetimeTotal Float                 @default(0)
+  campaignReferralsGiven      CampaignReferral[]    @relation("CampaignReferrer")
+  campaignReferralReceived    CampaignReferral?     @relation("CampaignReferred")
+  campaignSubmissions         CampaignSubmission[]
+  campaignTransactions        CampaignTransaction[]
+  campaignWithdrawals         CampaignWithdrawal[]
 
-   savedWorkers     SavedWorker[] @relation("HirerSavedWorkers")
-   savedByHirers    SavedWorker[] @relation("WorkerSavedByHirers")
-   savedJobs        SavedJob[]    @relation("WorkerSavedJobs")
+  reportsGiven    Report[]      @relation("ReportsGiven")
+  reportsReviewed Report[]      @relation("ReportsReviewed")
+  auditLogs       AuditLog[]    @relation("AuditLogs")
+  deviceTokens    DeviceToken[] @relation("DeviceTokens")
 
-   promoCodes       PromoCode[]       @relation("PromoCodesCreated")
-   promoCodeUsages  PromoCodeUsage[]  @relation("PromoCodeUsages")
+  savedWorkers  SavedWorker[] @relation("HirerSavedWorkers")
+  savedByHirers SavedWorker[] @relation("WorkerSavedByHirers")
+  savedJobs     SavedJob[]    @relation("WorkerSavedJobs")
 
-  withdrawalPin             String?      // bcrypt-hashed 4-digit PIN
-  withdrawalPinSet          Boolean      @default(false)
-  withdrawalPinAttempts     Int          @default(0)    // wrong-attempt counter
-  withdrawalPinLockedUntil  DateTime?    // locked until this time after 3 wrong attempts
+  promoCodes      PromoCode[]      @relation("PromoCodesCreated")
+  promoCodeUsages PromoCodeUsage[] @relation("PromoCodeUsages")
 
+  withdrawalPin            String? // bcrypt-hashed 4-digit PIN
+  withdrawalPinSet         Boolean   @default(false)
+  withdrawalPinAttempts    Int       @default(0) // wrong-attempt counter
+  withdrawalPinLockedUntil DateTime? // locked until this time after 3 wrong attempts
+  adminJobPosts            JobPost[] @relation("AdminJobPosts")
 }
 
-  model Referral {
-    id            String         @id @default(uuid())
-    referrerId    String
-    referrer      User           @relation("ReferrerReferrals", fields:[referrerId], references:[id])
-    referredId    String         @unique
-    referred      User           @relation("ReferredReferral",  fields:[referredId],  references:[id])
-    code          String
-    status        ReferralStatus @default(PENDING)
-    referredRole  Role
-    referrerBonus Float          @default(0)
-    refereePerk   String
-    currency      String         @default("NGN")
-    paidAt        DateTime?
-    qualifiedAt   DateTime?
-    convertedAt   DateTime?
-    expiresAt     DateTime
-    createdAt     DateTime       @default(now())
-    updatedAt     DateTime       @updatedAt
-  }
+model Referral {
+  id            String         @id @default(uuid())
+  referrerId    String
+  referrer      User           @relation("ReferrerReferrals", fields: [referrerId], references: [id])
+  referredId    String         @unique
+  referred      User           @relation("ReferredReferral", fields: [referredId], references: [id])
+  code          String
+  status        ReferralStatus @default(PENDING)
+  referredRole  Role
+  referrerBonus Float          @default(0)
+  refereePerk   String
+  currency      String         @default("NGN")
+  paidAt        DateTime?
+  qualifiedAt   DateTime?
+  convertedAt   DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
 
-  model CampaignReferral {
-  id                 String                 @id @default(uuid())
-  referrerId         String
-  referrer           User                   @relation("CampaignReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredId         String                 @unique
-  referred           User                   @relation("CampaignReferred", fields: [referredId], references: [id], onDelete: Cascade)
-  code               String
-  submissionId       String?
-  submission         CampaignSubmission?    @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+model CampaignReferral {
+  id           String              @id @default(uuid())
+  referrerId   String
+  referrer     User                @relation("CampaignReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId   String              @unique
+  referred     User                @relation("CampaignReferred", fields: [referredId], references: [id], onDelete: Cascade)
+  code         String
+  submissionId String?
+  submission   CampaignSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
 
-  hasDownloadedApp   Boolean                @default(true)
-  hasSetupProfile    Boolean                @default(false)
-  hasFollowedFb      Boolean                @default(false)
-  hasFollowedIg      Boolean                @default(false)
-  hasFollowedTt      Boolean                @default(false)
+  hasDownloadedApp Boolean @default(true)
+  hasSetupProfile  Boolean @default(false)
+  hasFollowedFb    Boolean @default(false)
+  hasFollowedIg    Boolean @default(false)
+  hasFollowedTt    Boolean @default(false)
 
-  fbScreenshotUrl    String?
-  igScreenshotUrl    String?
-  ttScreenshotUrl    String?
+  fbScreenshotUrl String?
+  igScreenshotUrl String?
+  ttScreenshotUrl String?
 
-  status             CampaignReferralStatus @default(PENDING)
-  adminNote          String?
-  rewardAmount       Float                  @default(100)
-  currency           String                 @default("NGN")
+  status       CampaignReferralStatus @default(PENDING)
+  adminNote    String?
+  rewardAmount Float                  @default(100)
+  currency     String                 @default("NGN")
 
-  tasksCompletedAt   DateTime?
-  submittedAt        DateTime?
-  reviewedAt         DateTime?
-  reviewedById       String?
+  tasksCompletedAt DateTime?
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedById     String?
 
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CampaignSubmission {
-  id               String                    @id @default(uuid())
-  referrerId       String
-  referrer         User                      @relation(fields: [referrerId], references: [id], onDelete: Cascade)
-  submissionDate   String
-  referrals        CampaignReferral[]
+  id             String             @id @default(uuid())
+  referrerId     String
+  referrer       User               @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+  submissionDate String
+  referrals      CampaignReferral[]
 
-  totalSubmitted   Int                       @default(0)
-  totalApproved    Int                       @default(0)
-  totalRejected    Int                       @default(0)
-  grossAmount      Float                     @default(0)
-  netAmount        Float                     @default(0)
+  totalSubmitted Int   @default(0)
+  totalApproved  Int   @default(0)
+  totalRejected  Int   @default(0)
+  grossAmount    Float @default(0)
+  netAmount      Float @default(0)
 
-  status           CampaignSubmissionStatus  @default(PENDING)
-  adminNote        String?
-  reviewedAt       DateTime?
-  reviewedById     String?
-  creditedAt       DateTime?
+  status       CampaignSubmissionStatus @default(PENDING)
+  adminNote    String?
+  reviewedAt   DateTime?
+  reviewedById String?
+  creditedAt   DateTime?
 
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([referrerId, submissionDate])
 }
@@ -410,30 +413,30 @@ model CampaignTransaction {
 }
 
 model CampaignWithdrawal {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount        Float
-  currency      String   @default("NGN")
+  currency      String    @default("NGN")
   bankName      String
   accountNumber String
   accountName   String
-  status        String   @default("PENDING")
+  status        String    @default("PENDING")
   adminNote     String?
   processedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
-  model WalletTransaction {
+model WalletTransaction {
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        String   // "REFERRAL_BONUS" | "WITHDRAWAL" | "ADJUSTMENT" | "EXPIRED"
+  type        String // "REFERRAL_BONUS" | "WITHDRAWAL" | "ADJUSTMENT" | "EXPIRED"
   amount      Float
   currency    String   @default("NGN")
   description String
-  referralId  String?  // soft ref — no FK to avoid cascade issues
+  referralId  String? // soft ref — no FK to avoid cascade issues
   meta        Json?
   createdAt   DateTime @default(now())
 }
@@ -445,7 +448,7 @@ model Report {
   targetId     String
   reason       ReportReason
   description  String?
-  evidence     String[]      @default([])   // screenshot / proof URLs
+  evidence     String[]      @default([]) // screenshot / proof URLs
   status       ReportStatus  @default(PENDING)
   adminNote    String?
   actionTaken  ReportAction?
@@ -454,12 +457,11 @@ model Report {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  reporter   User  @relation("ReportsGiven",    fields: [reporterId],   references: [id], onDelete: Cascade)
+  reporter   User  @relation("ReportsGiven", fields: [reporterId], references: [id], onDelete: Cascade)
   reviewedBy User? @relation("ReportsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   // One report per user per target — prevents spam-reporting the same thing
   @@unique([reporterId, targetType, targetId])
-
   @@index([targetType, targetId])
   @@index([status])
   @@index([reporterId])
@@ -471,18 +473,18 @@ model AuditLog {
   adminId      String
   action       AuditAction
   targetType   AuditTargetType
-  targetId     String?                        // nullable — system actions have no target
-  description  String                         // plain-English summary e.g. "Banned user john@example.com"
-  before       Json?                          // snapshot of state before the action
-  after        Json?                          // snapshot of state after the action
-  meta         Json?                          // extra context (reason, amount, role, etc.)
+  targetId     String? // nullable — system actions have no target
+  description  String // plain-English summary e.g. "Banned user john@example.com"
+  before       Json? // snapshot of state before the action
+  after        Json? // snapshot of state after the action
+  meta         Json? // extra context (reason, amount, role, etc.)
   result       AuditResult     @default(SUCCESS)
-  errorMessage String?                        // populated when result = FAILED
+  errorMessage String? // populated when result = FAILED
   ipAddress    String?
   userAgent    String?
   createdAt    DateTime        @default(now())
 
-  admin        User            @relation("AuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+  admin User @relation("AuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
 
   @@index([adminId])
   @@index([action])
@@ -492,41 +494,39 @@ model AuditLog {
 }
 
 model PromoCode {
-  id             String           @id @default(uuid())
-  code           String           @unique     // enforced case-insensitive in DB index
-  description    String?
-  discountType   String           @default("PERCENT")  // "PERCENT" | "FIXED"
-  discountValue  Float
-  maxUses        Int?
-  usedCount      Int              @default(0)
-  expiresAt      DateTime?
-  isActive       Boolean          @default(true)
-  applicableTo   String?          // JSON array of plan IDs, null = all plans
-  minPlanAmount  Float            @default(0)
-  createdById    String?
-  createdBy      User?            @relation("PromoCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
-  usages         PromoCodeUsage[] @relation("PromoCodeUsages")
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id            String           @id @default(uuid())
+  code          String           @unique // enforced case-insensitive in DB index
+  description   String?
+  discountType  String           @default("PERCENT") // "PERCENT" | "FIXED"
+  discountValue Float
+  maxUses       Int?
+  usedCount     Int              @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean          @default(true)
+  applicableTo  String? // JSON array of plan IDs, null = all plans
+  minPlanAmount Float            @default(0)
+  createdById   String?
+  createdBy     User?            @relation("PromoCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  usages        PromoCodeUsage[] @relation("PromoCodeUsages")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 }
 
 model PromoCodeUsage {
-  id           String    @id @default(uuid())
-  promoCodeId  String
-  promoCode    PromoCode @relation("PromoCodeUsages", fields: [promoCodeId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User      @relation("PromoCodeUsages", fields: [userId], references: [id], onDelete: Cascade)
-  planId       String
-  discountAmt  Float
-  originalAmt  Float
-  finalAmt     Float
-  reference    String?
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  promoCodeId String
+  promoCode   PromoCode @relation("PromoCodeUsages", fields: [promoCodeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PromoCodeUsages", fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  discountAmt Float
+  originalAmt Float
+  finalAmt    Float
+  reference   String?
+  createdAt   DateTime  @default(now())
 
-  @@unique([userId, promoCodeId])   // one use per user per code
+  @@unique([userId, promoCodeId]) // one use per user per code
 }
-
-
 
 model WorkerProfile {
   id                 String             @id @default(uuid())
@@ -551,18 +551,18 @@ model WorkerProfile {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  categories     WorkerCategory[]
-  portfolio      Portfolio[]
-  certifications Certification[]
-  availability   Availability[]
-weeklyRate        Float?
-monthlyRate       Float?
-customRate        Float?
-customRateLabel   String?
-pricingNote       String?
-profileCurrency   String?  @default("USD") 
+  categories      WorkerCategory[]
+  portfolio       Portfolio[]
+  certifications  Certification[]
+  availability    Availability[]
+  weeklyRate      Float?
+  monthlyRate     Float?
+  customRate      Float?
+  customRateLabel String?
+  pricingNote     String?
+  profileCurrency String?          @default("USD")
 
-dailyRate         Float?
+  dailyRate Float?
 }
 
 model HirerProfile {
@@ -580,21 +580,22 @@ model HirerProfile {
 }
 
 model Category {
-  id          String           @id @default(uuid())
-  name        String           @unique
-  slug        String           @unique
-  description String?
-  icon        String?
-  parentId    String?
-  parent      Category?        @relation("SubCategories", fields: [parentId], references: [id])
-  children    Category[]       @relation("SubCategories")
-  workers     WorkerCategory[]
-  bookings    Booking[]
-  jobPosts    JobPost[]
-  createdAt   DateTime         @default(now())
+  id               String            @id @default(uuid())
+  name             String            @unique
+  slug             String            @unique
+  description      String?
+  icon             String?
+  parentId         String?
+  parent           Category?         @relation("SubCategories", fields: [parentId], references: [id])
+  children         Category[]        @relation("SubCategories")
+  workers          WorkerCategory[]
+  bookings         Booking[]
+  jobPosts         JobPost[]
+  createdAt        DateTime          @default(now())
   featuredListings FeaturedListing[]
-isUserSubmitted  Boolean  @default(false)
-submittedBy      String?
+  isUserSubmitted  Boolean           @default(false)
+  submittedBy      String?
+  jobCategories    JobCategory[]
 }
 
 model WorkerCategory {
@@ -671,31 +672,31 @@ model Booking {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-    payments   Payment[]        // one booking → many payment attempts
-  reviews      Review[]
-  conversation Conversation?
-  emergencyContact  String?
-  sosActivatedAt    DateTime?
-  sosLatitude       Float?
-  sosLongitude      Float?
-  sosResolvedAt     DateTime?
-  videoCall VideoCall?  
-  insuranceRef      String?
-insurancePlan     String?
-insurancePaidAt   DateTime?
-  estimatedUnit     String?   @default("hours")
-  estimatedValue  String?
-  isNegotiated    Boolean  @default(false)
-negotiatedRate  Float?
-negotiationNote String?
+  payments         Payment[] // one booking → many payment attempts
+  reviews          Review[]
+  conversation     Conversation?
+  emergencyContact String?
+  sosActivatedAt   DateTime?
+  sosLatitude      Float?
+  sosLongitude     Float?
+  sosResolvedAt    DateTime?
+  videoCall        VideoCall?
+  insuranceRef     String?
+  insurancePlan    String?
+  insurancePaidAt  DateTime?
+  estimatedUnit    String?       @default("hours")
+  estimatedValue   String?
+  isNegotiated     Boolean       @default(false)
+  negotiatedRate   Float?
+  negotiationNote  String?
 
-jobType       String?   // "FULL_TIME" | "PART_TIME" | "CONTRACT" | "TEMPORARY"
-locationType  String?   // "REMOTE" | "ON_SITE" | "HYBRID"
+  jobType      String? // "FULL_TIME" | "PART_TIME" | "CONTRACT" | "TEMPORARY"
+  locationType String? // "REMOTE" | "ON_SITE" | "HYBRID"
 }
 
 model Payment {
   id                String        @id @default(uuid())
-   bookingId  String            // ← remove @unique — bookings can have many attempts
+  bookingId         String // ← remove @unique — bookings can have many attempts
   booking           Booking       @relation(fields: [bookingId], references: [id])
   userId            String
   user              User          @relation(fields: [userId], references: [id])
@@ -713,21 +714,21 @@ model Payment {
   refundedAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
- bankName             String?
-  accountName          String?
-  accountNumber        String?
-  bankTransferRef      String?
-  bankTransferProof    String?   
+  bankName          String?
+  accountName       String?
+  accountNumber     String?
+  bankTransferRef   String?
+  bankTransferProof String?
 
-  cryptoNetwork        String?
-  cryptoTxHash         String?
-  cryptoWallet         String?
-  cryptoAmount         Float?
-  cryptoCurrency       String?
+  cryptoNetwork  String?
+  cryptoTxHash   String?
+  cryptoWallet   String?
+  cryptoAmount   Float?
+  cryptoCurrency String?
 
-   feePhase  Int?  @default(1)   // ← ADD THIS — tracks which fee phase was applied
+  feePhase Int? @default(1) // ← ADD THIS — tracks which fee phase was applied
 
-   notes             String?       
+  notes String?
 }
 
 model Withdrawal {
@@ -763,11 +764,11 @@ model Review {
 }
 
 model Conversation {
-  id        String             @id @default(uuid())
-  bookingId String?            @unique
-  booking   Booking?           @relation(fields: [bookingId], references: [id])
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id        String   @id @default(uuid())
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   users    ConversationUser[]
   messages Message[]
@@ -825,21 +826,54 @@ model JobPost {
   notes          String?
   status         JobPostStatus @default(OPEN)
   createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt 
-  estimatedUnit  String?  @default("hours")
-estimatedValue String?
+  updatedAt      DateTime      @updatedAt
+  estimatedUnit  String?       @default("hours")
+  estimatedValue String?
 
-  hirer        User             @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
-  category     Category         @relation(fields: [categoryId], references: [id])
-  applications JobApplication[]
-  jobType      JobType      @default(FULL_TIME)
-  locationType LocationType @default(REMOTE)
-  budgetType   BudgetType   @default(FIXED)
-  durationType DurationType @default(HOURS)
+  hirer         User             @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
+  category      Category         @relation(fields: [categoryId], references: [id])
+  applications  JobApplication[]
+  jobType       JobType          @default(FULL_TIME)
+  locationType  LocationType     @default(REMOTE)
+  budgetType    BudgetType       @default(FIXED)
+  durationType  DurationType     @default(HOURS)
   durationValue String?
-  skills        String[]    @default([])
+  skills        String[]         @default([])
 
-  savedBy          SavedJob[]    @relation("JobSavedBy")
+  savedBy SavedJob[] @relation("JobSavedBy")
+
+  // New external job fields
+  applicationUrl      String? // external apply link
+  sourcePlatform      String? // e.g., "Indeed", "LinkedIn"
+  minQualification    String?
+  experienceLevel     String? // "Entry level", "Mid level", "Senior level"
+  experienceLength    String? // e.g., "1 year"
+  languageRequirement String?   @default("English")
+  workingHours        String? // e.g., "Part Time - Flexible Hours"
+  applicantLocation   String?
+  responsibilities    String? // rich text
+  requirements        String? // rich text
+  expiryDate          DateTime?
+  isExternal          Boolean   @default(false) // true for admin-created external jobs
+  postedByAdminId     String? // admin user ID who created it (optional)
+  postedByAdmin       User?     @relation("AdminJobPosts", fields: [postedByAdminId], references: [id], onDelete: SetNull)
+
+  // Many-to-many with Category (instead of single categoryId)
+  categories  JobCategory[]
+  // NEW fields for external job display
+  companyName String? // e.g., "Leading Edge Insperogel"
+  salaryText  String? // e.g., "₦350,000 a month"
+}
+
+// Join table for Job ↔ Category
+model JobCategory {
+  id         String   @id @default(uuid())
+  jobId      String
+  job        JobPost  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([jobId, categoryId])
 }
 
 enum SubscriptionTier {
@@ -861,18 +895,18 @@ enum SubscriptionStatus {
 }
 
 model Subscription {
-  id         String             @id @default(uuid())
-  userId     String
-  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tier       SubscriptionTier   @default(FREE)
-  role       SubscriptionRole
-  status     SubscriptionStatus @default(ACTIVE)
-  price      Float              @default(0)
-  currency   String             @default("NGN")         // ← CHANGE from "USD" to "NGN"
-  startedAt  DateTime           @default(now())
-  expiresAt  DateTime?
-  autoRenew  Boolean            @default(false)
-  reference  String?
+  id                   String             @id @default(uuid())
+  userId               String
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier                 SubscriptionTier   @default(FREE)
+  role                 SubscriptionRole
+  status               SubscriptionStatus @default(ACTIVE)
+  price                Float              @default(0)
+  currency             String             @default("NGN") // ← CHANGE from "USD" to "NGN"
+  startedAt            DateTime           @default(now())
+  expiresAt            DateTime?
+  autoRenew            Boolean            @default(false)
+  reference            String?
   stripeSessionId      String?
   stripeSubscriptionId String?
 
@@ -885,27 +919,27 @@ model Subscription {
   paystackStatus           String?
   // ─────────────────────────────────────────────────────────────────────
 
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model FeaturedListing {
-  id         String    @id @default(uuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categoryId String?
-  category   Category? @relation(fields: [categoryId], references: [id])
-  type       String    @default("SEARCH_TOP")
-  price      Float
-  currency   String    @default("USD")
-  startsAt   DateTime  @default(now())
-  expiresAt  DateTime
-  isActive   Boolean   @default(true)
-  reference  String    @unique
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category? @relation(fields: [categoryId], references: [id])
+  type            String    @default("SEARCH_TOP")
+  price           Float
+  currency        String    @default("USD")
+  startsAt        DateTime  @default(now())
+  expiresAt       DateTime
+  isActive        Boolean   @default(true)
+  reference       String    @unique
   stripeSessionId String?
-  createdAt  DateTime  @default(now())
-  isPaid     Boolean  @default(false)
-  source     String?  // "PURCHASE" | "REFERRAL" | "ADMIN"
+  createdAt       DateTime  @default(now())
+  isPaid          Boolean   @default(false)
+  source          String? // "PURCHASE" | "REFERRAL" | "ADMIN"
 }
 
 enum PostType {
@@ -982,22 +1016,23 @@ model JobApplication {
   worker  User    @relation("WorkerJobApplications", fields: [workerId], references: [id], onDelete: Cascade)
 
   @@unique([jobPostId, workerId])
-} 
+}
 
 model VideoCall {
-  id           String   @id @default(uuid())
-  bookingId    String   @unique
-  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  initiatorId  String
-  initiator    User     @relation("CallsInitiated", fields: [initiatorId], references: [id])
-  receiverId   String
-  receiver     User     @relation("CallsReceived",  fields: [receiverId],  references: [id])
-  roomId       String   @unique
-  status       String   @default("PENDING")  // PENDING | ACTIVE | ENDED | DECLINED
-  startedAt    DateTime?
-  endedAt      DateTime?
-  createdAt    DateTime @default(now())
+  id          String    @id @default(uuid())
+  bookingId   String    @unique
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  initiatorId String
+  initiator   User      @relation("CallsInitiated", fields: [initiatorId], references: [id])
+  receiverId  String
+  receiver    User      @relation("CallsReceived", fields: [receiverId], references: [id])
+  roomId      String    @unique
+  status      String    @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
 }
+
 enum JobType {
   FULL_TIME
   PART_TIME
@@ -1031,15 +1066,15 @@ enum DurationType {
 model DeviceToken {
   id        String   @id @default(uuid())
   userId    String
-  token     String                       // Expo push token: ExponentPushToken[...]
-  platform  String?                      // "ios" | "android" | "web"
+  token     String // Expo push token: ExponentPushToken[...]
+  platform  String? // "ios" | "android" | "web"
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation("DeviceTokens", fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation("DeviceTokens", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, token])              // one token entry per user-device pair
+  @@unique([userId, token]) // one token entry per user-device pair
   @@index([userId])
   @@index([token])
   @@index([active])
@@ -1052,7 +1087,7 @@ model SavedWorker {
   workerId  String
   createdAt DateTime @default(now())
 
-  hirer  User @relation("HirerSavedWorkers",  fields: [hirerId],  references: [id], onDelete: Cascade)
+  hirer  User @relation("HirerSavedWorkers", fields: [hirerId], references: [id], onDelete: Cascade)
   worker User @relation("WorkerSavedByHirers", fields: [workerId], references: [id], onDelete: Cascade)
 
   @@unique([hirerId, workerId])
@@ -1067,10 +1102,11 @@ model SavedJob {
   jobPostId String
   createdAt DateTime @default(now())
 
-  worker  User    @relation("WorkerSavedJobs", fields: [workerId],  references: [id], onDelete: Cascade)
-  jobPost JobPost @relation("JobSavedBy",      fields: [jobPostId], references: [id], onDelete: Cascade)
+  worker  User    @relation("WorkerSavedJobs", fields: [workerId], references: [id], onDelete: Cascade)
+  jobPost JobPost @relation("JobSavedBy", fields: [jobPostId], references: [id], onDelete: Cascade)
 
   @@unique([workerId, jobPostId])
   @@index([workerId])
   @@index([jobPostId])
 }
+//to format run npx prisma format and to migarate run npx prisma generate

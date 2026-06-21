@@ -30,9 +30,12 @@ import referralRoutes from "./routes/referral.routes.js";
 import campaignRoutes from "./routes/campaign.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
+import adminJobRoutes from "./routes/adminJob.routes.js";
 
 import { apiLimiter } from "./middleware/rateLimit.middleware.js";
 import healthRouter from "./routes/health.routes.js";
+
+import "./services/expiry.service.js"; // starts the cron job
 
 // NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
 // before this file is imported.
@@ -125,7 +128,7 @@ app.use("/api/referral", referralRoutes);
 app.use("/api/campaign", campaignRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/audit", auditRoutes);
-
+app.use("/api/admin", adminJobRoutes);
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 

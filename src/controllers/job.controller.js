@@ -199,6 +199,7 @@ export const getJobPosts = async (req, res) => {
         OR: [
           { title: { contains: q, mode: "insensitive" } },
           { description: { contains: q, mode: "insensitive" } },
+          { companyName: { contains: q, mode: "insensitive" } }, // allow search by company
         ],
       }),
       ...(category && { category: { slug: category } }),
@@ -209,10 +210,16 @@ export const getJobPosts = async (req, res) => {
       ...(locationType && { locationType }),
       ...(budgetType && { budgetType }),
       ...(city && {
-        hirer: { city: { contains: city, mode: "insensitive" } },
+        OR: [
+          { hirer: { city: { contains: city, mode: "insensitive" } } },
+          { address: { contains: city, mode: "insensitive" } }, // external jobs store location in address
+        ],
       }),
       ...(country && {
-        hirer: { country: { contains: country, mode: "insensitive" } },
+        OR: [
+          { hirer: { country: { contains: country, mode: "insensitive" } } },
+          { applicantLocation: { contains: country, mode: "insensitive" } },
+        ],
       }),
     };
 
@@ -221,7 +228,27 @@ export const getJobPosts = async (req, res) => {
         where,
         skip,
         take,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          companyName: true, // ← new
+          salaryText: true, // ← new
+          address: true, // location
+          jobType: true,
+          budget: true,
+          currency: true,
+          applicationUrl: true, // ← new
+          sourcePlatform: true, // ← new
+          minQualification: true, // ← new
+          experienceLevel: true, // ← new
+          experienceLength: true, // ← new
+          workingHours: true, // ← new
+          applicantLocation: true, // ← new
+          createdAt: true,
+          status: true,
+          isExternal: true,
+          // Include hirer only if it exists (external jobs may not have one)
           hirer: {
             select: {
               id: true,
@@ -239,8 +266,26 @@ export const getJobPosts = async (req, res) => {
               },
             },
           },
+          // Include the admin who posted it (for external jobs)
+          postedByAdmin: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+            },
+          },
+          // Single category (legacy)
           category: true,
-          _count: { select: { applications: true } },
+          // Many‑to‑many categories
+          categories: {
+            include: {
+              category: true,
+            },
+          },
+          _count: {
+            select: { applications: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -256,6 +301,7 @@ export const getJobPosts = async (req, res) => {
       },
     });
   } catch (err) {
+    console.error("getJobPosts error:", err);
     return sendError(res, "Failed to fetch job posts");
   }
 };
@@ -288,7 +334,18 @@ export const getJobPost = async (req, res) => {
             },
           },
         },
+        postedByAdmin: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+          },
+        },
         category: true,
+        categories: {
+          include: { category: true },
+        },
         _count: { select: { applications: true } },
       },
     });
@@ -303,7 +360,6 @@ export const getJobPost = async (req, res) => {
         prisma.jobApplication.findFirst({
           where: { jobPostId: jobPost.id, workerId: req.user.id },
         }),
-        // Only check saved if the viewer is a worker
         req.user.role === "WORKER"
           ? prisma.savedJob.findUnique({
               where: {
@@ -319,7 +375,20 @@ export const getJobPost = async (req, res) => {
       isSaved = !!savedJob;
     }
 
-    return sendResponse(res, { data: { jobPost, hasApplied, isSaved } });
+    return sendResponse(res, {
+      data: {
+        jobPost: {
+          ...jobPost,
+          // Ensure companyName is available from either hirer profile or the job's own field
+          companyName:
+            jobPost.companyName ||
+            jobPost.hirer?.hirerProfile?.companyName ||
+            null,
+        },
+        hasApplied,
+        isSaved,
+      },
+    });
   } catch (err) {
     console.error("getJobPost error:", err);
     return sendError(res, "Failed to fetch job post");

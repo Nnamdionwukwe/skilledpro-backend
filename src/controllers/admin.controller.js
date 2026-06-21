@@ -2822,3 +2822,257 @@ export const adminManualPaymentStats = async (req, res) => {
     },
   });
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN JOB CREATION & UPDATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ADMIN: Create a new job post (external/internal)
+ * POST /api/admin/jobs
+ */
+export const adminCreateJobPost = async (req, res) => {
+  try {
+    const {
+      title,
+      companyName,
+      location, // we'll map to address
+      jobType,
+      salaryText, // human-readable salary
+      description,
+      responsibilities,
+      requirements,
+      minQualification,
+      experienceLevel,
+      experienceLength,
+      languageRequirement,
+      workingHours,
+      applicantLocation,
+      applicationUrl,
+      sourcePlatform,
+      categoryIds, // array of category UUIDs
+      expiryDate,
+      isActive = true,
+      postedDate = new Date(),
+    } = req.body;
+
+    // ── Validation ────────────────────────────────────────────────────────────
+    const missing = [];
+    if (!title) missing.push("title");
+    if (!companyName) missing.push("companyName");
+    if (!location) missing.push("location");
+    if (!applicationUrl) missing.push("applicationUrl");
+    if (missing.length) {
+      return sendError(
+        res,
+        `Missing required fields: ${missing.join(", ")}`,
+        400,
+      );
+    }
+
+    // Validate category IDs exist
+    if (categoryIds && categoryIds.length) {
+      const catCount = await prisma.category.count({
+        where: { id: { in: categoryIds } },
+      });
+      if (catCount !== categoryIds.length) {
+        return sendError(res, "One or more category IDs are invalid", 400);
+      }
+    }
+
+    // ── Build data ────────────────────────────────────────────────────────────
+    const jobData = {
+      title,
+      companyName,
+      address: location, // reuse address field for location
+      jobType: jobType || "FULL_TIME",
+      salaryText: salaryText || "",
+      description: description || "",
+      responsibilities: responsibilities || "",
+      requirements: requirements || "",
+      minQualification: minQualification || "",
+      experienceLevel: experienceLevel || "Entry level",
+      experienceLength: experienceLength || "",
+      languageRequirement: languageRequirement || "English",
+      workingHours: workingHours || "",
+      applicantLocation: applicantLocation || "",
+      applicationUrl,
+      sourcePlatform: sourcePlatform || "",
+      expiryDate: expiryDate ? new Date(expiryDate) : null,
+      isExternal: true,
+      postedByAdminId: req.user.id,
+      status: isActive ? "OPEN" : "CANCELLED",
+      // Set the single categoryId for backward compatibility
+      categoryId: categoryIds && categoryIds.length ? categoryIds[0] : null,
+      // Create many-to-many categories
+      categories: {
+        create: categoryIds?.map((catId) => ({ categoryId: catId })) || [],
+      },
+      // Optional: set a default budget to 0 (since external jobs don't have a numeric budget)
+      budget: 0,
+      currency: "NGN", // fallback
+      scheduledAt: postedDate,
+      estimatedHours: 0,
+    };
+
+    const job = await prisma.jobPost.create({
+      data: jobData,
+      include: {
+        categories: { include: { category: true } },
+        postedByAdmin: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    // Audit log
+    await logAdminAction({
+      req,
+      adminId: req.user.id,
+      action: "JOB_CREATED", // you may need to add this to AuditAction enum
+      targetType: "JOB_POST",
+      targetId: job.id,
+      description: `Created external job "${title}" at ${companyName}`,
+      meta: { applicationUrl, sourcePlatform },
+    });
+
+    return sendResponse(res, {
+      status: 201,
+      message: "Job post created successfully",
+      data: { job },
+    });
+  } catch (err) {
+    console.error("adminCreateJobPost error:", err);
+    return sendError(res, "Failed to create job post", 500);
+  }
+};
+
+/**
+ * ADMIN: Update a job post (full or partial)
+ * PUT /api/admin/jobs/:id
+ * PATCH /api/admin/jobs/:id
+ */
+export const adminUpdateJobPost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      companyName,
+      location,
+      jobType,
+      salaryText,
+      description,
+      responsibilities,
+      requirements,
+      minQualification,
+      experienceLevel,
+      experienceLength,
+      languageRequirement,
+      workingHours,
+      applicantLocation,
+      applicationUrl,
+      sourcePlatform,
+      categoryIds,
+      expiryDate,
+      status,
+      isActive,
+    } = req.body;
+
+    // Check existence
+    const existing = await prisma.jobPost.findUnique({
+      where: { id },
+      include: { categories: true },
+    });
+    if (!existing) return sendError(res, "Job post not found", 404);
+
+    // Validate categories if provided
+    if (categoryIds && categoryIds.length) {
+      const catCount = await prisma.category.count({
+        where: { id: { in: categoryIds } },
+      });
+      if (catCount !== categoryIds.length) {
+        return sendError(res, "One or more category IDs are invalid", 400);
+      }
+    }
+
+    // Build update data (only fields that are provided)
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (companyName !== undefined) updateData.companyName = companyName;
+    if (location !== undefined) updateData.address = location;
+    if (jobType !== undefined) updateData.jobType = jobType;
+    if (salaryText !== undefined) updateData.salaryText = salaryText;
+    if (description !== undefined) updateData.description = description;
+    if (responsibilities !== undefined)
+      updateData.responsibilities = responsibilities;
+    if (requirements !== undefined) updateData.requirements = requirements;
+    if (minQualification !== undefined)
+      updateData.minQualification = minQualification;
+    if (experienceLevel !== undefined)
+      updateData.experienceLevel = experienceLevel;
+    if (experienceLength !== undefined)
+      updateData.experienceLength = experienceLength;
+    if (languageRequirement !== undefined)
+      updateData.languageRequirement = languageRequirement;
+    if (workingHours !== undefined) updateData.workingHours = workingHours;
+    if (applicantLocation !== undefined)
+      updateData.applicantLocation = applicantLocation;
+    if (applicationUrl !== undefined)
+      updateData.applicationUrl = applicationUrl;
+    if (sourcePlatform !== undefined)
+      updateData.sourcePlatform = sourcePlatform;
+    if (expiryDate !== undefined)
+      updateData.expiryDate = expiryDate ? new Date(expiryDate) : null;
+    if (status !== undefined) updateData.status = status;
+    if (isActive !== undefined)
+      updateData.status = isActive ? "OPEN" : "CANCELLED";
+
+    // Handle categories update (replace existing)
+    if (categoryIds !== undefined) {
+      // Delete existing JobCategory entries
+      await prisma.jobCategory.deleteMany({
+        where: { jobId: id },
+      });
+      // Create new ones
+      if (categoryIds.length) {
+        updateData.categories = {
+          create: categoryIds.map((catId) => ({ categoryId: catId })),
+        };
+        // Update categoryId for backward compatibility
+        updateData.categoryId = categoryIds[0];
+      } else {
+        updateData.categoryId = null;
+      }
+    }
+
+    const updated = await prisma.jobPost.update({
+      where: { id },
+      data: updateData,
+      include: {
+        categories: { include: { category: true } },
+        postedByAdmin: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    // Audit log
+    await logAdminAction({
+      req,
+      adminId: req.user.id,
+      action: "JOB_UPDATED",
+      targetType: "JOB_POST",
+      targetId: id,
+      description: `Updated external job "${updated.title}"`,
+      meta: { updatedFields: Object.keys(updateData) },
+    });
+
+    return sendResponse(res, {
+      message: "Job post updated successfully",
+      data: { job: updated },
+    });
+  } catch (err) {
+    console.error("adminUpdateJobPost error:", err);
+    return sendError(res, "Failed to update job post", 500);
+  }
+};
