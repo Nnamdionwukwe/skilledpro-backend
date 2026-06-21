@@ -2148,6 +2148,28 @@ export const validateAdminCreateJob = [
     .optional()
     .isIn(LOCATION_TYPES)
     .withMessage("Invalid location type"),
+  body("salaryMin")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary minimum must be a positive number"),
+  body("salaryMax")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary maximum must be a positive number"),
+  body("salaryMax")
+    .optional()
+    .custom((value, { req }) => {
+      if (
+        value !== undefined &&
+        req.body.salaryMin !== undefined &&
+        parseFloat(value) < parseFloat(req.body.salaryMin)
+      ) {
+        throw new Error(
+          "Salary maximum must be greater than or equal to salary minimum",
+        );
+      }
+      return true;
+    }),
 ];
 
 // PUT/PATCH /api/admin/jobs/:id
@@ -2225,4 +2247,26 @@ export const validateAdminUpdateJob = [
     .isIn(LOCATION_TYPES)
     .withMessage("Invalid location type"),
   validate,
+  body("salaryMin")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary minimum must be a positive number"),
+  body("salaryMax")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Salary maximum must be a positive number"),
+  body("salaryMax")
+    .optional()
+    .custom((value, { req }) => {
+      if (
+        value !== undefined &&
+        req.body.salaryMin !== undefined &&
+        parseFloat(value) < parseFloat(req.body.salaryMin)
+      ) {
+        throw new Error(
+          "Salary maximum must be greater than or equal to salary minimum",
+        );
+      }
+      return true;
+    }),
 ];

@@ -34,6 +34,8 @@ export const adminCreateJobPost = async (req, res, next) => {
       salaryPeriod,
       locationType,
       educationLevel,
+      salaryMin,
+      salaryMax,
     } = req.body;
 
     // ── Validation ────────────────────────────────────────────────────────────
@@ -90,6 +92,8 @@ export const adminCreateJobPost = async (req, res, next) => {
       estimatedHours: 0,
 
       salaryAmount: salaryAmount ? parseFloat(salaryAmount) : null,
+      salaryMin: salaryMin ? parseFloat(salaryMin) : null,
+      salaryMax: salaryMax ? parseFloat(salaryMax) : null,
       salaryCurrency: salaryCurrency || null,
       salaryPeriod: salaryPeriod || null,
       educationLevel: educationLevel || null,
@@ -249,6 +253,8 @@ export const adminUpdateJobPost = async (req, res, next) => {
       salaryPeriod,
       educationLevel,
       locationType,
+      salaryMin,
+      salaryMax,
     } = req.body;
 
     // Check existence
@@ -310,6 +316,10 @@ export const adminUpdateJobPost = async (req, res, next) => {
       updateData.educationLevel = educationLevel || null;
     if (locationType !== undefined)
       updateData.locationType = locationType || null;
+    if (salaryMin !== undefined)
+      updateData.salaryMin = salaryMin ? parseFloat(salaryMin) : null;
+    if (salaryMax !== undefined)
+      updateData.salaryMax = salaryMax ? parseFloat(salaryMax) : null;
 
     // Handle categories update (replace)
     if (categoryIds !== undefined) {

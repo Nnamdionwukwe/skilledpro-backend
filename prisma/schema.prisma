@@ -885,6 +885,9 @@ model JobPost {
 
   // ... existing fields ...
   salaryAmount    Float?
+  salaryMin     Float?
+  salaryMax     Float?
+  // salaryAmount remains for single-value cases (optional)
   salaryCurrency  String?          // e.g., "USD", "NGN"
   salaryPeriod    SalaryPeriod?
   educationLevel  EducationLevel?
