@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { body, param, query, validationResult } from "express-validator"; // ← fixed
+import { LocationType } from "../generated/prisma/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 0  CORE RESULT HANDLER
@@ -29,6 +30,8 @@ export const validate = (req, res, next) => {
     errors,
   });
 };
+
+const LOCATION_TYPES = Object.values(LocationType);
 
 const CURRENCIES = [
   "USD",
@@ -457,7 +460,7 @@ const JOB_TYPES = [
   "CONTRACT",
   "INTERNSHIP",
 ];
-const LOCATION_TYPES = ["ONSITE", "REMOTE", "HYBRID"];
+// const LOCATION_TYPES = ["ONSITE", "REMOTE", "HYBRID"];
 const BUDGET_TYPES = [
   "FIXED",
   "HOURLY",
@@ -2175,31 +2178,70 @@ export const validateAdminCreateJob = [
 // PUT/PATCH /api/admin/jobs/:id
 export const validateAdminUpdateJob = [
   param("id").isUUID(4).withMessage("Invalid job ID"),
-  // All fields are optional; reuse the same rules but mark as optional
-  body("title").optional().trim().isLength({ max: 200 }),
-  body("companyName").optional().trim().isLength({ max: 150 }),
-  body("location").optional().trim().isLength({ max: 300 }),
+
+  // ─── Existing fields ──────────────────────────────────────────────────────
+  body("title").optional({ checkFalsy: true }).trim().isLength({ max: 200 }),
+  body("companyName")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 150 }),
+  body("location")
+    .trim()
+    .notEmpty()
+    .withMessage("Location is required")
+    .isLength({ max: 300 })
+    .withMessage("Location must not exceed 300 characters"),
   body("applicationUrl")
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .isURL()
     .withMessage("Application URL must be a valid URL"),
   body("jobType")
     .optional()
     .isIn(["FULL_TIME", "PART_TIME", "CONTRACT", "TEMPORARY", "INTERNSHIP"]),
-  body("salaryText").optional().trim().isLength({ max: 100 }),
-  body("description").optional().trim().isLength({ max: 5000 }),
-  body("responsibilities").optional().trim().isLength({ max: 5000 }),
-  body("requirements").optional().trim().isLength({ max: 5000 }),
-  body("minQualification").optional().trim().isLength({ max: 255 }),
+  body("salaryText")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 }),
+  body("description")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 5000 }),
+  body("responsibilities")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 5000 }),
+  body("requirements")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 5000 }),
+  body("minQualification")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 255 }),
   body("experienceLevel")
     .optional()
     .isIn(["Entry level", "Mid level", "Senior level"]),
-  body("experienceLength").optional().trim().isLength({ max: 50 }),
-  body("languageRequirement").optional().trim().isLength({ max: 50 }),
-  body("workingHours").optional().trim().isLength({ max: 100 }),
-  body("applicantLocation").optional().trim().isLength({ max: 255 }),
-  body("sourcePlatform").optional().trim().isLength({ max: 100 }),
+  body("experienceLength")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 50 }),
+  body("languageRequirement")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 50 }),
+  body("workingHours")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 }),
+  body("applicantLocation")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 255 }),
+  body("sourcePlatform")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 }),
   body("categoryIds")
     .optional()
     .isArray()
@@ -2213,7 +2255,7 @@ export const validateAdminUpdateJob = [
     )
     .withMessage("Each category ID must be a valid UUID"),
   body("expiryDate")
-    .optional()
+    .optional({ checkFalsy: true }) // no trim()
     .isISO8601()
     .withMessage("expiryDate must be a valid date"),
   body("status")
@@ -2224,39 +2266,40 @@ export const validateAdminUpdateJob = [
     .optional()
     .isBoolean()
     .withMessage("isActive must be a boolean"),
-  // New fields
+
+  // ─── New fields ──────────────────────────────────────────────────────────
   body("salaryAmount")
-    .optional()
+    .optional({ checkFalsy: true }) // no trim()
     .isFloat({ min: 0 })
     .withMessage("Salary amount must be a positive number"),
   body("salaryCurrency")
-    .optional()
+    .optional({ checkFalsy: true })
     .trim()
     .isIn(CURRENCIES)
     .withMessage("Invalid currency code"),
   body("salaryPeriod")
-    .optional()
+    .optional({ checkFalsy: true })
     .isIn(SALARY_PERIODS)
     .withMessage("Invalid salary period"),
   body("educationLevel")
-    .optional()
+    .optional({ checkFalsy: true })
     .isIn(EDUCATION_LEVELS)
     .withMessage("Invalid education level"),
   body("locationType")
-    .optional()
+    .optional({ checkFalsy: true })
     .isIn(LOCATION_TYPES)
     .withMessage("Invalid location type"),
-  validate,
+
+  // ─── Salary range ────────────────────────────────────────────────────────
   body("salaryMin")
-    .optional()
+    .optional({ checkFalsy: true }) // no trim()
     .isFloat({ min: 0 })
     .withMessage("Salary minimum must be a positive number"),
+
   body("salaryMax")
-    .optional()
+    .optional({ checkFalsy: true }) // no trim()
     .isFloat({ min: 0 })
-    .withMessage("Salary maximum must be a positive number"),
-  body("salaryMax")
-    .optional()
+    .withMessage("Salary maximum must be a positive number")
     .custom((value, { req }) => {
       if (
         value !== undefined &&
@@ -2269,4 +2312,6 @@ export const validateAdminUpdateJob = [
       }
       return true;
     }),
+
+  validate,
 ];

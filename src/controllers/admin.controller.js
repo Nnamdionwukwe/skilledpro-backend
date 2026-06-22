@@ -1489,7 +1489,7 @@ export const getAllJobPosts = async (req, res) => {
   try {
     const { status, search, categoryId, page = 1, limit = 20 } = req.query;
     const { skip, take } = paginate(page, limit);
-    const where = {};
+    const where = { isExternal: false };
 
     if (status) where.status = status;
     if (categoryId) where.categoryId = categoryId;

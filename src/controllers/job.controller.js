@@ -195,6 +195,7 @@ export const getJobPosts = async (req, res) => {
 
     const where = {
       status: "OPEN",
+      isExternal: false,
       ...(q && {
         OR: [
           { title: { contains: q, mode: "insensitive" } },
@@ -312,7 +313,7 @@ export const getJobPosts = async (req, res) => {
 export const getJobPost = async (req, res) => {
   try {
     const jobPost = await prisma.jobPost.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id, isExternal: false },
       include: {
         hirer: {
           select: {
@@ -404,6 +405,7 @@ export const getMyJobPosts = async (req, res) => {
 
     const where = {
       hirerId: req.user.id,
+      isExternal: false,
       ...(status && { status }),
     };
 

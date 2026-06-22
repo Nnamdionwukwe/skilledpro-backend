@@ -13,7 +13,7 @@ function getPrisma() {
       ssl: false,
       max: 20, // Increase pool size
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000,
     });
     const adapter = new PrismaPg(pool);
     prisma = new PrismaClient({ adapter });
