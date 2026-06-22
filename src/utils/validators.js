@@ -2315,3 +2315,37 @@ export const validateAdminUpdateJob = [
 
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §33  EXTERNAL JOB CLICKS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/external-jobs/:id/click
+export const validateRecordClick = [
+  param("id")
+    .trim()
+    .notEmpty()
+    .withMessage("Job ID is required")
+    .isUUID(4)
+    .withMessage("Job ID must be a valid UUID"),
+
+  body("type")
+    .notEmpty()
+    .withMessage("Click type is required")
+    .isIn(["APPLY_CLICK", "PROCEED_CLICK"])
+    .withMessage("Click type must be APPLY_CLICK or PROCEED_CLICK"),
+
+  validate,
+];
+
+// GET /api/external-jobs/admin/:id/stats
+export const validateGetJobStats = [
+  param("id")
+    .trim()
+    .notEmpty()
+    .withMessage("Job ID is required")
+    .isUUID(4)
+    .withMessage("Job ID must be a valid UUID"),
+
+  validate,
+];

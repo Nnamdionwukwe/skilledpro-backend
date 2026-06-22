@@ -15,7 +15,9 @@ import {
   validateAdminUpdateJob,
   validatePagination,
   validateUUIDParam,
+  validateGetJobStats,
 } from "../utils/validators.js";
+import { getJobStats } from "../controllers/externalJobClick.controller.js"; //
 
 const router = Router();
 router.use(protect, requireRole("ADMIN"));
@@ -38,5 +40,8 @@ router.delete(
 );
 router.patch("/external/jobs/bulk/status", adminBulkUpdateStatus);
 router.delete("/external/jobs/bulk", adminBulkDelete);
+
+// ─── NEW: Stats route ─────────────────────────────────────────────────────
+router.get("/external/jobs/:id/stats", validateGetJobStats, getJobStats);
 
 export default router;

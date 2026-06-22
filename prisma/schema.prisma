@@ -336,6 +336,8 @@ model User {
   withdrawalPinAttempts    Int       @default(0) // wrong-attempt counter
   withdrawalPinLockedUntil DateTime? // locked until this time after 3 wrong attempts
   adminJobPosts            JobPost[] @relation("AdminJobPosts")
+
+  externalJobClicks ExternalJobClick[]
 }
 
 model Referral {
@@ -884,17 +886,34 @@ model JobPost {
   salaryText  String? // e.g., "₦350,000 a month"
 
   // ... existing fields ...
-  salaryAmount    Float?
-  salaryMin     Float?
-  salaryMax     Float?
+  salaryAmount   Float?
+  salaryMin      Float?
+  salaryMax      Float?
   // salaryAmount remains for single-value cases (optional)
-  salaryCurrency  String?          // e.g., "USD", "NGN"
-  salaryPeriod    SalaryPeriod?
-  educationLevel  EducationLevel?
+  salaryCurrency String? // e.g., "USD", "NGN"
+  salaryPeriod   SalaryPeriod?
+  educationLevel EducationLevel?
   // languageRequirement already exists (String)
   // applicantLocation already exists (String)
   // locationType already exists (LocationType enum)
   // experienceLevel already exists (String) – could later change to enum
+
+  externalJobClicks ExternalJobClick[]
+}
+
+model ExternalJobClick {
+  id        String   @id @default(uuid())
+  jobPostId String
+  jobPost   JobPost  @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // "APPLY_CLICK" or "PROCEED_CLICK"
+  createdAt DateTime @default(now())
+
+  @@unique([jobPostId, userId, type]) // one record per user per action per job
+  @@index([jobPostId])
+  @@index([userId])
+  @@index([type])
 }
 
 // Join table for Job ↔ Category
@@ -1141,4 +1160,5 @@ model SavedJob {
   @@index([workerId])
   @@index([jobPostId])
 }
+
 //to format run npx prisma format and to migarate run npx prisma generate
