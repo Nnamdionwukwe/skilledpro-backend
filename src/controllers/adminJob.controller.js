@@ -77,6 +77,7 @@ export const adminCreateJobPost = async (req, res, next) => {
       sourcePlatform: sourcePlatform || "",
       expiryDate: expiryDate ? new Date(expiryDate) : null,
       isExternal: true,
+      hirerId: req.user.id,
       postedByAdminId: req.user.id,
       status: isActive ? "OPEN" : "CANCELLED",
       // backward compatibility
