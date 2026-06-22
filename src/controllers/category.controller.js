@@ -1,9 +1,21 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 export const getCategories = async (req, res) => {
   try {
-    const { search, limit = 500 } = req.query; // ← default 500, not 200
+    const { search, limit = 1500 } = req.query; // ← default 500, not 200
 
     const where = {
       // ← REMOVED parentId: null — this was silently hiding user-submitted
