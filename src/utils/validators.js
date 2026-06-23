@@ -2362,14 +2362,29 @@ export const validateAdminUpdateJob = [
   body("applicationWhatsApp")
     .optional({ checkFalsy: true })
     .trim()
-    .matches(/^\+?[1-9]\d{1,14}$/)
-    .withMessage("WhatsApp number must be a valid phone number (E.164 format)"),
+    .custom((value) => {
+      // Remove spaces, dashes, parentheses, etc. – keep only digits and optional leading '+'
+      const cleaned = value.replace(/[^0-9+]/g, "");
+      if (!/^\+?[0-9]{7,15}$/.test(cleaned)) {
+        throw new Error(
+          "WhatsApp number must be a valid phone number (e.g., +1234567890 or 08012345678)",
+        );
+      }
+      return true;
+    }),
+
   body("applicationPhone")
     .optional({ checkFalsy: true })
     .trim()
-    .matches(/^\+?[1-9]\d{1,14}$/)
-    .withMessage("Phone number must be a valid phone number (E.164 format)"),
-
+    .custom((value) => {
+      const cleaned = value.replace(/[^0-9+]/g, "");
+      if (!/^\+?[0-9]{7,15}$/.test(cleaned)) {
+        throw new Error(
+          "Phone number must be a valid phone number (e.g., +1234567890 or 08012345678)",
+        );
+      }
+      return true;
+    }),
   // ─── Skills ──────────────────────────────────────────────────────────────────
   body("skills")
     .optional()
