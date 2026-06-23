@@ -735,3 +735,92 @@ export const deleteVideoIntro = async (req, res) => {
     return sendError(res, "Failed to remove video intro");
   }
 };
+
+export const getCompletedJobs = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const { skip, take } = paginate(page, limit);
+    const workerId = req.user.id;
+
+    const where = {
+      workerId,
+      status: "COMPLETED",
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { completedAt: "desc" },
+        include: {
+          hirer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              city: true,
+              country: true,
+              hirerProfile: {
+                select: {
+                  companyName: true,
+                  avgRating: true,
+                  totalHires: true,
+                },
+              },
+            },
+          },
+          category: {
+            select: {
+              id: true,
+              name: true,
+              icon: true,
+            },
+          },
+          payments: {
+            select: {
+              id: true,
+              amount: true,
+              workerPayout: true,
+              currency: true,
+              status: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+          reviews: {
+            where: { receiverId: workerId },
+            select: {
+              id: true,
+              rating: true,
+              comment: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    const bookingsWithEarnings = bookings.map((b) => ({
+      ...b,
+      totalEarned: b.payments
+        .filter((p) => p.status === "RELEASED")
+        .reduce((sum, p) => sum + (p.workerPayout || 0), 0),
+      review: b.reviews.length > 0 ? b.reviews[0] : null,
+    }));
+
+    return sendResponse(res, {
+      data: {
+        bookings: bookingsWithEarnings,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / take),
+      },
+    });
+  } catch (err) {
+    console.error("getCompletedJobs error:", err);
+    return sendError(res, "Failed to fetch completed jobs");
+  }
+};

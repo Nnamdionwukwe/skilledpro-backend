@@ -33,6 +33,7 @@ import {
   getWorkerProfile,
   getWorkerNotifications,
   markAllNotificationsRead,
+  getCompletedJobs,
 } from "../controllers/worker.controller.js";
 import {
   uploadSingle,
@@ -115,6 +116,9 @@ router.delete("/video-intro", ...W, deleteVideoIntro);
 // Notifications
 router.get("/notifications", ...W, validatePagination, getWorkerNotifications);
 router.patch("/notifications/read-all", ...W, markAllNotificationsRead);
+
+//view completed jobs
+router.get("/completed-jobs", ...W, validatePagination, getCompletedJobs);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC dynamic route — MUST BE LAST
