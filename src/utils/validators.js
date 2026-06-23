@@ -2147,6 +2147,58 @@ export const validateAdminCreateJob = [
     .optional()
     .isIn(EDUCATION_LEVELS)
     .withMessage("Invalid education level"),
+  // ─── Application methods (at least one required) ──────────────────────────
+  body("applicationUrl")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("Application URL must be a valid URL if provided"),
+  body("applicationEmail")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Application email must be a valid email address"),
+  body("applicationWhatsApp")
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage("WhatsApp number must be a valid phone number (E.164 format)"),
+  body("applicationPhone")
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage("Phone number must be a valid phone number (E.164 format)"),
+
+  // ─── Skills ──────────────────────────────────────────────────────────────────
+  body("skills")
+    .optional()
+    .isArray()
+    .withMessage("skills must be an array")
+    .custom((value) =>
+      value.every((s) => typeof s === "string" && s.trim().length > 0),
+    )
+    .withMessage("Each skill must be a non-empty string"),
+
+  // ─── Custom validator to ensure at least one application method is provided ──
+  body().custom((value, { req }) => {
+    const {
+      applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+    } = req.body;
+    if (
+      !applicationUrl &&
+      !applicationEmail &&
+      !applicationWhatsApp &&
+      !applicationPhone
+    ) {
+      throw new Error(
+        "At least one application method (URL, Email, WhatsApp, or Phone) is required",
+      );
+    }
+    return true;
+  }),
   body("locationType")
     .optional()
     .isIn(LOCATION_TYPES)
@@ -2295,6 +2347,59 @@ export const validateAdminUpdateJob = [
     .optional({ checkFalsy: true }) // no trim()
     .isFloat({ min: 0 })
     .withMessage("Salary minimum must be a positive number"),
+
+  // ─── Application methods (at least one required) ──────────────────────────
+  body("applicationUrl")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("Application URL must be a valid URL if provided"),
+  body("applicationEmail")
+    .optional({ checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Application email must be a valid email address"),
+  body("applicationWhatsApp")
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage("WhatsApp number must be a valid phone number (E.164 format)"),
+  body("applicationPhone")
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage("Phone number must be a valid phone number (E.164 format)"),
+
+  // ─── Skills ──────────────────────────────────────────────────────────────────
+  body("skills")
+    .optional()
+    .isArray()
+    .withMessage("skills must be an array")
+    .custom((value) =>
+      value.every((s) => typeof s === "string" && s.trim().length > 0),
+    )
+    .withMessage("Each skill must be a non-empty string"),
+
+  // ─── Custom validator to ensure at least one application method is provided ──
+  body().custom((value, { req }) => {
+    const {
+      applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+    } = req.body;
+    if (
+      !applicationUrl &&
+      !applicationEmail &&
+      !applicationWhatsApp &&
+      !applicationPhone
+    ) {
+      throw new Error(
+        "At least one application method (URL, Email, WhatsApp, or Phone) is required",
+      );
+    }
+    return true;
+  }),
 
   body("salaryMax")
     .optional({ checkFalsy: true }) // no trim()

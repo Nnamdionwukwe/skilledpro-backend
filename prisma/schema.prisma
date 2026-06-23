@@ -866,6 +866,10 @@ model JobPost {
   // New external job fields
   applicationUrl      String? // external apply link
   sourcePlatform      String? // e.g., "Indeed", "LinkedIn"
+  applicationEmail    String? // email address to apply via email
+  applicationWhatsApp String? // WhatsApp number (with country code)
+  applicationPhone    String? // phone number to call for application
+
   minQualification    String?
   experienceLevel     String? // "Entry level", "Mid level", "Senior level"
   experienceLength    String? // e.g., "1 year"

@@ -25,6 +25,10 @@ export const adminCreateJobPost = async (req, res, next) => {
       workingHours,
       applicantLocation,
       applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+      skills = [],
       sourcePlatform,
       categoryIds = [],
       expiryDate,
@@ -74,6 +78,10 @@ export const adminCreateJobPost = async (req, res, next) => {
       workingHours: workingHours || "",
       applicantLocation: applicantLocation || "",
       applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+      skills: Array.isArray(skills) ? skills : [],
       sourcePlatform: sourcePlatform || "",
       expiryDate: expiryDate ? new Date(expiryDate) : null,
       isExternal: true,
@@ -244,6 +252,10 @@ export const adminUpdateJobPost = async (req, res, next) => {
       workingHours,
       applicantLocation,
       applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+      skills,
       sourcePlatform,
       categoryIds,
       expiryDate,
@@ -298,6 +310,14 @@ export const adminUpdateJobPost = async (req, res, next) => {
       updateData.applicantLocation = applicantLocation;
     if (applicationUrl !== undefined)
       updateData.applicationUrl = applicationUrl;
+    if (applicationEmail !== undefined)
+      updateData.applicationEmail = applicationEmail;
+    if (applicationWhatsApp !== undefined)
+      updateData.applicationWhatsApp = applicationWhatsApp;
+    if (applicationPhone !== undefined)
+      updateData.applicationPhone = applicationPhone;
+    if (skills !== undefined)
+      updateData.skills = Array.isArray(skills) ? skills : [];
     if (sourcePlatform !== undefined)
       updateData.sourcePlatform = sourcePlatform;
     if (expiryDate !== undefined)
