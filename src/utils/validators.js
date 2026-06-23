@@ -2074,12 +2074,12 @@ export const validateAdminCreateJob = [
     .withMessage("Location is required")
     .isLength({ max: 300 })
     .withMessage("Location must not exceed 300 characters"),
-  body("applicationUrl")
-    .trim()
-    .notEmpty()
-    .withMessage("Application URL is required")
-    .isURL()
-    .withMessage("Application URL must be a valid URL"),
+  // body("applicationUrl")
+  //   .trim()
+  //   .notEmpty()
+  //   .withMessage("Application URL is required")
+  //   .isURL()
+  //   .withMessage("Application URL must be a valid URL"),
   body("jobType")
     .optional()
     .isIn(["FULL_TIME", "PART_TIME", "CONTRACT", "TEMPORARY", "INTERNSHIP"])
@@ -2243,11 +2243,11 @@ export const validateAdminUpdateJob = [
     .withMessage("Location is required")
     .isLength({ max: 300 })
     .withMessage("Location must not exceed 300 characters"),
-  body("applicationUrl")
-    .optional({ checkFalsy: true })
-    .trim()
-    .isURL()
-    .withMessage("Application URL must be a valid URL"),
+  // body("applicationUrl")
+  //   .optional({ checkFalsy: true })
+  //   .trim()
+  //   .isURL()
+  //   .withMessage("Application URL must be a valid URL"),
   body("jobType")
     .optional()
     .isIn(["FULL_TIME", "PART_TIME", "CONTRACT", "TEMPORARY", "INTERNSHIP"]),
