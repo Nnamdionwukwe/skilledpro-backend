@@ -43,10 +43,23 @@ export const adminCreateJobPost = async (req, res, next) => {
     } = req.body;
 
     // ── Validation ────────────────────────────────────────────────────────────
-    if (!title || !companyName || !location || !applicationUrl) {
+    // ── Validation ────────────────────────────────────────────────────────────
+    if (!title || !companyName || !location) {
       return sendError(
         res,
-        "Missing required fields: title, companyName, location, applicationUrl",
+        "Missing required fields: title, companyName, location",
+        400,
+      );
+    }
+    if (
+      !applicationUrl &&
+      !applicationEmail &&
+      !applicationWhatsApp &&
+      !applicationPhone
+    ) {
+      return sendError(
+        res,
+        "At least one application method (URL, Email, WhatsApp, or Phone) is required",
         400,
       );
     }
