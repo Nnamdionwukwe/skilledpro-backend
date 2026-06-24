@@ -87,7 +87,37 @@ export const getWorkerProfile = async (req, res) => {
 
     const worker = await prisma.workerProfile.findUnique({
       where: { userId },
-      include: {
+      select: {
+        // ── All scalar fields ──────────────────────────────────────────────
+        id: true,
+        userId: true,
+        title: true,
+        description: true,
+        hourlyRate: true,
+        dailyRate: true,
+        weeklyRate: true,
+        monthlyRate: true,
+        yearlyRate: true,
+        customRate: true,
+        customRateLabel: true,
+        pricingNote: true,
+        currency: true,
+        profileCurrency: true,
+        yearsExperience: true,
+        serviceRadius: true,
+        isAvailable: true,
+        verificationStatus: true,
+        idDocument: true,
+        videoIntroUrl: true,
+        backgroundCheck: true,
+        totalEarnings: true,
+        completedJobs: true,
+        responseRate: true,
+        avgRating: true,
+        totalReviews: true,
+        createdAt: true,
+        updatedAt: true,
+        // ── Relations ──────────────────────────────────────────────────────
         user: {
           select: {
             id: true,
@@ -109,7 +139,11 @@ export const getWorkerProfile = async (req, res) => {
             showGender: true,
           },
         },
-        categories: { include: { category: true } },
+        categories: {
+          include: {
+            category: true,
+          },
+        },
         portfolio: true,
         certifications: true,
         availability: true,
@@ -122,9 +156,7 @@ export const getWorkerProfile = async (req, res) => {
 
     const isOwnProfile = req.user?.id === userId;
 
-    // ── Build privacy-filtered user object ────────────────────────────────
-    // This is a local variable — completely separate from the safeUser()
-    // utility function imported from helpers.js (which strips passwords).
+    // ── Privacy-filtered user ──────────────────────────────────────────────
     const filteredUser = {
       id: worker.user.id,
       firstName: worker.user.firstName,
@@ -132,21 +164,18 @@ export const getWorkerProfile = async (req, res) => {
       avatar: worker.user.avatar,
       language: worker.user.language,
       createdAt: worker.user.createdAt,
-      // Location — hidden unless owner or showLocation is true
       city: isOwnProfile || worker.user.showLocation ? worker.user.city : null,
       country:
         isOwnProfile || worker.user.showLocation ? worker.user.country : null,
       state:
         isOwnProfile || worker.user.showLocation ? worker.user.state : null,
-      // Contact — hidden unless owner or respective flag is true
       phone: isOwnProfile || worker.user.showPhone ? worker.user.phone : null,
       email: isOwnProfile || worker.user.showEmail ? worker.user.email : null,
-      // Gender — hidden unless owner or showGender is true
       gender:
         isOwnProfile || worker.user.showGender ? worker.user.gender : null,
     };
 
-    // ── Notify worker of profile view (fire-and-forget) ───────────────────
+    // ── Notify viewer (fire-and-forget) ──────────────────────────────────
     if (req.user && !isOwnProfile) {
       prisma.user
         .findUnique({
@@ -156,9 +185,7 @@ export const getWorkerProfile = async (req, res) => {
         .then((viewer) => {
           if (!viewer) return;
           const viewerName = `${viewer.firstName} ${viewer.lastName}`;
-
           notifyProfileViewed(userId, viewerName, viewer.role).catch(() => {});
-
           if (worker.user.email) {
             sendProfileViewedEmail({
               to: worker.user.email,
@@ -187,32 +214,72 @@ export const getWorkerProfile = async (req, res) => {
 
 export const updateWorkerProfile = async (req, res) => {
   try {
+    if (req.user.role !== "WORKER") return sendError(res, "Forbidden", 403);
+
     const {
       title,
       description,
       hourlyRate,
+      dailyRate,
+      weeklyRate,
+      monthlyRate,
+      yearlyRate,
+      customRate,
+      customRateLabel,
+      pricingNote,
       currency,
+      profileCurrency,
       yearsExperience,
       serviceRadius,
       isAvailable,
     } = req.body;
+
+    // Ensure the worker profile exists
+    const existing = await prisma.workerProfile.findUnique({
+      where: { userId: req.user.id },
+    });
+    if (!existing) return sendError(res, "Worker profile not found", 404);
+
+    // Build update object
+    const data = {};
+    if (title !== undefined) data.title = title.trim();
+    if (description !== undefined)
+      data.description = description?.trim() || null;
+    if (hourlyRate !== undefined) data.hourlyRate = parseFloat(hourlyRate) || 0;
+    if (dailyRate !== undefined)
+      data.dailyRate = dailyRate ? parseFloat(dailyRate) : null;
+    if (weeklyRate !== undefined)
+      data.weeklyRate = weeklyRate ? parseFloat(weeklyRate) : null;
+    if (monthlyRate !== undefined)
+      data.monthlyRate = monthlyRate ? parseFloat(monthlyRate) : null;
+    if (yearlyRate !== undefined)
+      data.yearlyRate = yearlyRate ? parseFloat(yearlyRate) : null;
+    if (customRate !== undefined)
+      data.customRate = customRate ? parseFloat(customRate) : null;
+    if (customRateLabel !== undefined)
+      data.customRateLabel = customRateLabel?.trim() || null;
+    if (pricingNote !== undefined)
+      data.pricingNote = pricingNote?.trim() || null;
+    if (currency !== undefined) data.currency = currency;
+    if (profileCurrency !== undefined) data.profileCurrency = profileCurrency;
+    if (yearsExperience !== undefined)
+      data.yearsExperience = parseInt(yearsExperience) || 0;
+    if (serviceRadius !== undefined)
+      data.serviceRadius = parseInt(serviceRadius) || 25;
+    if (isAvailable !== undefined) data.isAvailable = Boolean(isAvailable);
+
     const worker = await prisma.workerProfile.update({
       where: { userId: req.user.id },
-      data: {
-        title,
-        description,
-        hourlyRate: hourlyRate ? parseFloat(hourlyRate) : undefined,
-        currency,
-        yearsExperience: yearsExperience
-          ? parseInt(yearsExperience)
-          : undefined,
-        serviceRadius: serviceRadius ? parseInt(serviceRadius) : undefined,
-        isAvailable,
-      },
+      data,
     });
-    return sendResponse(res, { message: "Profile updated", data: { worker } });
+
+    return sendResponse(res, {
+      message: "Worker profile updated",
+      data: { worker },
+    });
   } catch (err) {
-    return sendError(res, "Update failed");
+    console.error("updateWorkerProfile error:", err);
+    return sendError(res, "Failed to update worker profile");
   }
 };
 

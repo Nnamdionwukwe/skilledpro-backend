@@ -578,6 +578,7 @@ model WorkerProfile {
   availability    Availability[]
   weeklyRate      Float?
   monthlyRate     Float?
+  yearlyRate      Float?
   customRate      Float?
   customRateLabel String?
   pricingNote     String?
@@ -714,8 +715,8 @@ model Booking {
   jobType      String? // "FULL_TIME" | "PART_TIME" | "CONTRACT" | "TEMPORARY"
   locationType String? // "REMOTE" | "ON_SITE" | "HYBRID"
 
-   requirements    String?   // e.g., "Must have 3+ years of React experience"
-  responsibilities String?  // e.g., "Design UI mockups, conduct user tests"
+  requirements     String? // e.g., "Must have 3+ years of React experience"
+  responsibilities String? // e.g., "Design UI mockups, conduct user tests"
 }
 
 model Payment {

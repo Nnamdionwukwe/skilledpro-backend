@@ -2,7 +2,19 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../config/cloudinary.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 const USER_SELECT = {
   id: true,
   email: true,
@@ -65,6 +77,7 @@ export const getProfile = async (req, res) => {
             dailyRate: true,
             weeklyRate: true,
             monthlyRate: true,
+            yearlyRate: true,
             customRate: true,
             customRateLabel: true,
             pricingNote: true,
@@ -216,6 +229,7 @@ export const updateWorkerProfile = async (req, res) => {
       dailyRate,
       weeklyRate,
       monthlyRate,
+      yearlyRate,
       customRate,
       customRateLabel,
       pricingNote,
@@ -242,6 +256,8 @@ export const updateWorkerProfile = async (req, res) => {
       data.weeklyRate = weeklyRate ? parseFloat(weeklyRate) : null;
     if (monthlyRate !== undefined)
       data.monthlyRate = monthlyRate ? parseFloat(monthlyRate) : null;
+    if (yearlyRate !== undefined)
+      data.yearlyRate = yearlyRate ? parseFloat(yearlyRate) : null;
     if (customRate !== undefined)
       data.customRate = customRate ? parseFloat(customRate) : null;
     if (customRateLabel !== undefined)
