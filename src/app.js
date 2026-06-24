@@ -131,6 +131,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/admin", adminJobRoutes);
 app.use("/api/external-jobs", externalJobRoutes);
+app.use("/api/translate", translateRoutes);
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 
