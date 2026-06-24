@@ -46,6 +46,8 @@ export const createBooking = async (req, res) => {
       notes,
       jobType, // ← ADD
       locationType, // ← ADD
+      requirements,
+      responsibilities,
     } = req.body;
 
     const booking = await prisma.booking.create({
@@ -77,6 +79,8 @@ export const createBooking = async (req, res) => {
         negotiationNote:
           isNegotiated && negotiationNote ? negotiationNote.trim() : null,
       },
+      requirements: requirements || null,
+      responsibilities: responsibilities || null,
       include: {
         hirer: {
           select: { id: true, firstName: true, lastName: true, email: true },
