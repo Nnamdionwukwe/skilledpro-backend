@@ -717,6 +717,10 @@ model Booking {
 
   requirements     String? // e.g., "Must have 3+ years of React experience"
   responsibilities String? // e.g., "Design UI mockups, conduct user tests"
+
+  disputeReason      String? // reason for the dispute
+  disputeDescription String? // detailed description
+  disputeEvidence    String[] @default([]) // array of image/PDF URLs
 }
 
 model Payment {

@@ -15,11 +15,12 @@ import {
   validateUUIDParam,
   validatePagination,
 } from "../utils/validators.js";
+import { uploadMultiple } from "../middleware/upload.middleware.js";
 
 const router = Router();
 router.use(protect);
 
-router.post("/", validateCreateDispute, raiseDispute);
+router.post("/", uploadMultiple, validateCreateDispute, raiseDispute);
 router.get("/my", validatePagination, getMyDisputes);
 router.get("/:bookingId", ...validateUUIDParam("bookingId"), getDisputeDetail);
 router.patch(

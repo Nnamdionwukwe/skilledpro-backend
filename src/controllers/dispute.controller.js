@@ -1,7 +1,20 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { sendRealTimeNotification } from "./notification.controller.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
+
 // POST /api/disputes - Raise a dispute on a booking
 export const raiseDispute = async (req, res) => {
   try {
@@ -30,12 +43,10 @@ export const raiseDispute = async (req, res) => {
 
     if (!booking) return sendError(res, "Booking not found", 404);
 
-    // Only hirer or worker involved in the booking can raise a dispute
     const isHirer = booking.hirerId === req.user.id;
     const isWorker = booking.workerId === req.user.id;
     if (!isHirer && !isWorker) return sendError(res, "Forbidden", 403);
 
-    // Can only dispute bookings that are in progress or completed
     const disputeable = ["IN_PROGRESS", "COMPLETED", "ACCEPTED"];
     if (!disputeable.includes(booking.status)) {
       return sendError(
@@ -44,48 +55,58 @@ export const raiseDispute = async (req, res) => {
         400,
       );
     }
-
     if (booking.status === "DISPUTED") {
       return sendError(res, "This booking is already under dispute", 409);
     }
 
-    // Update booking status to DISPUTED
+    // ── Handle evidence uploads ──────────────────────────────────────────────
+    const evidenceUrls = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        evidenceUrls.push(file.path); // Cloudinary URL
+      }
+    }
+
+    // Update booking: status + dispute details + evidence
     const updated = await prisma.booking.update({
       where: { id: bookingId },
-      data: { status: "DISPUTED" },
+      data: {
+        status: "DISPUTED",
+        disputeReason: reason,
+        disputeDescription: description,
+        disputeEvidence: evidenceUrls,
+      },
     });
 
     // Freeze payment if exists
     if (booking.payments?.[0] && booking.payments?.[0].status === "HELD") {
       await prisma.payment.update({
         where: { bookingId },
-        data: { status: "HELD" }, // Keep held, admin will release or refund
+        data: { status: "HELD" }, // keep held
       });
     }
 
-    // Notify the other party
+    // Notify other party and admins (unchanged)
     const otherPartyId = isHirer ? booking.workerId : booking.hirerId;
     const raisedBy = isHirer ? booking.hirer : booking.worker;
 
     await sendRealTimeNotification({
       userId: otherPartyId,
       title: "Dispute Raised ⚠️",
-      body: `${raisedBy.firstName} ${raisedBy.lastName} has raised a dispute on booking: "${booking.title}".`,
+      body: `${raisedBy.firstName} ${raisedBy.lastName} raised a dispute on "${booking.title}".`,
       type: "DISPUTE_RAISED",
       data: { bookingId: booking.id, reason },
     });
 
-    // Notify admin (find all admins)
     const admins = await prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
       select: { id: true },
     });
-
     for (const admin of admins) {
       await sendRealTimeNotification({
         userId: admin.id,
         title: "New Dispute Filed ⚠️",
-        body: `Dispute raised on booking "${booking.title}" — Reason: ${reason}`,
+        body: `Dispute on "${booking.title}" — Reason: ${reason}`,
         type: "DISPUTE_RAISED",
         data: { bookingId: booking.id, raisedBy: req.user.id, reason },
       });
@@ -102,6 +123,7 @@ export const raiseDispute = async (req, res) => {
           status: updated.status,
           reason,
           description,
+          evidence: evidenceUrls,
           raisedBy: req.user.id,
           raisedAt: new Date(),
         },
