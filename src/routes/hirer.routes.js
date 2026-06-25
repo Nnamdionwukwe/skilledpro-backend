@@ -11,10 +11,10 @@ import {
   getHirerProfile,
   getHirerBookings,
   getHirerDashboard,
-  getSavedWorkers, // ← now uses SavedWorker model (explicit bookmarks)
-  saveWorker, // ← NEW
-  unsaveWorker, // ← NEW
-  getHiredWorkers, // ← NEW: previous booking-based "saved" renamed here
+  getSavedWorkers,
+  saveWorker,
+  unsaveWorker,
+  getHiredWorkers,
   getHirerReviews,
   getNotifications,
   markNotificationsRead,
@@ -25,7 +25,7 @@ import { validateUUIDParam, validatePagination } from "../utils/validators.js";
 
 const router = Router();
 
-// ─── All /me/* MUST come before /:userId ──────────────────────────────────────
+// ─── Protected /me/* routes (must come before /:userId) ──────────────────
 router.get("/me/profile", protect, requireRole("HIRER"), getMyHirerProfile);
 router.put("/me/profile", protect, requireRole("HIRER"), updateHirerProfile);
 router.get("/me/dashboard", protect, requireRole("HIRER"), getHirerDashboard);
@@ -37,11 +37,7 @@ router.get(
   getHirerBookings,
 );
 
-// ─── Saved Workers (bookmark / shortlist) ─────────────────────────────────────
-// GET    /me/saved-workers         → explicit bookmarks (NEW model)
-// POST   /me/saved-workers/:id     → save a worker
-// DELETE /me/saved-workers/:id     → unsave a worker
-// GET    /me/hired-workers         → previously booked workers (booking history)
+// ─── Saved Workers ────────────────────────────────────────────────────────
 router.get(
   "/me/saved-workers",
   protect,
@@ -49,7 +45,6 @@ router.get(
   validatePagination,
   getSavedWorkers,
 );
-
 router.post(
   "/me/saved-workers/:workerId",
   protect,
@@ -57,7 +52,6 @@ router.post(
   ...validateUUIDParam("workerId"),
   saveWorker,
 );
-
 router.delete(
   "/me/saved-workers/:workerId",
   protect,
@@ -65,14 +59,13 @@ router.delete(
   ...validateUUIDParam("workerId"),
   unsaveWorker,
 );
-
 router.get("/me/hired-workers", protect, requireRole("HIRER"), getHiredWorkers);
 
-// ─── Notifications ────────────────────────────────────────────────────────────
+// ─── Notifications ────────────────────────────────────────────────────────
 router.get("/me/notifications", protect, getNotifications);
 router.patch("/me/notifications/read", protect, markNotificationsRead);
 
-// ─── Reviews ─────────────────────────────────────────────────────────────────
+// ─── Reviews ──────────────────────────────────────────────────────────────
 router.get(
   "/me/reviews/received",
   protect,
@@ -93,15 +86,18 @@ router.get(
   requireRole("HIRER"),
   validatePagination,
   getHirerReviews,
-); // ← legacy alias
+); // legacy alias
 
-// ─── Public — must be last ───────────────────────────────────────────────────
-router.get("/:userId", ...validateUUIDParam("userId"), getHirerProfile);
+// ─── Public routes – SPECIFIC FIRST, then GENERIC ──────────────────────
+// ✅ /profile route must come before /:userId to avoid being treated as a userId
 router.get(
   "/:userId/profile",
   optionalProtect,
   ...validateUUIDParam("userId"),
   getHirerPublicProfile,
 );
+
+// ✅ Generic /:userId route – LAST
+router.get("/:userId", ...validateUUIDParam("userId"), getHirerProfile);
 
 export default router;

@@ -176,6 +176,7 @@ export const getBooking = async (req, res) => {
             lastName: true,
             avatar: true,
             phone: true,
+            role: true,
           },
         },
         worker: {
@@ -185,6 +186,7 @@ export const getBooking = async (req, res) => {
             lastName: true,
             avatar: true,
             phone: true,
+            role: true,
           },
         },
         category: true,
