@@ -2,10 +2,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/payments/invoice/:bookingId
 //
-// Generates and streams a professional PDF invoice.
-// Accessible to:  the hirer who paid  +  any ADMIN
-//
-// Requires:  npm install pdfkit
+// Generates a professional, modern PDF invoice with full booking details,
+// payment breakdown, and discounts. Accessible to hirer, worker, and admin.
 // ─────────────────────────────────────────────────────────────────────────────
 import PDFDocument from "pdfkit";
 import prisma from "../config/database.js";
@@ -17,13 +15,15 @@ const BRAND = {
   email: "support@skilledproz.com",
   website: "www.skilledproz.com",
   phone: "+234 800 000 0000",
-  color: "#1A1A2E", // dark navy — change to your primary brand colour
+  color: "#1A1A2E", // dark navy
   accent: "#E94560", // red accent
+  secondary: "#F5F5FA", // light grey
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function naira(amount) {
-  return `₦${Number(amount || 0).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+function currency(amount, currency = "NGN") {
+  const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : "₦";
+  return `${symbol}${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function fmtDate(d) {
@@ -34,14 +34,51 @@ function fmtDate(d) {
   });
 }
 
+function fmtTime(d) {
+  return new Date(d).toLocaleTimeString("en-NG", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function invoiceNumber(payment) {
-  // e.g. SP-INV-20260530-A3F2
   const date = new Date(payment.createdAt)
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, "");
   const ref = (payment.providerRef || payment.id || "").slice(-4).toUpperCase();
   return `SP-INV-${date}-${ref}`;
+}
+
+function formatDuration(booking) {
+  const unit = booking.estimatedUnit || "hours";
+  const value = booking.estimatedValue;
+  const hours = booking.estimatedHours;
+
+  if (value && unit !== "custom") {
+    const unitLabel =
+      {
+        hours: "hour",
+        days: "day",
+        weeks: "week",
+        months: "month",
+        years: "year",
+      }[unit] || unit;
+    const num = parseFloat(value);
+    const label = unitLabel + (num !== 1 ? "s" : "");
+    const eqv = unit !== "hours" && hours ? `≈ ${hours}h` : null;
+    return { main: `${num} ${label}`, sub: eqv };
+  }
+  if (hours) return { main: `${hours} hours`, sub: null };
+  return null;
+}
+
+function jobTypeLabel(type) {
+  if (!type) return "—";
+  return type
+    .toLowerCase()
+    .replace("_", " ")
+    .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,13 +127,17 @@ export const getPaymentInvoice = async (req, res) => {
         .json({ success: false, message: "Booking not found" });
     }
 
-    if (!isAdmin && booking.hirerId !== requesterId) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Access denied — you are not the hirer of this booking",
-        });
+    // Allow hirer, worker, or admin
+    if (
+      !isAdmin &&
+      booking.hirerId !== requesterId &&
+      booking.workerId !== requesterId
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied — you are not the hirer or worker of this booking",
+      });
     }
 
     const payment = booking.payments?.[0];
@@ -115,39 +156,34 @@ export const getPaymentInvoice = async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     doc.pipe(res);
 
-    const W = doc.page.width - 100; // usable width
+    const W = doc.page.width - 100;
     const LEFT = 50;
+    const RIGHT = doc.page.width - 50;
 
-    // ── PAGE HEADER ───────────────────────────────────────────────────────────
-    // Brand name
-    doc.rect(0, 0, doc.page.width, 80).fill(BRAND.color);
+    // ── HEADER ────────────────────────────────────────────────────────────────
+    // Brand background
+    doc.rect(0, 0, doc.page.width, 90).fill(BRAND.color);
     doc
       .fillColor("#ffffff")
-      .fontSize(24)
+      .fontSize(28)
       .font("Helvetica-Bold")
-      .text(BRAND.name, LEFT, 22);
-    doc.fontSize(10).font("Helvetica").text(BRAND.tagline, LEFT, 50);
+      .text(BRAND.name, LEFT, 28);
+    doc.fontSize(11).font("Helvetica").text(BRAND.tagline, LEFT, 62);
 
-    // Invoice label on right
+    // Invoice label & number
     doc
-      .fontSize(20)
+      .fontSize(22)
       .font("Helvetica-Bold")
-      .text("INVOICE", 0, 22, { align: "right" });
-    doc.fontSize(10).font("Helvetica").text(invNum, 0, 50, { align: "right" });
+      .text("INVOICE", RIGHT, 28, { align: "right" });
+    doc
+      .fontSize(11)
+      .font("Helvetica")
+      .text(invNum, RIGHT, 56, { align: "right" });
 
     doc.fillColor(BRAND.color);
 
-    // ── METADATA ROW ──────────────────────────────────────────────────────────
-    let y = 100;
-    doc
-      .fontSize(9)
-      .fillColor("#666666")
-      .text("Date Issued", LEFT, y)
-      .text("Status", LEFT + 130, y)
-      .text("Payment Method", LEFT + 260, y)
-      .text("Reference", LEFT + 390, y);
-
-    y += 14;
+    // ── METADATA (date, status, method) ──────────────────────────────────────
+    let y = 110;
     const statusColor =
       payment.status === "RELEASED"
         ? "#16a34a"
@@ -158,29 +194,40 @@ export const getPaymentInvoice = async (req, res) => {
             : "#374151";
 
     doc
+      .fontSize(9)
+      .fillColor("#6b7280")
+      .font("Helvetica")
+      .text("Date Issued", LEFT, y)
+      .text("Status", LEFT + 130, y)
+      .text("Payment Method", LEFT + 260, y)
+      .text("Reference", LEFT + 390, y);
+    y += 14;
+    doc
       .fontSize(10)
       .font("Helvetica-Bold")
       .fillColor(BRAND.color)
-      .text(fmtDate(payment.createdAt), LEFT, y)
+      .text(
+        `${fmtDate(payment.createdAt)} at ${fmtTime(payment.createdAt)}`,
+        LEFT,
+        y,
+      )
       .fillColor(statusColor)
       .text(payment.status, LEFT + 130, y)
       .fillColor(BRAND.color)
-      .text((payment.provider || "paystack").toUpperCase(), LEFT + 260, y)
+      .text((payment.provider || "Paystack").toUpperCase(), LEFT + 260, y)
       .text((payment.providerRef || "—").slice(0, 20), LEFT + 390, y);
-
-    doc.font("Helvetica");
 
     // ── DIVIDER ───────────────────────────────────────────────────────────────
     y += 26;
     doc
       .moveTo(LEFT, y)
-      .lineTo(LEFT + W, y)
+      .lineTo(RIGHT, y)
       .strokeColor("#e5e7eb")
       .lineWidth(1)
       .stroke();
 
     // ── PARTIES ───────────────────────────────────────────────────────────────
-    y += 16;
+    y += 18;
     const COL2 = LEFT + W / 2 + 10;
 
     doc
@@ -201,7 +248,7 @@ export const getPaymentInvoice = async (req, res) => {
       .text(`${hirer.firstName} ${hirer.lastName}`, LEFT, y)
       .text(`${worker.firstName} ${worker.lastName}`, COL2, y);
 
-    y += 15;
+    y += 16;
     doc.fontSize(9).font("Helvetica").fillColor("#4b5563");
     [
       [hirer.email, worker.email],
@@ -216,129 +263,210 @@ export const getPaymentInvoice = async (req, res) => {
     });
 
     // ── DIVIDER ───────────────────────────────────────────────────────────────
-    y += 10;
-    doc
-      .moveTo(LEFT, y)
-      .lineTo(LEFT + W, y)
-      .strokeColor("#e5e7eb")
-      .stroke();
+    y += 8;
+    doc.moveTo(LEFT, y).lineTo(RIGHT, y).strokeColor("#e5e7eb").stroke();
 
-    // ── SERVICE TABLE HEADER ──────────────────────────────────────────────────
-    y += 16;
-    doc.rect(LEFT, y, W, 24).fill("#f3f4f6");
+    // ── BOOKING DETAILS ──────────────────────────────────────────────────────
+    y += 18;
+    doc
+      .fontSize(11)
+      .font("Helvetica-Bold")
+      .fillColor(BRAND.color)
+      .text("Booking Details", LEFT, y);
+
+    y += 18;
+    const dur = formatDuration(booking);
+    const details = [
+      { label: "Service", value: booking.title || "—" },
+      { label: "Category", value: booking.category?.name || "—" },
+      {
+        label: "Duration",
+        value: dur ? `${dur.main}${dur.sub ? ` (${dur.sub})` : ""}` : "—",
+      },
+      { label: "Job Type", value: jobTypeLabel(booking.jobType) },
+      {
+        label: "Location Type",
+        value: booking.locationType
+          ? booking.locationType.replace("_", " ").toUpperCase()
+          : "—",
+      },
+    ];
+    if (booking.isNegotiated && booking.negotiatedRate) {
+      details.push({
+        label: "Negotiated Rate",
+        value: currency(booking.negotiatedRate, booking.currency || "NGN"),
+      });
+    }
+
+    // Two columns for details
+    const col1 = LEFT;
+    const col2 = LEFT + 250;
+    const colWidth = 200;
+    const detailRowHeight = 18;
+
+    details.forEach((d, i) => {
+      const x = i < 3 ? col1 : col2;
+      const row = i % 3;
+      const yPos = y + row * detailRowHeight;
+      if (i === 3) y = yPos; // reset y after first column
+      doc
+        .fontSize(9)
+        .font("Helvetica")
+        .fillColor("#6b7280")
+        .text(`${d.label}:`, x, yPos)
+        .fillColor("#111827")
+        .font("Helvetica-Bold")
+        .text(d.value, x + 85, yPos, { width: colWidth - 85 });
+    });
+    y += 4 * detailRowHeight;
+
+    // ── DIVIDER ───────────────────────────────────────────────────────────────
+    y += 10;
+    doc.moveTo(LEFT, y).lineTo(RIGHT, y).strokeColor("#e5e7eb").stroke();
+
+    // ── SERVICE SUMMARY TABLE ──────────────────────────────────────────────
+    y += 18;
+    // Compute breakdown
+    const rate = booking.agreedRate || 0;
+    const unit = booking.estimatedUnit || "hours";
+    const hours = booking.estimatedHours;
+    const value = booking.estimatedValue
+      ? parseFloat(booking.estimatedValue)
+      : null;
+    let qty = 1;
+    if (value && unit !== "custom") qty = value;
+    else if (hours) {
+      if (unit === "hours") qty = hours;
+      else if (unit === "days") qty = Math.round(hours / 8);
+      else if (unit === "weeks") qty = Math.round(hours / 40);
+      else if (unit === "months") qty = Math.round(hours / 160);
+    }
+
+    const subtotal = parseFloat((rate * qty).toFixed(2));
+    const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
+    const referralDeduct = payment.referralDeduct || 0;
+    const totalCharged = parseFloat(
+      (subtotal + platformFee - referralDeduct).toFixed(2),
+    );
+
+    // Table header
+    doc.rect(LEFT, y, W, 24).fill(BRAND.secondary);
     doc
       .fontSize(9)
       .font("Helvetica-Bold")
       .fillColor(BRAND.color)
-      .text("SERVICE DESCRIPTION", LEFT + 8, y + 7)
-      .text("CATEGORY", LEFT + 280, y + 7)
-      .text("DATE", LEFT + 380, y + 7)
-      .text("AMOUNT", LEFT + W - 60, y + 7, { align: "right", width: 60 });
+      .text("Description", LEFT + 8, y + 7)
+      .text("Qty", LEFT + 280, y + 7, { width: 40, align: "center" })
+      .text("Rate", LEFT + 320, y + 7, { width: 60, align: "right" })
+      .text("Amount", RIGHT - 60, y + 7, { width: 60, align: "right" });
 
-    // ── SERVICE ROW ───────────────────────────────────────────────────────────
     y += 28;
+    // Service row
     doc
       .fontSize(10)
       .font("Helvetica")
       .fillColor("#111827")
-      .text(booking.title || "Service booking", LEFT + 8, y, { width: 265 })
-      .fontSize(9)
-      .fillColor("#6b7280")
-      .text(booking.category?.name || "General", LEFT + 280, y)
-      .text(
-        booking.scheduledAt
-          ? fmtDate(booking.scheduledAt)
-          : fmtDate(booking.createdAt),
-        LEFT + 380,
-        y,
-      );
+      .text(booking.title || "Service booking", LEFT + 8, y, { width: 270 })
+      .text(String(qty), LEFT + 280, y, { width: 40, align: "center" })
+      .text(currency(rate, booking.currency), LEFT + 320, y, {
+        width: 60,
+        align: "right",
+      })
+      .text(currency(subtotal, booking.currency), RIGHT - 60, y, {
+        width: 60,
+        align: "right",
+      });
 
-    doc
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .fillColor(BRAND.color)
-      .text(naira(payment.amount), LEFT, y, { align: "right", width: W - 8 });
+    y += 28;
 
-    // ── TOTALS BOX ────────────────────────────────────────────────────────────
-    y += 40;
+    // ── PAYMENT BREAKDOWN ────────────────────────────────────────────────────
+    const breakY = y;
+    const boxX = LEFT + W - 220;
+    const boxW = 220;
+    const boxH = 110;
     doc
-      .moveTo(LEFT, y)
-      .lineTo(LEFT + W, y)
+      .rect(boxX, breakY, boxW, boxH)
+      .fill(BRAND.secondary)
       .strokeColor("#e5e7eb")
+      .lineWidth(1)
       .stroke();
-    y += 12;
-
-    const TOTAL_X = LEFT + W - 200;
-    const TOTAL_LABEL = TOTAL_X;
-    const TOTAL_VAL = TOTAL_X + 105;
-    const ROW_H = 18;
 
     const rows = [
       {
-        label: "Service amount",
-        val: naira(
-          payment.workerPayout || payment.amount - (payment.platformFee || 0),
-        ),
+        label: "Subtotal",
+        value: currency(subtotal, booking.currency),
         bold: false,
       },
       {
-        label: "Platform fee",
-        val: naira(payment.platformFee || 0),
+        label: "Platform Fee (5%)",
+        value: currency(platformFee, booking.currency),
         bold: false,
       },
-      { label: "Total charged", val: naira(payment.amount), bold: true },
     ];
+    if (referralDeduct > 0) {
+      rows.push({
+        label: "Referral Discount",
+        value: `- ${currency(referralDeduct, booking.currency)}`,
+        bold: false,
+        color: "#16a34a",
+      });
+    }
+    rows.push({
+      label: "Total Charged",
+      value: currency(totalCharged, booking.currency),
+      bold: true,
+    });
 
-    rows.forEach(({ label, val, bold }) => {
+    let innerY = breakY + 10;
+    rows.forEach((row) => {
       doc
         .fontSize(9)
-        .font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fillColor(bold ? BRAND.color : "#4b5563")
-        .text(label, TOTAL_LABEL, y)
-        .text(val, TOTAL_VAL, y, { align: "right", width: 94 });
-      if (bold) {
+        .font(row.bold ? "Helvetica-Bold" : "Helvetica")
+        .fillColor(row.color || (row.bold ? BRAND.color : "#4b5563"))
+        .text(row.label, boxX + 10, innerY, { width: 120 })
+        .text(row.value, boxX + 130, innerY, { width: 80, align: "right" });
+      innerY += 18;
+      if (row.bold) {
         doc
-          .moveTo(TOTAL_LABEL, y + 14)
-          .lineTo(TOTAL_LABEL + 189, y + 14)
+          .moveTo(boxX + 10, innerY - 2)
+          .lineTo(boxX + boxW - 10, innerY - 2)
           .strokeColor(BRAND.accent)
           .lineWidth(1.5)
           .stroke();
       }
-      y += ROW_H;
     });
 
-    // ── PAYMENT STATUS STAMP ──────────────────────────────────────────────────
+    // Advance y past the box
+    y = breakY + boxH + 20;
+
+    // ── PAYMENT STATUS STAMP ────────────────────────────────────────────────
     if (payment.status === "RELEASED") {
       doc
         .save()
-        .rotate(-30, { origin: [LEFT + 80, y - 60] })
-        .rect(LEFT + 10, y - 75, 140, 36)
+        .rotate(-30, { origin: [LEFT + 60, y - 20] })
+        .rect(LEFT + 10, y - 35, 140, 36)
         .stroke("#16a34a")
         .fontSize(16)
         .font("Helvetica-Bold")
         .fillColor("#16a34a")
-        .text("PAID", LEFT + 36, y - 68)
+        .text("PAID", LEFT + 36, y - 28)
         .restore();
     } else if (payment.status === "REFUNDED") {
       doc
         .save()
-        .rotate(-30, { origin: [LEFT + 80, y - 60] })
-        .rect(LEFT + 10, y - 75, 140, 36)
+        .rotate(-30, { origin: [LEFT + 60, y - 20] })
+        .rect(LEFT + 10, y - 35, 140, 36)
         .stroke("#dc2626")
         .fontSize(14)
         .font("Helvetica-Bold")
         .fillColor("#dc2626")
-        .text("REFUNDED", LEFT + 14, y - 68)
+        .text("REFUNDED", LEFT + 14, y - 28)
         .restore();
     }
 
-    // ── NOTES ─────────────────────────────────────────────────────────────────
-    y += 20;
-    doc
-      .moveTo(LEFT, y)
-      .lineTo(LEFT + W, y)
-      .strokeColor("#e5e7eb")
-      .stroke();
+    // ── FOOTER NOTES ────────────────────────────────────────────────────────
+    y += 30;
+    doc.moveTo(LEFT, y).lineTo(RIGHT, y).strokeColor("#e5e7eb").stroke();
     y += 14;
 
     doc
@@ -346,20 +474,21 @@ export const getPaymentInvoice = async (req, res) => {
       .font("Helvetica-Bold")
       .fillColor(BRAND.color)
       .text("NOTES", LEFT, y);
-    y += 12;
+    y += 14;
     doc
       .fontSize(8.5)
       .font("Helvetica")
       .fillColor("#6b7280")
       .text(
-        "This invoice is system-generated and valid without a signature. " +
-          "For queries please contact us at support@skilledproz.com quoting your invoice number.",
+        "This invoice is system-generated and valid without a signature.\n" +
+          "All payments are held in escrow and released only after job completion.\n" +
+          `For queries, contact us at ${BRAND.email} quoting your invoice number.`,
         LEFT,
         y,
         { width: W },
       );
 
-    // ── PAGE FOOTER ───────────────────────────────────────────────────────────
+    // ── PAGE FOOTER ──────────────────────────────────────────────────────────
     const footerY = doc.page.height - 50;
     doc.rect(0, footerY - 10, doc.page.width, 60).fill(BRAND.color);
     doc
