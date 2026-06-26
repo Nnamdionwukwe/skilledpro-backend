@@ -758,6 +758,8 @@ model Payment {
   feePhase Int? @default(1) // ← ADD THIS — tracks which fee phase was applied
 
   notes String?
+
+  referralDeduct Float? @default(0)
 }
 
 model Withdrawal {
