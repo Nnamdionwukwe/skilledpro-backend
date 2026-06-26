@@ -2444,401 +2444,6 @@ export const getAdminDashboard = async (req, res) => {
   }
 };
 
-export const adminGetManualPayments = async (req, res) => {
-  const {
-    provider,
-    status,
-    from,
-    to,
-    search,
-    page = 1,
-    limit = 20,
-  } = req.query;
-
-  const { skip, take } = paginate(page, limit);
-
-  // Base: only manual-method payments unless a specific provider is given
-  const providerFilter =
-    provider && provider !== "ALL"
-      ? { provider }
-      : { provider: { in: ["bank_transfer", "crypto"] } };
-
-  const statusFilter = status && status !== "ALL" ? { status } : {};
-
-  const dateFilter =
-    from || to
-      ? {
-          createdAt: {
-            ...(from ? { gte: new Date(from) } : {}),
-            ...(to ? { lte: new Date(to) } : {}),
-          },
-        }
-      : {};
-
-  const baseWhere = { ...providerFilter, ...statusFilter, ...dateFilter };
-
-  // Build search condition across refs, names, titles, hashes
-  const searchWhere = search?.trim()
-    ? {
-        OR: [
-          { providerRef: { contains: search, mode: "insensitive" } },
-          { cryptoTxHash: { contains: search, mode: "insensitive" } },
-          { accountName: { contains: search, mode: "insensitive" } },
-          { bankName: { contains: search, mode: "insensitive" } },
-          {
-            booking: {
-              OR: [
-                { title: { contains: search, mode: "insensitive" } },
-                {
-                  hirer: {
-                    OR: [
-                      { firstName: { contains: search, mode: "insensitive" } },
-                      { lastName: { contains: search, mode: "insensitive" } },
-                      { email: { contains: search, mode: "insensitive" } },
-                    ],
-                  },
-                },
-                {
-                  worker: {
-                    OR: [
-                      { firstName: { contains: search, mode: "insensitive" } },
-                      { lastName: { contains: search, mode: "insensitive" } },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      }
-    : {};
-
-  const where = { ...baseWhere, ...searchWhere };
-
-  const [payments, total, statusCounts] = await Promise.all([
-    prisma.payment.findMany({
-      where,
-      include: {
-        booking: {
-          include: {
-            hirer: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                avatar: true,
-                phone: true,
-              },
-            },
-            worker: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                avatar: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take,
-    }),
-    prisma.payment.count({ where }),
-
-    // Status breakdown counts for the summary bar (always across manual methods)
-    prisma.payment.groupBy({
-      by: ["status"],
-      where: { provider: { in: ["bank_transfer", "crypto"] } },
-      _count: { id: true },
-      _sum: { amount: true },
-    }),
-  ]);
-
-  // Annotate each payment with computed referral discount
-  const annotated = payments.map((p) => ({
-    ...p,
-    referralDiscount: computeReferralDiscount(p),
-  }));
-
-  // Build summary map  { PENDING: { count, gmv }, HELD: {...}, ... }
-  const summary = statusCounts.reduce((acc, row) => {
-    acc[row.status] = {
-      count: row._count.id,
-      gmv: row._sum.amount ?? 0,
-    };
-    return acc;
-  }, {});
-
-  return res.status(200).json({
-    success: true,
-    data: {
-      payments: annotated,
-      total,
-      page: parseInt(page),
-      pages: Math.ceil(total / take),
-      summary,
-    },
-  });
-};
-
-export const adminGetPaymentAttempts = async (req, res) => {
-  const { bookingId } = req.params;
-
-  const attempts = await prisma.payment.findMany({
-    where: { bookingId },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const annotated = attempts.map((p) => ({
-    ...p,
-    referralDiscount: computeReferralDiscount(p),
-    attemptNumber: 0, // filled below
-  }));
-
-  // Number the attempts oldest→newest
-  annotated.reverse().forEach((a, i) => {
-    a.attemptNumber = i + 1;
-  });
-  annotated.reverse();
-
-  return res.status(200).json({
-    success: true,
-    data: { attempts: annotated, total: annotated.length },
-  });
-};
-
-export const adminVerifyManualPayment = async (req, res) => {
-  const { bookingId } = req.params;
-  const { notes } = req.body;
-
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: {
-      payments: { orderBy: { createdAt: "desc" }, take: 1 },
-      hirer: {
-        select: { id: true, firstName: true, lastName: true, email: true },
-      },
-      worker: { select: { id: true, firstName: true, lastName: true } },
-    },
-  });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-
-  // Find the most recent PENDING manual payment for this booking
-  const payment = await prisma.payment.findFirst({
-    where: {
-      bookingId,
-      provider: { in: ["bank_transfer", "crypto"] },
-      status: "PENDING",
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!payment)
-    return res.status(404).json({
-      success: false,
-      message: "No pending manual payment found for this booking",
-    });
-
-  // Atomically update payment + booking
-  await prisma.$transaction([
-    prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: "HELD" },
-    }),
-    prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: "ACCEPTED" },
-    }),
-  ]);
-
-  // Notifications
-  await prisma.notification.createMany({
-    data: [
-      {
-        userId: booking.hirerId,
-        title: "Payment Verified ✅",
-        body: `Your ${payment.provider === "bank_transfer" ? "bank transfer" : "crypto"} payment for "${booking.title}" has been verified and is now held in escrow.`,
-        type: "PAYMENT_HELD",
-        data: { bookingId, paymentId: payment.id },
-      },
-      {
-        userId: booking.workerId,
-        title: "Payment Received 💳",
-        body: `Payment for "${booking.title}" is now in escrow. You can check in to start the job.`,
-        type: "PAYMENT_HELD",
-        data: { bookingId, paymentId: payment.id },
-      },
-    ],
-  });
-
-  // Audit log (non-blocking)
-  logAdminAction(req.user.id, "MANUAL_PAYMENT_VERIFIED", {
-    bookingId,
-    paymentId: payment.id,
-    provider: payment.provider,
-    amount: payment.amount,
-    currency: payment.currency,
-    notes: notes || null,
-  }).catch(() => {});
-
-  return res.status(200).json({
-    success: true,
-    message: "Payment verified — funds are now held in escrow",
-    data: { paymentId: payment.id, bookingId, status: "HELD" },
-  });
-};
-
-export const adminRejectManualPayment = async (req, res) => {
-  const { bookingId } = req.params;
-  const { reason } = req.body;
-
-  if (!reason?.trim())
-    return res
-      .status(400)
-      .json({ success: false, message: "Rejection reason is required" });
-
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { hirer: { select: { id: true, firstName: true } } },
-  });
-
-  if (!booking)
-    return res
-      .status(404)
-      .json({ success: false, message: "Booking not found" });
-
-  const payment = await prisma.payment.findFirst({
-    where: {
-      bookingId,
-      provider: { in: ["bank_transfer", "crypto"] },
-      status: "PENDING",
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!payment)
-    return res.status(404).json({
-      success: false,
-      message: "No pending manual payment found for this booking",
-    });
-
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: {
-      status: "FAILED",
-      // Store the rejection reason in providerRef notes for audit trail
-      notes: JSON.stringify({
-        rejectedAt: new Date().toISOString(),
-        rejectedBy: req.user.id,
-        reason,
-      }),
-    },
-  });
-
-  await prisma.notification.create({
-    data: {
-      userId: booking.hirerId,
-      title: "Payment Not Verified ❌",
-      body: `Your ${payment.provider === "bank_transfer" ? "bank transfer" : "crypto payment"} for "${booking.title}" could not be verified. Reason: ${reason}. Please try again or use a different payment method.`,
-      type: "PAYMENT_FAILED",
-      data: { bookingId, paymentId: payment.id, reason },
-    },
-  });
-
-  logAdminAction(req.user.id, "MANUAL_PAYMENT_REJECTED", {
-    bookingId,
-    paymentId: payment.id,
-    reason,
-  }).catch(() => {});
-
-  return res.status(200).json({
-    success: true,
-    message: "Payment rejected — hirer has been notified",
-    data: { paymentId: payment.id, bookingId, status: "FAILED" },
-  });
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// § E  ADMIN — MANUAL PAYMENT STATS SUMMARY
-// GET /api/admin/payments/stats
-// Returns aggregate stats broken down by provider and status for the dashboard.
-// ─────────────────────────────────────────────────────────────────────────────
-export const adminManualPaymentStats = async (req, res) => {
-  const { from, to } = req.query;
-
-  const dateFilter =
-    from || to
-      ? {
-          createdAt: {
-            ...(from ? { gte: new Date(from) } : {}),
-            ...(to ? { lte: new Date(to) } : {}),
-          },
-        }
-      : {};
-
-  const [byStatus, byProvider, recentActivity] = await Promise.all([
-    prisma.payment.groupBy({
-      by: ["status"],
-      where: { provider: { in: ["bank_transfer", "crypto"] }, ...dateFilter },
-      _count: { id: true },
-      _sum: { amount: true },
-    }),
-    prisma.payment.groupBy({
-      by: ["provider"],
-      where: { provider: { in: ["bank_transfer", "crypto"] }, ...dateFilter },
-      _count: { id: true },
-      _sum: { amount: true },
-    }),
-    // Most recent 5 payments
-    prisma.payment.findMany({
-      where: { provider: { in: ["bank_transfer", "crypto"] } },
-      include: {
-        booking: {
-          select: {
-            title: true,
-            hirer: { select: { firstName: true, lastName: true } },
-            worker: { select: { firstName: true, lastName: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
-  ]);
-
-  return res.status(200).json({
-    success: true,
-    data: {
-      byStatus: byStatus.reduce(
-        (acc, r) => ({
-          ...acc,
-          [r.status]: { count: r._count.id, gmv: r._sum.amount ?? 0 },
-        }),
-        {},
-      ),
-      byProvider: byProvider.reduce(
-        (acc, r) => ({
-          ...acc,
-          [r.provider]: { count: r._count.id, gmv: r._sum.amount ?? 0 },
-        }),
-        {},
-      ),
-      recentActivity: recentActivity.map((p) => ({
-        ...p,
-        referralDiscount: computeReferralDiscount(p),
-      })),
-    },
-  });
-};
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN JOB CREATION & UPDATE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3092,3 +2697,421 @@ export const adminUpdateJobPost = async (req, res) => {
     return sendError(res, "Failed to update job post", 500);
   }
 };
+
+// ── Payments: manual verification ─────────────────────────────────────────────
+
+/**
+ * ADMIN: Get all manual payments (bank transfer + crypto) with full booking details
+ * GET /admin/payments
+ */
+export const adminGetManualPayments = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      provider,
+      search,
+      from,
+      to,
+    } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = {
+      provider: { in: ["bank_transfer", "crypto"] },
+    };
+    if (status && status !== "ALL") where.status = status;
+    if (provider && provider !== "ALL") where.provider = provider;
+    if (from) where.createdAt = { gte: new Date(from) };
+    if (to) where.createdAt = { ...where.createdAt, lte: new Date(to) };
+
+    // Search: providerRef, cryptoTxHash, booking title, hirer/worker names
+    if (search) {
+      const searchTerm = search.trim();
+      const orConditions = [
+        { providerRef: { contains: searchTerm, mode: "insensitive" } },
+        { cryptoTxHash: { contains: searchTerm, mode: "insensitive" } },
+        { booking: { title: { contains: searchTerm, mode: "insensitive" } } },
+        {
+          booking: {
+            hirer: { firstName: { contains: searchTerm, mode: "insensitive" } },
+          },
+        },
+        {
+          booking: {
+            hirer: { lastName: { contains: searchTerm, mode: "insensitive" } },
+          },
+        },
+        {
+          booking: {
+            worker: {
+              firstName: { contains: searchTerm, mode: "insensitive" },
+            },
+          },
+        },
+        {
+          booking: {
+            worker: { lastName: { contains: searchTerm, mode: "insensitive" } },
+          },
+        },
+      ];
+      // Also search by full name
+      const fullNameSearch = searchTerm.split(" ");
+      if (fullNameSearch.length === 2) {
+        orConditions.push(
+          {
+            booking: {
+              hirer: {
+                firstName: { contains: fullNameSearch[0], mode: "insensitive" },
+                lastName: { contains: fullNameSearch[1], mode: "insensitive" },
+              },
+            },
+          },
+          {
+            booking: {
+              worker: {
+                firstName: { contains: fullNameSearch[0], mode: "insensitive" },
+                lastName: { contains: fullNameSearch[1], mode: "insensitive" },
+              },
+            },
+          },
+        );
+      }
+      where.OR = orConditions;
+    }
+
+    const [payments, total, summary] = await Promise.all([
+      prisma.payment.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          booking: {
+            include: {
+              hirer: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  avatar: true,
+                  city: true,
+                  country: true,
+                },
+              },
+              worker: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  avatar: true,
+                  city: true,
+                  country: true,
+                },
+              },
+              category: true,
+            },
+          },
+        },
+      }),
+      prisma.payment.count({ where }),
+      // Summary per status
+      prisma.payment.groupBy({
+        by: ["status"],
+        where,
+        _count: { status: true },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    // Transform summary into object
+    const summaryObj = {};
+    summary.forEach((row) => {
+      summaryObj[row.status] = {
+        count: row._count.status,
+        gmv: row._sum.amount || 0,
+      };
+    });
+
+    // Map payment fields to match frontend expectations
+    const mappedPayments = payments.map((p) => ({
+      ...p,
+      referralDiscount: p.referralDeduct || 0, // frontend expects referralDiscount
+      bankTransferProof: p.bankTransferProof || null,
+      cryptoNetwork: p.cryptoNetwork || null,
+      cryptoTxHash: p.cryptoTxHash || null,
+      cryptoWallet: p.cryptoWallet || null,
+      cryptoCurrency: p.cryptoCurrency || null,
+      cryptoAmount: p.cryptoAmount || null,
+      bankName: p.bankName || null,
+      accountName: p.accountName || null,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        payments: mappedPayments,
+        total,
+        pages: Math.ceil(total / take),
+        summary: summaryObj,
+      },
+    });
+  } catch (error) {
+    console.error("adminGetManualPayments error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch manual payments" });
+  }
+};
+
+/**
+ * ADMIN: Get all payment attempts for a booking (including retries)
+ * GET /admin/payments/booking/:bookingId/attempts
+ */
+export const adminGetPaymentAttempts = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const attempts = await prisma.payment.findMany({
+      where: { bookingId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        booking: {
+          include: {
+            hirer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+            worker: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Add attempt number (reverse order, latest first)
+    const attemptsWithNum = attempts.map((p, index) => ({
+      ...p,
+      attemptNumber: attempts.length - index,
+      referralDiscount: p.referralDeduct || 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: { attempts: attemptsWithNum },
+    });
+  } catch (error) {
+    console.error("adminGetPaymentAttempts error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch payment attempts" });
+  }
+};
+
+/**
+ * ADMIN: Verify a manual payment – move to escrow
+ * PATCH /admin/payments/:bookingId/verify
+ */
+export const adminVerifyManualPayment = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const payment = await prisma.payment.findFirst({
+      where: {
+        bookingId,
+        provider: { in: ["bank_transfer", "crypto"] },
+        status: "PENDING",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending manual payment found for this booking",
+      });
+    }
+
+    // Update payment and booking in transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedPayment = await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      });
+      const updatedBooking = await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: "ACCEPTED" },
+      });
+      return { updatedPayment, updatedBooking };
+    });
+
+    // Notify hirer and worker (fire-and-forget)
+    await _notifyPaymentHeld(bookingId).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment verified and held in escrow",
+      data: result.updatedPayment,
+    });
+  } catch (error) {
+    console.error("adminVerifyManualPayment error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Verification failed" });
+  }
+};
+
+/**
+ * ADMIN: Reject a manual payment with a reason
+ * PATCH /admin/payments/:bookingId/reject-manual
+ */
+export const adminRejectManualPayment = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Reason is required" });
+    }
+
+    const payment = await prisma.payment.findFirst({
+      where: {
+        bookingId,
+        provider: { in: ["bank_transfer", "crypto"] },
+        status: "PENDING",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: "No pending manual payment found for this booking",
+      });
+    }
+
+    // Update payment to FAILED and store reason in notes
+    const updatedPayment = await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "FAILED",
+        notes: JSON.stringify({
+          reason: reason.trim(),
+          rejectedAt: new Date().toISOString(),
+        }),
+      },
+    });
+
+    // Notify hirer (fire-and-forget)
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        hirer: { select: { id: true, email: true, firstName: true } },
+      },
+    });
+    if (booking?.hirer) {
+      await prisma.notification
+        .create({
+          data: {
+            userId: booking.hirer.id,
+            title: "Payment Rejected ❌",
+            body: `Your manual payment for "${booking.title}" was rejected. Reason: ${reason}`,
+            type: "PAYMENT_REJECTED",
+            data: { bookingId, reason },
+          },
+        })
+        .catch(() => {});
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment rejected",
+      data: updatedPayment,
+    });
+  } catch (error) {
+    console.error("adminRejectManualPayment error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Rejection failed" });
+  }
+};
+
+/**
+ * ADMIN: Get payment stats (counts and GMV per status)
+ * GET /admin/payments/stats
+ */
+export const adminManualPaymentStats = async (req, res) => {
+  try {
+    const stats = await prisma.payment.groupBy({
+      by: ["status"],
+      where: { provider: { in: ["bank_transfer", "crypto"] } },
+      _count: { status: true },
+      _sum: { amount: true },
+    });
+
+    const summary = {};
+    stats.forEach((row) => {
+      summary[row.status] = {
+        count: row._count.status,
+        gmv: row._sum.amount || 0,
+      };
+    });
+
+    // Also include total pending count separately for alert
+    const pendingCount =
+      stats.find((s) => s.status === "PENDING")?._count.status || 0;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        pendingCount,
+        totalGMV: stats.reduce((acc, s) => acc + (s._sum.amount || 0), 0),
+      },
+    });
+  } catch (error) {
+    console.error("adminManualPaymentStats error:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch stats" });
+  }
+};
+
+// ── Internal helper for notifications (already exists, but ensure it's available) ──
+async function _notifyPaymentHeld(bookingId) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { workerId: true, hirerId: true, title: true },
+  });
+  if (!booking) return;
+  await prisma.notification.createMany({
+    data: [
+      {
+        userId: booking.workerId,
+        title: "Payment Received 💳",
+        body: `Payment for "${booking.title}" is held in escrow. You can now check in.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId },
+      },
+      {
+        userId: booking.hirerId,
+        title: "Payment Confirmed ✅",
+        body: `Your payment for "${booking.title}" is secured in escrow.`,
+        type: "PAYMENT_HELD",
+        data: { bookingId },
+      },
+    ],
+  });
+}

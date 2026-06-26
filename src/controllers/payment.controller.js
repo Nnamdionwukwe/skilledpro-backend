@@ -1707,7 +1707,6 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
 
-  // Block only if payment already succeeded
   const latestPayment = await prisma.payment.findFirst({
     where: { bookingId },
     orderBy: { createdAt: "desc" },
@@ -1717,22 +1716,17 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  // Always create a NEW payment record — preserves full retry history
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
+  // ── Compute full job value (rate × qty) ─────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
+    computeBookingTotal(booking);
 
-  // Apply referral discount — workerPayout + platformFee stays at full gross
-  // so adminGetManualPayments recovers: referralDiscount = (workerPayout + platformFee) - amount
-  const referralDiscountBank = await getHirerFirstBookingDiscount(
+  // ── Apply referral discount ───────────────────────────────────────────
+  const referralDiscount = await getHirerFirstBookingDiscount(
     req.user.id,
-    booking.agreedRate,
+    subtotal, // pass the subtotal (job value)
   );
   const chargedAmount = parseFloat(
-    (totalToSend - referralDiscountBank).toFixed(2),
+    Math.max(0, total - referralDiscount).toFixed(2),
   );
 
   const payment = await prisma.payment.create({
@@ -1749,6 +1743,7 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       bankTransferProof: proofUrl ?? null,
       accountName: senderName ?? null,
       bankName: bankName ?? null,
+      referralDeduct: referralDiscount, // ✅ store the discount
     },
   });
 
@@ -1876,7 +1871,6 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   if (booking.hirerId !== req.user.id)
     return res.status(403).json({ success: false, message: "Forbidden" });
 
-  // Block only if payment already succeeded
   const latestPayment = await prisma.payment.findFirst({
     where: { bookingId },
     orderBy: { createdAt: "desc" },
@@ -1889,28 +1883,25 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const wallet =
     CRYPTO_WALLETS[(cryptoCurrency ?? "USDC").toUpperCase()] ??
     CRYPTO_WALLETS.USDC;
-  const fees = FEE_CONFIG.compute(booking.agreedRate);
-  const {
-    platformFeeFromHirer: platformFee,
-    totalToHirer: totalToSend,
-    workerPayout,
-  } = fees;
 
-  // Apply referral discount — same logic as bank transfer
-  const referralDiscountCrypto = await getHirerFirstBookingDiscount(
+  // ── Compute full job value (rate × qty) ─────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
+    computeBookingTotal(booking);
+
+  // ── Apply referral discount ───────────────────────────────────────────
+  const referralDiscount = await getHirerFirstBookingDiscount(
     req.user.id,
-    booking.agreedRate,
+    subtotal,
   );
-  const chargedAmountCrypto = parseFloat(
-    (totalToSend - referralDiscountCrypto).toFixed(2),
+  const chargedAmount = parseFloat(
+    Math.max(0, total - referralDiscount).toFixed(2),
   );
 
-  // Always create a NEW record — preserves full retry history
   const payment = await prisma.payment.create({
     data: {
       bookingId,
       userId: req.user.id,
-      amount: chargedAmountCrypto,
+      amount: chargedAmount,
       currency: booking.currency,
       platformFee,
       workerPayout,
@@ -1922,7 +1913,8 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-      bankTransferProof: proofUrl, // screenshot stored here
+      bankTransferProof: proofUrl, // screenshot
+      referralDeduct: referralDiscount, // ✅ store the discount
     },
   });
 
