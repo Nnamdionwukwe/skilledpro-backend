@@ -92,12 +92,7 @@ router.get("/analytics/users", getUserGrowthAnalytics);
 router.get("/analytics/revenue", getRevenueAnalytics);
 
 // ── Users ──────────────────────────────────────────────────────────────────────
-router.get(
-  "/users",
-  ...validateUUIDParam("userId", false),
-  validatePagination,
-  getAllUsers,
-);
+router.get("/users", validatePagination, getAllUsers);
 router.get("/users/:userId", ...validateUUIDParam("userId"), getUserDetail);
 router.patch("/users/:userId/ban", ...validateUUIDParam("userId"), banUser);
 router.patch("/users/:userId/unban", ...validateUUIDParam("userId"), unbanUser);
