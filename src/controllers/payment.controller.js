@@ -399,7 +399,8 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const hirerEmail = booking.hirer.email;
 
   if (shouldUsePaystack(currency)) {
-    const callbackUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=ps_ok&reference=${txRef}`;
+    // ✅ FIX: Point to the verification route, not the booking page
+    const callbackUrl = `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
     const psRes = await psInitializePayment({
       email: hirerEmail,
       amount: totalAmount,
@@ -444,6 +445,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     });
   }
 
+  // Flutterwave remains as is – webhook will handle success
   const redirectUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
   const flwRes = await flwInitiatePayment({
     txRef,
@@ -494,6 +496,86 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 // § 6  FLUTTERWAVE REDIRECT CALLBACK
 // GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// § 7  PAYSTACK REDIRECT CALLBACK (improved)
+// GET /api/payments/verify/paystack?reference=...
+// ─────────────────────────────────────────────────────────────────────────────
+export const verifyPaystack = asyncHandler(async (req, res) => {
+  const { reference } = req.query;
+  if (!reference) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Reference required" });
+  }
+
+  // 1. Verify with Paystack
+  const result = await psVerifyTransaction(reference);
+  if (result.status !== true || result.data?.status !== "success") {
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment not successful" });
+  }
+
+  // 2. Find the payment record
+  const payment = await prisma.payment.findFirst({
+    where: { providerRef: reference },
+  });
+  if (!payment) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Payment record not found" });
+  }
+  if (payment.status === "HELD") {
+    return res.status(200).json({
+      success: true,
+      message: "Already verified",
+      data: { bookingId: payment.bookingId, status: "HELD" },
+    });
+  }
+
+  // 3. Update in a transaction
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Update payment to HELD
+      const updatedPayment = await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      });
+
+      // Update booking to ACCEPTED (if not already)
+      const updatedBooking = await tx.booking.update({
+        where: { id: payment.bookingId },
+        data: { status: "ACCEPTED" },
+      });
+
+      return { updatedPayment, updatedBooking };
+    });
+
+    // 4. Send notifications (fire-and-forget)
+    await _notifyPaymentHeld(payment.bookingId).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment verified and held in escrow",
+      data: {
+        bookingId: payment.bookingId,
+        paymentStatus: "HELD",
+        bookingStatus: "ACCEPTED",
+      },
+    });
+  } catch (error) {
+    console.error("Paystack verification transaction failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update payment and booking. Please contact support.",
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 6  FLUTTERWAVE REDIRECT CALLBACK (improved)
+// GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
+// ─────────────────────────────────────────────────────────────────────────────
 export const verifyFlutterwave = asyncHandler(async (req, res) => {
   const { tx_ref, transaction_id, status } = req.query;
 
@@ -509,6 +591,7 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
       .json({ success: false, message: "tx_ref or transaction_id required" });
   }
 
+  // 1. Verify with Flutterwave
   let txData;
   if (transaction_id) {
     const result = await flwVerifyTransaction(transaction_id);
@@ -523,86 +606,57 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Payment not successful" });
   }
 
-  const existing = await prisma.payment.findFirst({
+  // 2. Find the payment record
+  const payment = await prisma.payment.findFirst({
     where: { providerRef: tx_ref ?? txData.tx_ref },
   });
-  if (!existing)
+  if (!payment) {
     return res
       .status(404)
       .json({ success: false, message: "Payment record not found" });
-  if (existing.status === "HELD") {
-    return res.status(200).json({
-      success: true,
-      message: "Payment already verified",
-      data: { bookingId: existing.bookingId, status: "HELD" },
-    });
   }
-
-  await prisma.payment.update({
-    where: { id: existing.id },
-    data: { status: "HELD" },
-  });
-  await prisma.booking.update({
-    where: { id: existing.bookingId },
-    data: { status: "ACCEPTED" },
-  });
-  await _notifyPaymentHeld(existing.bookingId);
-
-  return res.status(200).json({
-    success: true,
-    message: "Payment verified and held in escrow",
-    data: { bookingId: existing.bookingId, status: "HELD" },
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// § 7  PAYSTACK REDIRECT CALLBACK
-// GET /api/payments/verify/paystack?reference=...
-// ─────────────────────────────────────────────────────────────────────────────
-export const verifyPaystack = asyncHandler(async (req, res) => {
-  const { reference } = req.query;
-  if (!reference)
-    return res
-      .status(400)
-      .json({ success: false, message: "Reference required" });
-
-  const result = await psVerifyTransaction(reference);
-  if (result.status !== true || result.data?.status !== "success") {
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment not successful" });
-  }
-
-  const existing = await prisma.payment.findFirst({
-    where: { providerRef: reference },
-  });
-  if (!existing)
-    return res
-      .status(404)
-      .json({ success: false, message: "Payment record not found" });
-  if (existing.status === "HELD") {
+  if (payment.status === "HELD") {
     return res.status(200).json({
       success: true,
       message: "Already verified",
-      data: { bookingId: existing.bookingId },
+      data: { bookingId: payment.bookingId, status: "HELD" },
     });
   }
 
-  await prisma.payment.update({
-    where: { id: existing.id },
-    data: { status: "HELD" },
-  });
-  await prisma.booking.update({
-    where: { id: existing.bookingId },
-    data: { status: "ACCEPTED" },
-  });
-  await _notifyPaymentHeld(existing.bookingId);
+  // 3. Update in a transaction
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedPayment = await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: "HELD" },
+      });
 
-  return res.status(200).json({
-    success: true,
-    message: "Payment verified and held in escrow",
-    data: { bookingId: existing.bookingId, status: "HELD" },
-  });
+      const updatedBooking = await tx.booking.update({
+        where: { id: payment.bookingId },
+        data: { status: "ACCEPTED" },
+      });
+
+      return { updatedPayment, updatedBooking };
+    });
+
+    await _notifyPaymentHeld(payment.bookingId).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment verified and held in escrow",
+      data: {
+        bookingId: payment.bookingId,
+        paymentStatus: "HELD",
+        bookingStatus: "ACCEPTED",
+      },
+    });
+  } catch (error) {
+    console.error("Flutterwave verification transaction failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update payment and booking. Please contact support.",
+    });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
