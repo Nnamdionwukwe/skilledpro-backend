@@ -1695,9 +1695,18 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
 
 export const confirmBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { proofUrl: proofUrlBody, senderName, bankName } = req.body;
+  const {
+    proofUrl: proofUrlBody,
+    senderName,
+    bankName,
+    referralAmount = 0, // 👈 read from request
+  } = req.body;
   const reference = req.body.reference || uniqueRef("BT");
   const proofUrl = req.file?.path || proofUrlBody || null;
+
+  console.log(
+    `🔍 confirmBankTransfer: bookingId=${bookingId}, userId=${req.user.id}, referralAmount=${referralAmount}`,
+  );
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
@@ -1719,15 +1728,15 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
   // ── Compute full job value (rate × qty) ─────────────────────────────
   const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
+  console.log(
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
+  );
 
-  // ── Apply referral discount ───────────────────────────────────────────
-  const referralDiscount = await getHirerFirstBookingDiscount(
-    req.user.id,
-    subtotal, // pass the subtotal (job value)
-  );
+  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
-    Math.max(0, total - referralDiscount).toFixed(2),
+    Math.max(0, total - referralAmount).toFixed(2),
   );
+  console.log(`💰 chargedAmount (total - referralAmount): ${chargedAmount}`);
 
   const payment = await prisma.payment.create({
     data: {
@@ -1743,9 +1752,12 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       bankTransferProof: proofUrl ?? null,
       accountName: senderName ?? null,
       bankName: bankName ?? null,
-      referralDeduct: referralDiscount, // ✅ store the discount
+      referralDeduct: referralAmount, // store the discount
     },
   });
+  console.log(
+    `✅ Payment created with referralDeduct=${payment.referralDeduct}`,
+  );
 
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
@@ -1854,7 +1866,12 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { txHash, cryptoAmount, cryptoCurrency } = req.body;
+  const {
+    txHash,
+    cryptoAmount,
+    cryptoCurrency,
+    referralAmount = 0, // 👈 read from request
+  } = req.body;
   const reference = req.body.reference || uniqueRef("CRYPTO");
   const proofUrl = req.file?.path || null;
 
@@ -1862,6 +1879,10 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
     return res
       .status(400)
       .json({ success: false, message: "Transaction hash required" });
+
+  console.log(
+    `🔍 confirmCryptoPayment: bookingId=${bookingId}, userId=${req.user.id}, referralAmount=${referralAmount}`,
+  );
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
@@ -1887,15 +1908,15 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   // ── Compute full job value (rate × qty) ─────────────────────────────
   const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
+  console.log(
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
+  );
 
-  // ── Apply referral discount ───────────────────────────────────────────
-  const referralDiscount = await getHirerFirstBookingDiscount(
-    req.user.id,
-    subtotal,
-  );
+  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
-    Math.max(0, total - referralDiscount).toFixed(2),
+    Math.max(0, total - referralAmount).toFixed(2),
   );
+  console.log(`💰 chargedAmount (total - referralAmount): ${chargedAmount}`);
 
   const payment = await prisma.payment.create({
     data: {
@@ -1914,9 +1935,12 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
       bankTransferProof: proofUrl, // screenshot
-      referralDeduct: referralDiscount, // ✅ store the discount
+      referralDeduct: referralAmount, // store the discount
     },
   });
+  console.log(
+    `✅ Payment created with referralDeduct=${payment.referralDeduct}`,
+  );
 
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
