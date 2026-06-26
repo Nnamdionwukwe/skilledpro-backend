@@ -773,11 +773,7 @@ export const validateCreateReview = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Review comment must not exceed 1000 characters"),
-  body("type")
-    .notEmpty()
-    .withMessage("Review type is required")
-    .isIn(["WORKER", "HIRER"])
-    .withMessage("Review type must be WORKER or HIRER"),
+  // 🔽 REMOVED the 'type' validation – it's not used by the controller
   validate,
 ];
 
