@@ -11,10 +11,13 @@ const pool = new pg.Pool({
     : false,
 });
 
-const HIRER_ID = "a9865435-365b-45ab-a2a8-5a2025dd08c9";
-const WORKER_ID = "8f2a4340-c1e4-4086-b059-2ea98c8265ee";
+// ── Fixed hirer ID (the "gestech com" account) ─────────────────────────
+const HIRER_ID = "8f2a4340-c1e4-4086-b059-2ea98c8265ee";
+const WORKER_FIRST_NAME = "Gideon";
+const WORKER_LAST_NAME = "Solace";
 
-function randomFutureDate(daysMin = 1, daysMax = 30) {
+// ── Helpers ──────────────────────────────────────────────────────────────
+function randomFutureDate(daysMin = 1, daysMax = 14) {
   const now = new Date();
   const days = Math.floor(Math.random() * (daysMax - daysMin + 1)) + daysMin;
   const date = new Date(now);
@@ -33,6 +36,7 @@ function randomId() {
       });
 }
 
+// ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
   const client = await pool.connect();
   try {
@@ -48,44 +52,51 @@ async function main() {
     if (!tableCheck.rows[0].exists) {
       console.error("❌ Table 'User' does not exist. Run migrations first:");
       console.error("   npx prisma db push");
-      console.error("   or");
-      console.error("   npx prisma migrate deploy");
       return;
     }
     console.log("✅ Schema verified.");
 
-    // ── Verify worker exists ──────────────────────────────────────────────
-    const workerRes = await client.query(
-      `SELECT u.id, u."firstName", u."lastName"
-       FROM "User" u
-       WHERE u.id = $1 AND u.role = 'WORKER'`,
-      [WORKER_ID],
-    );
-    if (workerRes.rows.length === 0) {
-      console.error(`❌ Worker ${WORKER_ID} not found.`);
-      return;
-    }
-    const worker = workerRes.rows[0];
-    console.log(`✅ Found worker: ${worker.firstName} ${worker.lastName}`);
-
     // ── Verify hirer exists ──────────────────────────────────────────────
     const hirerRes = await client.query(
-      `SELECT id FROM "User" WHERE id = $1 AND role = 'HIRER'`,
+      `SELECT id, "firstName", "lastName", email FROM "User" WHERE id = $1 AND role = 'HIRER'`,
       [HIRER_ID],
     );
     if (hirerRes.rows.length === 0) {
-      console.error(`❌ Hirer ${HIRER_ID} not found.`);
+      console.error(
+        `❌ Hirer with ID ${HIRER_ID} not found or is not a HIRER.`,
+      );
       return;
     }
-    console.log(`✅ Found hirer.`);
+    const hirer = hirerRes.rows[0];
+    console.log(
+      `✅ Found hirer: ${hirer.firstName} ${hirer.lastName} (${hirer.email})`,
+    );
 
-    // ── Get a category ──────────────────────────────────────────────────
+    // ── Find worker by name ───────────────────────────────────────────────
+    const workerRes = await client.query(
+      `SELECT u.id, u."firstName", u."lastName"
+       FROM "User" u
+       WHERE u."firstName" ILIKE $1 AND u."lastName" ILIKE $2 AND u.role = 'WORKER'`,
+      [WORKER_FIRST_NAME, WORKER_LAST_NAME],
+    );
+    if (workerRes.rows.length === 0) {
+      console.error(
+        `❌ Worker "${WORKER_FIRST_NAME} ${WORKER_LAST_NAME}" not found.`,
+      );
+      return;
+    }
+    const worker = workerRes.rows[0];
+    console.log(
+      `✅ Found worker: ${worker.firstName} ${worker.lastName} (ID: ${worker.id})`,
+    );
+
+    // ── Get a category for the worker ──────────────────────────────────
     let categoryId = null;
     const catRes = await client.query(
       `SELECT "categoryId" FROM "WorkerCategory" WHERE "workerProfileId" IN (
          SELECT id FROM "WorkerProfile" WHERE "userId" = $1
        ) LIMIT 1`,
-      [WORKER_ID],
+      [worker.id],
     );
     if (catRes.rows.length > 0) {
       categoryId = catRes.rows[0].categoryId;
@@ -106,12 +117,17 @@ async function main() {
        SET "walletBalance" = "walletBalance" + 5000,
            "walletLifetimeTotal" = "walletLifetimeTotal" + 5000
        WHERE id = $1`,
-      [HIRER_ID],
+      [hirer.id],
     );
-    console.log(`💰 Added ₦5,000 referral balance to hirer.`);
+    const balRes = await client.query(
+      `SELECT "walletBalance" FROM "User" WHERE id = $1`,
+      [hirer.id],
+    );
+    console.log(
+      `💰 Added ₦5,000 referral balance to hirer. New balance: ₦${balRes.rows[0].walletBalance}`,
+    );
 
-    // ── Predefined booking configurations ──────────────────────────────────
-    // Using real pricing from the screenshot
+    // ── Predefined booking configurations (real pricing from screenshot) ──
     const bookingConfigs = [
       {
         title: "Test Booking – Hourly (10 hrs)",
@@ -162,7 +178,7 @@ async function main() {
         title: "Test Booking – Negotiated (10% off)",
         unit: "hours",
         value: "20",
-        rate: 450, // negotiated from 500
+        rate: 450,
         status: "DISPUTED",
         jobType: "FULL_TIME",
         locationType: "ON_SITE",
@@ -175,7 +191,6 @@ async function main() {
     console.log("\n📦 Generating bookings...\n");
 
     for (const config of bookingConfigs) {
-      // Compute estimatedHours based on unit
       let hours = null;
       const val = parseFloat(config.value);
       if (config.unit !== "custom") {
@@ -209,8 +224,8 @@ async function main() {
 
       const values = [
         bookingId,
-        HIRER_ID,
-        WORKER_ID,
+        hirer.id,
+        worker.id,
         categoryId,
         config.title,
         `Test booking for ${worker.firstName} ${worker.lastName}. Unit: ${config.unit}, Value: ${config.value}`,
@@ -261,7 +276,11 @@ async function main() {
     console.log("  - COMPLETED: job done, review and release.");
     console.log("  - CANCELLED: cancellation flow.");
     console.log("  - DISPUTED: dispute resolution flow.");
-    console.log(`\n💰 Hirer referral wallet: ₦5,000 available.`);
+    console.log(
+      `\n💰 Hirer referral wallet: ₦${balRes.rows[0].walletBalance} available.`,
+    );
+    console.log(`👤 Hirer ID: ${hirer.id}`);
+    console.log(`👷 Worker ID: ${worker.id}`);
   } catch (err) {
     console.error("❌ Error:", err.message);
   } finally {
