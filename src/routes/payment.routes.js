@@ -32,7 +32,7 @@ import {
   changeWithdrawalPin,
   getWithdrawalPinStatus,
 } from "../controllers/payment.controller.js";
-import { getPaymentInvoice } from "../controllers/invoice.controller.js"; // ← NEW
+import { getPaymentInvoice } from "../controllers/invoice.controller.js";
 import {
   validateInitiatePayment,
   validateConfirmBankTransfer,
@@ -57,13 +57,15 @@ router.post("/webhook/paystack", paystackWebhook);
 router.post("/webhook/flutterwave", flutterwaveWebhook);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC VERIFICATION ENDPOINTS — no auth required (called after redirect)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/verify/paystack", verifyPaystack);
+router.get("/verify/flutterwave", verifyFlutterwave);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AUTHENTICATED from here down
 // ─────────────────────────────────────────────────────────────────────────────
 router.use(protect);
-
-// ── Paystack / Flutterwave verification ───────────────────────────────────────
-router.get("/verify/paystack", verifyPaystack);
-router.get("/verify/flutterwave", verifyFlutterwave);
 
 // ── Bank utilities ────────────────────────────────────────────────────────────
 router.get("/banks", validatePagination, getBanksByCountry);
@@ -87,8 +89,8 @@ router.post(
 router.patch(
   "/bank-transfer/:bookingId/confirm",
   ...validateUUIDParam("bookingId"),
-  uploadSingle, // ← multer parses multipart/form-data, populates req.file
-  normaliseFile, // ← normalises req.files → req.file
+  uploadSingle,
+  normaliseFile,
   validateConfirmBankTransfer,
   confirmBankTransfer,
 );
@@ -103,11 +105,12 @@ router.post(
 router.patch(
   "/crypto/:bookingId/confirm",
   ...validateUUIDParam("bookingId"),
-  uploadSingle, // ← multer parses multipart/form-data, populates req.file
+  uploadSingle,
   normaliseFile,
   validateConfirmCryptoPayment,
   confirmCryptoPayment,
 );
+
 // ── Escrow release ────────────────────────────────────────────────────────────
 router.post(
   "/release/:bookingId",
@@ -124,7 +127,6 @@ router.post(
 
 // ── Invoice PDF — hirer or admin only ─────────────────────────────────────────
 // NOTE: this MUST be defined before GET /:bookingId below
-// GET /api/payments/invoice/:bookingId → streams a PDF invoice
 router.get(
   "/invoice/:bookingId",
   ...validateUUIDParam("bookingId"),
@@ -139,9 +141,7 @@ router.get("/earnings", validatePagination, getWorkerEarnings);
 
 // ── Withdrawal PIN management (workers only) ──────────────────────────────────
 router.get("/pin/status", requireRole("WORKER"), getWithdrawalPinStatus);
-
 router.post("/pin/set", requireRole("WORKER"), setWithdrawalPin);
-
 router.post("/pin/change", requireRole("WORKER"), changeWithdrawalPin);
 
 // ── Worker withdrawal ─────────────────────────────────────────────────────────
