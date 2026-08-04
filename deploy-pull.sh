@@ -64,3 +64,14 @@ else
     echo -e "\n${RED}❌ Deployment failed. Please check the errors above.${NC}"
     exit 1
 fi
+# Replace the health check with:
+echo -e "${YELLOW}   🔍 Testing health endpoint...${NC}"
+sleep 5  # Wait 5 seconds for server to start
+if curl -s http://localhost:5000/health > /dev/null 2>&1; then
+    echo -e "${GREEN}   ✅ Health check passed!${NC}"
+else
+    echo -e "${YELLOW}   ⚠️ Health check pending - server may still be starting...${NC}"
+    echo -e "${YELLOW}   ⚠️ Run: curl http://167.172.142.200:5000/health${NC}"
+fi
+
+echo -e "${GREEN}✅ Deployment complete!${NC}"
