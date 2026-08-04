@@ -54,11 +54,11 @@ const corsOptions = {
 
     const allowed = [
       process.env.CLIENT_URL, // set in .env, e.g. https://www.skilledproz.com
-      "http://localhost:3000",
-      "http://localhost:5173", // Vite dev
-      "http://localhost:4173", // Vite preview
-      "https://www.skilledproz.com",
       "https://skilledproz.com",
+      "https://www.skilledproz.com",
+      "https://skilledproz.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:5173",
     ].filter(Boolean);
 
     if (allowed.includes(origin)) {

@@ -837,8 +837,13 @@ model Notification {
   body      String
   type      String
   data      Json?
+  icon      String?  // ← NEW: React Icon name (e.g., "FaCalendarPlus")
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
 }
 
 model JobPost {

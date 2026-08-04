@@ -1,0 +1,161 @@
+[1m[35m 
+╔═══════════════════════════════════════════════════════════════════════╗
+[1m[35m ║              BACKEND FULL AUDIT REPORT                         ║
+[1m[35m ╚═══════════════════════════════════════════════════════════════════════╝
+[2m 
+📁 Root: /Users/onwukwennamdi/Desktop/skilledpro-backend
+[2m 📅 Date: 8/4/2026, 10:05:34 PM
+
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  1. PROJECT STRUCTURE[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  ✅ controllers/  (30 files, 20721 lines, 357 functions)[0m
+[32m  ✅ routes/  (31 files, 2458 lines, 335 functions)[0m
+[32m  ✅ services/  (7 files, 2788 lines, 149 functions)[0m
+[32m  ✅ middleware/  (5 files, 436 lines, 12 functions)[0m
+[32m  ✅ utils/  (4 files, 3485 lines, 108 functions)[0m
+[32m  ✅ config/  (4 files, 549 lines, 4 functions)[0m
+[33m  ⚠️ models/  (directory not found)[0m
+[33m  ⚠️ prisma/  (directory not found)[0m
+[33m  ⚠️ migrations/  (directory not found)[0m
+[33m  ⚠️ scripts/  (directory not found)[0m
+[33m  ⚠️ tests/  (directory not found)[0m
+[36m 
+  📊 Summary: 81 files, 30437 lines, 965 functions
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  2. CONTROLLERS ANALYSIS[0m
+════════════════════════════════════════════════════════════════════════════════
+[1mFound 30 controller files:[0m
+[32m  📄 admin.controller.js  (3118 lines, 65 functions, 55 exports)[0m
+[32m  📄 adminJob.controller.js  (547 lines, 8 functions, 8 exports)[0m
+[32m  📄 audit.controller.js  (692 lines, 10 functions, 10 exports)[0m
+[32m  📄 auth.controller.js  (601 lines, 3 functions, 10 exports)[0m
+[32m  📄 booking.controller.js  (683 lines, 9 functions, 9 exports)[0m
+[32m  📄 campaign.controller.js  (1295 lines, 18 functions, 17 exports)[0m
+[32m  📄 category.controller.js  (151 lines, 6 functions, 5 exports)[0m
+[32m  📄 dispute.controller.js  (406 lines, 6 functions, 6 exports)[0m
+[32m  📄 externalJob.controller.js  (96 lines, 2 functions, 2 exports)[0m
+[32m  📄 externalJobClick.controller.js  (123 lines, 2 functions, 2 exports)[0m
+[32m  📄 featured.controller.js  (235 lines, 7 functions, 7 exports)[0m
+[32m  📄 hirer.controller.js  (468 lines, 12 functions, 12 exports)[0m
+[32m  📄 insurance.controller.js  (289 lines, 5 functions, 5 exports)[0m
+[32m  📄 invoice.controller.js  (523 lines, 7 functions, 1 exports)[0m
+[32m  📄 job.controller.js  (976 lines, 13 functions, 13 exports)[0m
+[32m  📄 message.controller.js  (200 lines, 4 functions, 4 exports)[0m
+[32m  📄 notification.controller.js  (336 lines, 12 functions, 12 exports)[0m
+[32m  📄 payment.controller.js  (2296 lines, 23 functions, 26 exports)[0m
+[32m  📄 post.controller.js  (646 lines, 17 functions, 13 exports)[0m
+[32m  📄 promoCode.controller.js  (452 lines, 13 functions, 9 exports)[0m
+[32m  📄 referral.controller.js  (1302 lines, 22 functions, 20 exports)[0m
+[32m  📄 report.controller.js  (1117 lines, 16 functions, 11 exports)[0m
+[32m  📄 review.controller.js  (396 lines, 8 functions, 7 exports)[0m
+[32m  📄 search.controller.js  (555 lines, 7 functions, 4 exports)[0m
+[32m  📄 settings.controller.js  (546 lines, 14 functions, 14 exports)[0m
+[32m  📄 subscription.controller.js  (488 lines, 8 functions, 8 exports)[0m
+[32m  📄 user.controller.js  (162 lines, 4 functions, 4 exports)[0m
+[32m  📄 verification.controller.js  (942 lines, 15 functions, 14 exports)[0m
+[32m  📄 videocall.controller.js  (186 lines, 5 functions, 5 exports)[0m
+[32m  📄 worker.controller.js  (894 lines, 16 functions, 16 exports)[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  3. ROUTES ANALYSIS[0m
+════════════════════════════════════════════════════════════════════════════════
+[1mFound 31 route files:[0m
+[32m  📄 admin.routes.js  (52 routes, 296 lines)[0m
+[32m  📄 adminJob.routes.js  (11 routes, 48 lines)[0m
+[32m  📄 ai.routes.js  (1 routes, 167 lines)[0m
+[32m  📄 audit.routes.js  (10 routes, 83 lines)[0m
+[32m  📄 auth.routes.js  (10 routes, 51 lines)[0m
+[32m  📄 booking.routes.js  (10 routes, 59 lines)[0m
+[32m  📄 campaign.routes.js  (15 routes, 108 lines)[0m
+[32m  📄 category.routes.js  (5 routes, 50 lines)[0m
+[32m  📄 dispute.routes.js  (7 routes, 40 lines)[0m
+[32m  📄 externalJob.routes.js  (4 routes, 25 lines)[0m
+[32m  📄 externalJobs.routes.js  (2 routes, 17 lines)[0m
+[32m  📄 featured.routes.js  (7 routes, 42 lines)[0m
+[32m  📄 health.routes.js  (2 routes, 48 lines)[0m
+[32m  📄 hirer.routes.js  (15 routes, 104 lines)[0m
+[32m  📄 insurance.routes.js  (5 routes, 33 lines)[0m
+[32m  📄 job.routes.js  (13 routes, 117 lines)[0m
+[32m  📄 message.routes.js  (5 routes, 36 lines)[0m
+[32m  📄 notification.routes.js  (11 routes, 56 lines)[0m
+[32m  📄 payment.routes.js  (25 routes, 166 lines)[0m
+[32m  📄 post.routes.js  (14 routes, 84 lines)[0m
+[32m  📄 referral.routes.js  (13 routes, 108 lines)[0m
+[32m  📄 report.routes.js  (12 routes, 78 lines)[0m
+[32m  📄 review.routes.js  (8 routes, 45 lines)[0m
+[32m  📄 search.routes.js  (4 routes, 26 lines)[0m
+[32m  📄 settings.routes.js  (15 routes, 59 lines)[0m
+[32m  📄 subscription.routes.js  (15 routes, 101 lines)[0m
+[32m  📄 translate.routes.js  (1 routes, 36 lines)[0m
+[32m  📄 user.routes.js  (4 routes, 27 lines)[0m
+[32m  📄 verification.routes.js  (14 routes, 168 lines)[0m
+[32m  📄 videocall.routes.js  (6 routes, 45 lines)[0m
+[32m  📄 worker.routes.js  (18 routes, 135 lines)[0m
+[36m
+  📊 Total routes: 334[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  4. DATABASE SCHEMA[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  ✅ Models: 39[0m
+[32m  ✅ Enums: 29[0m
+[32m  ✅ Tables: 0[0m
+[2m  📄 /Users/onwukwennamdi/Desktop/skilledpro-backend/prisma/schema.prisma[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  5. ENVIRONMENT VARIABLES[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  ✅ .env found (29 variables)[0m
+[2m  📄 /Users/onwukwennamdi/Desktop/skilledpro-backend/.env[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  6. DEPENDENCIES[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  ✅ Dependencies: 28[0m
+[32m  ✅ Dev Dependencies: 1[0m
+[32m  ✅ Total: 29[0m
+[36m  📋 Scripts: test, start, dev, db:migrate, db:generate, db:studio, db:push[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  7. TESTS[0m
+════════════════════════════════════════════════════════════════════════════════
+[33m  ⚠️ No test files found[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  8. GIT STATUS[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  ✅ Branch: main[0m
+[32m  ✅ Git repository found[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  9. NPM SCRIPTS[0m
+════════════════════════════════════════════════════════════════════════════════
+[32m  📋 test: echo "Error: no test specified" && exit 1[0m
+[32m  📋 start: prisma generate && node server.js[0m
+[32m  📋 dev: prisma generate && nodemon server.js[0m
+[32m  📋 db:migrate: prisma migrate dev[0m
+[32m  📋 db:generate: prisma generate[0m
+[32m  📋 db:studio: prisma studio[0m
+[32m  📋 db:push: prisma db push[0m
+
+════════════════════════════════════════════════════════════════════════════════
+[1m[36m  10. RECOMMENDATIONS[0m
+════════════════════════════════════════════════════════════════════════════════
+
+  🔹 Based on the audit:
+[32m  ✅ Good codebase size[0m
+file:///Users/onwukwennamdi/Desktop/skilledpro-backend/scripts/full-backend-audit.js:326
+  if (totalRoutes < 10) {
+  ^
+
+ReferenceError: totalRoutes is not defined
+    at main (file:///Users/onwukwennamdi/Desktop/skilledpro-backend/scripts/full-backend-audit.js:326:3)
+    at file:///Users/onwukwennamdi/Desktop/skilledpro-backend/scripts/full-backend-audit.js:370:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.12.0
