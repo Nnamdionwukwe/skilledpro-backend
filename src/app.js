@@ -59,6 +59,7 @@ const corsOptions = {
       "https://skilledproz.vercel.app",
       "http://localhost:3000",
       "http://localhost:5173",
+      "http://167.172.142.200:5000",
     ].filter(Boolean);
 
     if (allowed.includes(origin)) {
