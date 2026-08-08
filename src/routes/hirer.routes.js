@@ -16,9 +16,11 @@ import {
   unsaveWorker,
   getHiredWorkers,
   getHirerReviews,
-  getNotifications,
-  markNotificationsRead,
 } from "../controllers/hirer.controller.js";
+import {
+  getNotifications,
+  markAllAsRead,
+} from "../controllers/notification.controller.js"; // <--- CHANGED IMPORTS
 import { getMyGivenReviews } from "../controllers/review.controller.js";
 import { getHirerPublicProfile } from "../controllers/job.controller.js";
 import { validateUUIDParam, validatePagination } from "../utils/validators.js";
@@ -63,7 +65,7 @@ router.get("/me/hired-workers", protect, requireRole("HIRER"), getHiredWorkers);
 
 // ─── Notifications ────────────────────────────────────────────────────────
 router.get("/me/notifications", protect, getNotifications);
-router.patch("/me/notifications/read", protect, markNotificationsRead);
+router.patch("/me/notifications/read", protect, markAllAsRead); // <--- CHANGED TO markAllAsRead
 
 // ─── Reviews ──────────────────────────────────────────────────────────────
 router.get(
