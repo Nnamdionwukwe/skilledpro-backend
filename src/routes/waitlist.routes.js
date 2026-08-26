@@ -1,3 +1,5 @@
+// src/routes/waitlist.routes.js
+
 import express from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import * as waitlistController from "../controllers/waitlist.controller.js";
@@ -5,10 +7,7 @@ import * as waitlistController from "../controllers/waitlist.controller.js";
 const router = express.Router();
 
 // ─── Public Routes ──────────────────────────────────────────────────────────
-// POST /api/waitlist - Join waitlist (PUBLIC) - Email only
 router.post("/", waitlistController.joinWaitlist);
-
-// GET /api/waitlist/confirm/:token - Confirm email (PUBLIC)
 router.get("/confirm/:token", waitlistController.confirmWaitlist);
 
 // ─── Admin Routes ──────────────────────────────────────────────────────────
@@ -23,5 +22,8 @@ router.patch(
   waitlistController.updateWaitlistStatus,
 );
 router.get("/admin/export/csv", waitlistController.exportWaitlistCSV);
+router.post("/admin/broadcast", waitlistController.broadcastEmail);
+router.get("/admin/campaigns", waitlistController.getCampaigns);
+router.post("/admin/launch", waitlistController.sendLaunchAnnouncement);
 
 export default router;

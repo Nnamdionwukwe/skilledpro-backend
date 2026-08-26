@@ -33,6 +33,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "express-validator": "^7.3.1",
+    "geoip-lite": "^2.0.3",
     "git-filter-repo": "^0.0.30",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
@@ -48,6 +49,7 @@
     "resend": "^6.12.2",
     "socket.io": "^4.8.3",
     "stripe": "^20.4.1",
+    "ua-parser-js": "^2.0.10",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

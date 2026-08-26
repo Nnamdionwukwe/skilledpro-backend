@@ -1366,3 +1366,81 @@ export async function sendLoginAlertEmail({ to, name, ip, userAgent, time }) {
     html,
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Waitlist Broadcast Email
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendWaitlistBroadcastEmail({
+  to,
+  name,
+  subject,
+  content,
+}) {
+  const html = baseTemplate({
+    title: subject,
+    preheader: content.replace(/<[^>]*>/g, "").slice(0, 150) + "...",
+    body: `
+      <p class="greeting">Hi ${name || "there"}! 👋</p>
+      ${content}
+      <div style="text-align:center;margin-top:20px;">
+        <a href="${buildUrl("/")}" class="btn">Visit SkilledProz</a>
+      </div>
+    `,
+  });
+  return sendEmail({ to, subject, html });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Waitlist Benefit Unlocked
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendWaitlistBenefitUnlockedEmail({ to, name, benefit }) {
+  const html = baseTemplate({
+    title: "🎁 You've Unlocked a New Benefit!",
+    preheader: `You unlocked: ${benefit}`,
+    body: `
+      <p class="greeting">Hey ${name || "there"}! 🎉</p>
+      <p>Great news! You've unlocked a new benefit as a SkilledProz early adopter:</p>
+      <div class="card" style="text-align:center;border:2px solid #F59E0B;">
+        <span style="font-size:48px;">🏆</span>
+        <h3 style="color:#F59E0B;font-size:22px;margin:8px 0;">${benefit}</h3>
+        <p style="color:#555;">You're getting closer to the full package!</p>
+      </div>
+      <div style="text-align:center;margin-top:20px;">
+        <a href="${buildUrl("/")}" class="btn btn-success">Explore SkilledProz</a>
+      </div>
+    `,
+  });
+  return sendEmail({ to, subject: `🎁 You Unlocked: ${benefit}`, html });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Waitlist Launch Announcement
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendWaitlistLaunchEmail({ to, name }) {
+  const html = baseTemplate({
+    title: "🚀 SkilledProz is LIVE!",
+    preheader: "Your early adopter benefits are waiting for you!",
+    body: `
+      <p class="greeting">🚀 IT'S HERE, ${name?.toUpperCase() || "EARLY ADOPTER"}!</p>
+      <p><strong>SkilledProz is officially LIVE!</strong> The future of work has arrived.</p>
+      <div class="card" style="border:2px solid #F59E0B;">
+        <h3 style="color:#F59E0B;">🎯 Your Early Adopter Perks:</h3>
+        <ul style="color:#555;line-height:2;padding-left:20px;">
+          <li>✅ <strong>Free Lifetime Registration</strong></li>
+          <li>✅ <strong>0% Commission</strong> forever</li>
+          <li>✅ <strong>₦5,000 Credit</strong> (hirers) / <strong>Premium Badge</strong> (workers)</li>
+          <li>✅ <strong>VIP Support</strong> — priority response</li>
+        </ul>
+      </div>
+      <div style="text-align:center;margin-top:20px;">
+        <a href="${buildUrl("/register")}" class="btn btn-success">Claim Your Benefits →</a>
+      </div>
+      <p style="text-align:center;color:#888;font-size:14px;">Welcome to the future of work. 🌍</p>
+    `,
+  });
+  return sendEmail({
+    to,
+    subject: "🚀 SkilledProz is LIVE! Claim Your Benefits",
+    html,
+  });
+}

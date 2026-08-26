@@ -1238,53 +1238,104 @@ model WaitlistEntry {
   @@index([createdAt])
 }
 
-// ─── Waitlist Referral Model ────────────────────────────────────────────────
+// ─── Waitlist Entry Model ──────────────────────────────────────────────────
 
-model WaitlistReferral {
-  id            String    @id @default(cuid())
-  referrerId    String    @map("referrer_id")
-  referredId    String    @map("referred_id")
-  status        String    @default("PENDING") @map("status") // PENDING | CONFIRMED | REWARDED
-  rewardAmount  Int?      @default(2000) @map("reward_amount") // ₦2,000 default
-  rewardPaid    Boolean   @default(false) @map("reward_paid")
-  paidAt        DateTime? @map("paid_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+model WaitlistEntry {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String?   @map("full_name")
+  status            String    @default("PENDING") // PENDING | CONFIRMED | UNLOCKED | LAUNCHED
+  
+  // Geolocation
+  ipAddress         String?   @map("ip_address")
+  country           String?   @map("country")
+  region            String?   @map("region")
+  city              String?   @map("city")
+  latitude          Float?    @map("latitude")
+  longitude         Float?    @map("longitude")
+  timezone          String?   @map("timezone")
+  postalCode        String?   @map("postal_code")
+  
+  // Device Info
+  deviceType        String?   @map("device_type") // mobile | desktop | tablet
+  deviceBrand       String?   @map("device_brand")
+  deviceModel       String?   @map("device_model")
+  osName            String?   @map("os_name")
+  osVersion         String?   @map("os_version")
+  browserName       String?   @map("browser_name")
+  browserVersion    String?   @map("browser_version")
+  userAgent         String?   @map("user_agent")
+  
+  // Referral
+  referralCode      String?   @unique @map("referral_code")
+  referredBy        String?   @map("referred_by")
+  
+  // Tokens & Status
+  token             String?   @unique
+  tokenExpiresAt    DateTime? @map("token_expires_at")
+  confirmedAt       DateTime? @map("confirmed_at")
+  
+  // Unlocked benefits tracking
+  unlockedBenefits  String[]  @map("unlocked_benefits") // EARLY_ACCESS | EXCLUSIVE_BONUS | LIFETIME_BENEFITS | VIP_SUPPORT
+  benefitUnlockedAt DateTime? @map("benefit_unlocked_at")
+  
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  referrer      WaitlistEntry @relation("referrer", fields: [referrerId], references: [id])
-  referred      WaitlistEntry @relation("referred", fields: [referredId], references: [id])
-
-  @@map("waitlist_referrals")
-  @@unique([referrerId, referredId])
+  @@map("waitlist_entries")
+  @@index([email])
   @@index([status])
-  @@index([rewardPaid])
+  @@index([country])
+  @@index([deviceType])
+  @@index([createdAt])
 }
 
-// ─── Waitlist Bonus Model ────────────────────────────────────────────────────
+// ─── Waitlist Email Campaigns ──────────────────────────────────────────────
 
-model WaitlistBonus {
-  id            String    @id @default(cuid())
-  waitlistId    String    @map("waitlist_id")
-  type          String    @map("type") // SIGNUP | REFERRAL | SOCIAL | EARLY_BIRD
-  amount        Int       @default(2000) @map("amount")
-  description   String?   @map("description")
-  status        String    @default("PENDING") @map("status") // PENDING | CLAIMED | EXPIRED
-  claimedAt     DateTime? @map("claimed_at")
-  expiresAt     DateTime? @map("expires_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+model WaitlistCampaign {
+  id                String    @id @default(cuid())
+  title             String    @map("title")
+  subject           String    @map("subject")
+  content           String    @map("content") // HTML content
+  previewText       String?   @map("preview_text")
+  status            String    @default("DRAFT") // DRAFT | SENT | SCHEDULED
+  sentAt            DateTime? @map("sent_at")
+  scheduledFor      DateTime? @map("scheduled_for")
+  recipientCount    Int       @default(0) @map("recipient_count")
+  openedCount       Int       @default(0) @map("opened_count")
+  clickedCount      Int       @default(0) @map("clicked_count")
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  waitlist      WaitlistEntry @relation(fields: [waitlistId], references: [id])
+  @@map("waitlist_campaigns")
+  @@index([status])
+  @@index([sentAt])
+}
 
-  @@map("waitlist_bonuses")
+// ─── Waitlist Email Logs ────────────────────────────────────────────────────
+
+model WaitlistEmailLog {
+  id                String    @id @default(cuid())
+  waitlistId        String    @map("waitlist_id")
+  campaignId        String?   @map("campaign_id")
+  email             String    @map("email")
+  type              String    @map("type") // CONFIRMATION | BROADCAST | BENEFIT_UNLOCKED | LAUNCH_ANNOUNCEMENT
+  subject           String    @map("subject")
+  opened            Boolean   @default(false) @map("opened")
+  openedAt          DateTime? @map("opened_at")
+  clicked           Boolean   @default(false) @map("clicked")
+  clickedAt         DateTime? @map("clicked_at")
+  sentAt            DateTime  @default(now()) @map("sent_at")
+  error             String?   @map("error")
+
+  waitlist          WaitlistEntry @relation(fields: [waitlistId], references: [id])
+
+  @@map("waitlist_email_logs")
   @@index([waitlistId])
-  @@index([status])
+  @@index([campaignId])
   @@index([type])
+  @@index([sentAt])
 }
-
-// ─── Update WaitlistEntry model with bonus relation ─────────────────────────
-
-// Add to WaitlistEntry model:
-//   bonuses WaitlistBonus[]
 
 //to format run npx prisma format and to migarate run npx prisma generate
