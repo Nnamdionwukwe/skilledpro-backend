@@ -7,33 +7,23 @@ import * as waitlistController from "../controllers/waitlist.controller.js";
 const router = express.Router();
 
 // ─── Public Routes ──────────────────────────────────────────────────────────
-
-// POST /api/waitlist - Join waitlist
+// POST /api/waitlist - Join waitlist (PUBLIC)
 router.post("/", waitlistController.joinWaitlist);
 
-// GET /api/waitlist/confirm/:token - Confirm email
+// GET /api/waitlist/confirm/:token - Confirm email (PUBLIC)
 router.get("/confirm/:token", waitlistController.confirmWaitlist);
 
-// GET /api/waitlist/validate/:code - Validate referral code
+// GET /api/waitlist/validate/:code - Validate referral code (PUBLIC)
 router.get("/validate/:code", waitlistController.validateReferralCode);
 
-// ─── Protected Routes (User) ──────────────────────────────────────────────
-
-// GET /api/waitlist/referral/:code - Get referral stats (requires auth)
-router.get("/referral/:code", protect, waitlistController.getReferralStats);
-
-// POST /api/waitlist/claim-bonus - Claim bonuses (requires auth)
-router.post("/claim-bonus", protect, waitlistController.claimBonus);
-
 // ─── Admin Routes ──────────────────────────────────────────────────────────
-
 router.use(protect);
 router.use(requireRole("ADMIN"));
 
-// GET /api/waitlist/admin/stats - Get stats
+// GET /api/waitlist/admin/stats - Waitlist statistics
 router.get("/admin/stats", waitlistController.getWaitlistStats);
 
-// GET /api/waitlist/admin/entries - Get all entries
+// GET /api/waitlist/admin/entries - List all entries
 router.get("/admin/entries", waitlistController.getAllWaitlistEntries);
 
 // GET /api/waitlist/admin/entries/:id - Get single entry
