@@ -1,8 +1,8 @@
 // src/controllers/survey.controller.js
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../generated/prisma/index.js";
 import { response } from "../utils/response.js";
-import { auditLog } from "../utils/auditLog.js";
+import { logAdminAction as auditLog } from "../utils/auditLog.js";
 
 const prisma = new PrismaClient();
 
@@ -142,11 +142,13 @@ export const submitSurvey = async (req, res) => {
 
     // Log audit
     await auditLog({
-      userId: req.user?.id || null,
+      req,
+      adminId: req.user?.id || null,
       action: "SURVEY_SUBMITTED",
       targetType: "survey",
       targetId: surveyResponse.id,
-      metadata: { email, role, industry },
+      description: `Survey submitted by ${email || "anonymous"}`,
+      meta: { email, role, industry },
     });
 
     // Send confirmation email (don't await)
@@ -363,10 +365,12 @@ export const getSurveyResponseById = async (req, res) => {
     }
 
     await auditLog({
-      userId: req.user?.id,
+      req,
+      adminId: req.user?.id,
       action: "SURVEY_VIEWED",
       targetType: "survey",
       targetId: id,
+      description: `Survey response ${id} viewed`,
     });
 
     return response.success(res, "Survey response retrieved", surveyResponse);
@@ -398,11 +402,13 @@ export const updateSurveyStatus = async (req, res) => {
     });
 
     await auditLog({
-      userId: req.user?.id,
+      req,
+      adminId: req.user?.id,
       action: "SURVEY_STATUS_UPDATED",
       targetType: "survey",
       targetId: id,
-      metadata: { oldStatus: existing.status, newStatus: status, notes },
+      description: `Survey status changed from ${existing.status} to ${status}`,
+      meta: { oldStatus: existing.status, newStatus: status, notes },
     });
 
     return response.success(res, "Survey status updated", {
@@ -433,10 +439,12 @@ export const bulkDeleteSurveyResponses = async (req, res) => {
     });
 
     await auditLog({
-      userId: req.user?.id,
+      req,
+      adminId: req.user?.id,
       action: "SURVEY_BULK_DELETED",
       targetType: "survey",
-      metadata: { deletedCount: result.count, ids },
+      description: `Bulk deleted ${result.count} survey responses`,
+      meta: { deletedCount: result.count, ids },
     });
 
     return response.success(res, "Survey responses deleted", {
