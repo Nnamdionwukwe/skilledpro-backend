@@ -340,6 +340,13 @@ model User {
   adminJobPosts            JobPost[] @relation("AdminJobPosts")
 
   externalJobClicks ExternalJobClick[]
+
+    // ─── Hirer Wallet Relations ──────────────────────────────────────────────
+  hirerWallet       HirerWallet?          @relation(fields: [hirerWalletId], references: [id])
+  hirerWalletId     String?               @unique
+  hirerTransactions HirerTransaction[]    @relation("HirerTransactions")
+  hirerWithdrawals  HirerWithdrawal[]     @relation("HirerWithdrawals")
+  hirerFundingAttempts HirerFundingAttempt[] @relation("HirerFundingAttempts")
 }
 
 model Referral {
