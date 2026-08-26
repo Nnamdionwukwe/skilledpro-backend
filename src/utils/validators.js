@@ -2480,3 +2480,71 @@ export const validateGetJobStats = [
 
   validate,
 ];
+
+// src/utils/validators.js (add these functions)
+
+/**
+ * Validate phone number
+ * Supports international format
+ */
+export const validatePhone = (phone) => {
+  if (!phone) return true; // optional field
+
+  // Remove spaces, dashes, parentheses
+  const cleaned = phone.replace(/[\s\-()]/g, "");
+
+  // Check if it's a valid phone number
+  // Supports: +1234567890, 1234567890, 123-456-7890
+  const phoneRegex =
+    /^(\+?\d{1,3})?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/;
+  return phoneRegex.test(cleaned) && cleaned.replace(/[^0-9]/g, "").length >= 7;
+};
+
+/**
+ * Validate survey response
+ */
+export const validateSurveyResponse = (data) => {
+  const errors = [];
+
+  const validRoles = ["hirer", "worker", "both"];
+  if (data.role && !validRoles.includes(data.role)) {
+    errors.push("Invalid role. Must be hirer, worker, or both");
+  }
+
+  const validIndustries = [
+    "plumbing",
+    "electrical",
+    "carpentry",
+    "cleaning",
+    "hvac",
+    "painting",
+    "office",
+    "other",
+  ];
+  if (data.industry && !validIndustries.includes(data.industry)) {
+    errors.push("Invalid industry");
+  }
+
+  const validExperience = ["beginner", "intermediate", "expert"];
+  if (data.experience && !validExperience.includes(data.experience)) {
+    errors.push("Invalid experience level");
+  }
+
+  if (data.problem && data.problem.length < 10) {
+    errors.push("Problem description must be at least 10 characters");
+  }
+
+  if (data.feature && data.feature.length < 10) {
+    errors.push("Feature description must be at least 10 characters");
+  }
+
+  if (data.email && !validateEmail(data.email)) {
+    errors.push("Invalid email address");
+  }
+
+  if (data.phone && !validatePhone(data.phone)) {
+    errors.push("Invalid phone number");
+  }
+
+  return errors;
+};

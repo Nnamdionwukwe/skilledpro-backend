@@ -32,6 +32,7 @@ import reportRoutes from "./routes/report.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
 import adminJobRoutes from "./routes/adminJob.routes.js";
 import externalJobRoutes from "./routes/externalJob.routes.js";
+import surveyRoutes from "./src/routes/survey.routes.js";
 
 import { apiLimiter } from "./middleware/rateLimit.middleware.js";
 import healthRouter from "./routes/health.routes.js";
@@ -133,6 +134,7 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/admin", adminJobRoutes);
 app.use("/api/external-jobs", externalJobRoutes);
 app.use("/api/translate", translateRoutes);
+app.use("/api/survey", surveyRoutes);
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 

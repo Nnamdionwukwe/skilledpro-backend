@@ -1180,4 +1180,33 @@ model SavedJob {
   @@index([jobPostId])
 }
 
+// prisma/schema.prisma
+
+model SurveyResponse {
+  id                  String    @id @default(cuid())
+  role                String?   @map("role")
+  industry            String?   @map("industry")
+  experience          String?   @map("experience_level")
+  problem             String?   @map("biggest_challenge")
+  feature             String?   @map("desired_feature")
+  concern             String?   @map("biggest_concern")
+  hearAbout           String?   @map("hear_about")
+  email               String?   @map("email")
+  name                String?   @map("full_name")
+  phone               String?   @map("phone_number")
+  location            String?   @map("location")
+  additionalFeedback  String?   @map("additional_feedback")
+  rating              Int?      @default(0)
+  status              String    @default("PENDING") @map("status")
+  ipAddress           String?   @map("ip_address")
+  userAgent           String?   @map("user_agent")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@map("survey_responses")
+  @@index([email])
+  @@index([createdAt])
+  @@index([status])
+}
+
 //to format run npx prisma format and to migarate run npx prisma generate
