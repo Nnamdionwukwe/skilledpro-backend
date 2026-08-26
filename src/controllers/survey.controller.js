@@ -146,8 +146,19 @@ export const submitSurvey = async (req, res) => {
       meta: { email, role, industry },
     });
 
+    // ─── Send confirmation email ──────────────────────────────────────────
     if (email) {
-      console.log(`📧 Sending confirmation email to ${email}`);
+      try {
+        await sendSurveyResponseEmail({
+          to: email,
+          name: name || "there",
+          role: role,
+          industry: industry,
+        });
+        console.log(`📧 Survey confirmation email sent to ${email}`);
+      } catch (err) {
+        console.error("Failed to send survey confirmation email:", err);
+      }
     }
 
     return response.success(

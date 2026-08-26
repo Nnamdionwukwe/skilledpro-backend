@@ -1444,3 +1444,98 @@ export async function sendWaitlistLaunchEmail({ to, name }) {
     html,
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Survey Response Auto-Reply
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendSurveyResponseEmail({ to, name, role, industry }) {
+  const roleLabels = {
+    hirer: "Hirer (Client)",
+    worker: "Worker (Skilled Professional)",
+    both: "Both Hirer & Worker",
+  };
+
+  const roleLabel = roleLabels[role] || role;
+
+  const html = baseTemplate({
+    title: "We received your survey — SkilledProz",
+    preheader: "Thank you for helping us build a better SkilledProz",
+    body: `
+      <p class="greeting">Hi ${name || "there"}! 👋</p>
+      <p>Thank you for taking the time to complete our survey. Your feedback is invaluable in helping us build a platform that truly serves the needs of the skilled workforce community.</p>
+
+      <div style="text-align:center;padding:16px 0;">
+        <span style="font-size:32px;">📊</span>
+        <p style="font-size:14px;color:#888;margin-top:4px;">
+          <strong style="color:#0F0F6E;">${roleLabel}</strong> · 
+          <span style="color:#555;">${industry}</span>
+        </p>
+      </div>
+
+      <div class="card" style="border-left:4px solid #F59E0B;">
+        <p style="margin:0;color:#555;line-height:1.7;">
+          Here's what happens next:
+        </p>
+        <div style="margin-top:12px;">
+          <div class="icon-row" style="margin:6px 0;">
+            <span style="font-size:18px;">📋</span>
+            <span>Our team reviews your survey responses</span>
+          </div>
+          <div class="icon-row" style="margin:6px 0;">
+            <span style="font-size:18px;">💡</span>
+            <span>Your insights help shape our product roadmap</span>
+          </div>
+          <div class="icon-row" style="margin:6px 0;">
+            <span style="font-size:18px;">📧</span>
+            <span>We may reach out if we need more details</span>
+          </div>
+          <div class="icon-row" style="margin:6px 0;">
+            <span style="font-size:18px;">🚀</span>
+            <span>You'll be notified when the platform launches</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;">
+        <div style="background:#f0fdf4;border-radius:8px;padding:12px 16px;text-align:center;border:1px solid #bbf7d0;">
+          <span style="font-size:20px;">🎯</span>
+          <p style="font-size:12px;color:#16a34a;font-weight:600;margin:4px 0 0;">Direct Impact</p>
+        </div>
+        <div style="background:#fffbeb;border-radius:8px;padding:12px 16px;text-align:center;border:1px solid #fde68a;">
+          <span style="font-size:20px;">⏰</span>
+          <p style="font-size:12px;color:#d97706;font-weight:600;margin:4px 0 0;">Response Within 48h</p>
+        </div>
+        <div style="background:#eff6ff;border-radius:8px;padding:12px 16px;text-align:center;border:1px solid #bfdbfe;">
+          <span style="font-size:20px;">🤝</span>
+          <p style="font-size:12px;color:#2563eb;font-weight:600;margin:4px 0 0;">Community Building</p>
+        </div>
+        <div style="background:#f5f3ff;border-radius:8px;padding:12px 16px;text-align:center;border:1px solid #ddd6fe;">
+          <span style="font-size:20px;">✨</span>
+          <p style="font-size:12px;color:#7c3aed;font-weight:600;margin:4px 0 0;">Platform Evolution</p>
+        </div>
+      </div>
+
+      <div class="warning" style="background:#fffbeb;border-left-color:#F59E0B;margin:16px 0;">
+        💡 <strong>Did you know?</strong> Over 80% of our product features come directly from user feedback like yours. 
+        Your voice truly makes a difference!
+      </div>
+
+      <p style="font-size:13px;color:#888;text-align:center;margin-top:16px;">
+        If you have additional thoughts, just reply to this email — we'd love to hear more!
+      </p>
+
+      <div style="text-align:center;margin-top:20px;">
+        <a href="${buildUrl("/")}" class="btn" style="background:#0F0F6E;">Visit SkilledProz</a>
+      </div>
+      <div style="text-align:center;margin-top:12px;">
+        <a href="${buildUrl("/contact")}" class="btn btn-outline">Contact Support</a>
+      </div>
+    `,
+  });
+
+  return sendEmail({
+    to,
+    subject: "🙏 We received your survey — Thank you!",
+    html,
+  });
+}
