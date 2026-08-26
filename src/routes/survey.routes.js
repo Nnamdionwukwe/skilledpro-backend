@@ -3,7 +3,7 @@
 import express from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import * as surveyController from "../controllers/survey.controller.js";
-import * as surveyValidator from "../validators/survey.validator.js";
+import * as validators from "../utils/validators.js";
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const router = express.Router();
 // POST /api/survey - Submit survey
 router.post(
   "/",
-  surveyValidator.validateSubmitSurvey,
+  validators.validateSubmitSurvey,
   surveyController.submitSurvey,
 );
 
@@ -22,42 +22,42 @@ router.use(requireRole("ADMIN"));
 // GET /api/survey/admin/stats - Survey statistics
 router.get(
   "/admin/stats",
-  surveyValidator.validateGetSurveyStats,
+  validators.validateGetSurveyStats,
   surveyController.getSurveyStats,
 );
 
 // GET /api/survey/admin/responses - List all responses
 router.get(
   "/admin/responses",
-  surveyValidator.validateGetAllSurveyResponses,
+  validators.validateGetAllSurveyResponses,
   surveyController.getAllSurveyResponses,
 );
 
 // GET /api/survey/admin/responses/:id - Get single response
 router.get(
   "/admin/responses/:id",
-  surveyValidator.validateGetSurveyResponseById,
+  validators.validateGetSurveyResponseById,
   surveyController.getSurveyResponseById,
 );
 
 // PATCH /api/survey/admin/responses/:id/status - Update status
 router.patch(
   "/admin/responses/:id/status",
-  surveyValidator.validateUpdateSurveyStatus,
+  validators.validateUpdateSurveyStatus,
   surveyController.updateSurveyStatus,
 );
 
 // DELETE /api/survey/admin/responses/bulk - Bulk delete
 router.delete(
   "/admin/responses/bulk",
-  surveyValidator.validateBulkDeleteSurveyResponses,
+  validators.validateBulkDeleteSurveyResponses,
   surveyController.bulkDeleteSurveyResponses,
 );
 
 // GET /api/survey/admin/export/csv - Export CSV
 router.get(
   "/admin/export/csv",
-  surveyValidator.validateExportSurveyCSV,
+  validators.validateExportSurveyCSV,
   surveyController.exportSurveyCSV,
 );
 
