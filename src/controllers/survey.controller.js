@@ -2,7 +2,6 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { logAdminAction as auditLog } from "../utils/auditLog.js";
 
 // Response wrapper
 const response = {
@@ -134,16 +133,6 @@ export const submitSurvey = async (req, res) => {
         ipAddress: req.ip || req.connection?.remoteAddress || null,
         userAgent: req.headers["user-agent"] || null,
       },
-    });
-
-    await auditLog({
-      req,
-      adminId: req.user?.id || null,
-      action: "SURVEY_SUBMITTED",
-      targetType: "survey",
-      targetId: surveyResponse.id,
-      description: `Survey submitted by ${email || "anonymous"}`,
-      meta: { email, role, industry },
     });
 
     // ─── Send confirmation email ──────────────────────────────────────────
