@@ -1209,34 +1209,6 @@ model SurveyResponse {
   @@index([status])
 }
 
-// ─── Waitlist Model ──────────────────────────────────────────────────────────
-
-model WaitlistEntry {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  name            String?   @map("full_name")
-  referralCode    String?   @map("referral_code")
-  referredBy      String?   @map("referred_by")
-  status          String    @default("PENDING") @map("status")
-  token           String?   @unique
-  tokenExpiresAt  DateTime? @map("token_expires_at")
-  confirmedAt     DateTime? @map("confirmed_at")
-  ipAddress       String?   @map("ip_address")
-  userAgent       String?   @map("user_agent")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  // Relations
-  referrals       WaitlistReferral[] @relation("referrer")
-  referredByEntry WaitlistEntry?      @relation("referredBy", fields: [referredBy], references: [id])
-  referredEntries WaitlistEntry[]     @relation("referredBy")
-
-  @@map("waitlist_entries")
-  @@index([email])
-  @@index([status])
-  @@index([referralCode])
-  @@index([createdAt])
-}
 
 // ─── Waitlist Entry Model ──────────────────────────────────────────────────
 
