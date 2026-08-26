@@ -1,10 +1,10 @@
 // src/controllers/survey.controller.js
 
-import { PrismaClient } from "../generated/prisma/index.js";
+import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logAdminAction as auditLog } from "../utils/auditLog.js";
 
-// Create response wrapper with .success and .error methods
+// Response wrapper
 const response = {
   success: (res, message, data = null, status = 200) => {
     return sendResponse(res, { status, message, data });
@@ -13,8 +13,6 @@ const response = {
     return sendError(res, message, status, errors);
   },
 };
-
-const prisma = new PrismaClient();
 
 // ── Helper validation functions ──
 const validateEmail = (email) => {
@@ -32,12 +30,10 @@ const validatePhone = (phone) => {
 
 const validateSurveyData = (data) => {
   const errors = [];
-
   const validRoles = ["hirer", "worker", "both"];
   if (!data.role || !validRoles.includes(data.role)) {
     errors.push("Role must be hirer, worker, or both");
   }
-
   const validIndustries = [
     "plumbing",
     "electrical",
@@ -51,32 +47,25 @@ const validateSurveyData = (data) => {
   if (!data.industry || !validIndustries.includes(data.industry)) {
     errors.push("Invalid industry selected");
   }
-
   const validExperience = ["beginner", "intermediate", "expert"];
   if (!data.experience || !validExperience.includes(data.experience)) {
     errors.push("Experience must be beginner, intermediate, or expert");
   }
-
   if (!data.problem || data.problem.trim().length < 10) {
     errors.push("Problem description must be at least 10 characters");
   }
-
   if (!data.feature || data.feature.trim().length < 10) {
     errors.push("Feature description must be at least 10 characters");
   }
-
   if (data.email && !validateEmail(data.email)) {
     errors.push("Invalid email address");
   }
-
   if (data.phone && !validatePhone(data.phone)) {
     errors.push("Invalid phone number");
   }
-
   if (data.rating !== undefined && (data.rating < 0 || data.rating > 5)) {
     errors.push("Rating must be between 0 and 5");
   }
-
   return errors;
 };
 
@@ -99,13 +88,11 @@ export const submitSurvey = async (req, res) => {
       rating = 0,
     } = req.body;
 
-    // Validate
     const errors = validateSurveyData(req.body);
     if (errors.length > 0) {
       return response.error(res, "Validation failed", 400, { errors });
     }
 
-    // Check for duplicate submission (same email within 24 hours)
     if (email) {
       const existing = await prisma.surveyResponse.findFirst({
         where: {
@@ -126,7 +113,6 @@ export const submitSurvey = async (req, res) => {
       }
     }
 
-    // Create survey response
     const surveyResponse = await prisma.surveyResponse.create({
       data: {
         role,
@@ -150,7 +136,6 @@ export const submitSurvey = async (req, res) => {
       },
     });
 
-    // Log audit
     await auditLog({
       req,
       adminId: req.user?.id || null,
@@ -161,11 +146,8 @@ export const submitSurvey = async (req, res) => {
       meta: { email, role, industry },
     });
 
-    // Send confirmation email (don't await)
     if (email) {
-      sendSurveyConfirmation(email, name).catch((err) =>
-        console.error("Failed to send survey confirmation:", err),
-      );
+      console.log(`📧 Sending confirmation email to ${email}`);
     }
 
     return response.success(
@@ -302,25 +284,6 @@ export const getAllSurveyResponses = async (req, res) => {
         skip,
         take,
         orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          role: true,
-          industry: true,
-          experience: true,
-          problem: true,
-          feature: true,
-          concern: true,
-          hearAbout: true,
-          email: true,
-          name: true,
-          phone: true,
-          location: true,
-          additionalFeedback: true,
-          rating: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
       }),
       prisma.surveyResponse.count({ where }),
     ]);
@@ -347,27 +310,6 @@ export const getSurveyResponseById = async (req, res) => {
 
     const surveyResponse = await prisma.surveyResponse.findUnique({
       where: { id },
-      select: {
-        id: true,
-        role: true,
-        industry: true,
-        experience: true,
-        problem: true,
-        feature: true,
-        concern: true,
-        hearAbout: true,
-        email: true,
-        name: true,
-        phone: true,
-        location: true,
-        additionalFeedback: true,
-        rating: true,
-        status: true,
-        ipAddress: true,
-        userAgent: true,
-        createdAt: true,
-        updatedAt: true,
-      },
     });
 
     if (!surveyResponse) {
@@ -543,10 +485,3 @@ export const exportSurveyCSV = async (req, res) => {
     return response.error(res, "Failed to export survey responses", 500);
   }
 };
-
-// ── Email Helper ──
-async function sendSurveyConfirmation(email, name) {
-  // Implement your email sending logic here
-  console.log(`📧 Sending confirmation email to ${email}`);
-  // Use your email service
-}
