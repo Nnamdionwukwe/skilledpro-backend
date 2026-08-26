@@ -1,8 +1,18 @@
 // src/controllers/survey.controller.js
 
 import { PrismaClient } from "../generated/prisma/index.js";
-import { response } from "../utils/response.js";
+import { sendResponse, sendError } from "../utils/response.js";
 import { logAdminAction as auditLog } from "../utils/auditLog.js";
+
+// Create response wrapper with .success and .error methods
+const response = {
+  success: (res, message, data = null, status = 200) => {
+    return sendResponse(res, { status, message, data });
+  },
+  error: (res, message, status = 400, errors = null) => {
+    return sendError(res, message, status, errors);
+  },
+};
 
 const prisma = new PrismaClient();
 
