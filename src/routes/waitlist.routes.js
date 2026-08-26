@@ -21,6 +21,7 @@ router.patch(
   "/admin/entries/:id/status",
   waitlistController.updateWaitlistStatus,
 );
+router.delete("/admin/entries/:id", waitlistController.deleteWaitlistEntry);
 router.get("/admin/export/csv", waitlistController.exportWaitlistCSV);
 router.post("/admin/broadcast", waitlistController.broadcastEmail);
 router.get("/admin/campaigns", waitlistController.getCampaigns);

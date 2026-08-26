@@ -808,3 +808,38 @@ export const getWaitlistEntry = async (req, res) => {
     return response.error(res, "Failed to get waitlist entry", 500);
   }
 };
+
+// ─── Admin: Delete Waitlist Entry ─────────────────────────────────────────
+
+export const deleteWaitlistEntry = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await prisma.waitlistEntry.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return response.error(res, "Waitlist entry not found", 404);
+    }
+
+    // Delete related records first (email logs, etc.)
+    await prisma.waitlistEmailLog.deleteMany({
+      where: { waitlistId: id },
+    });
+
+    await prisma.waitlistEntry.delete({
+      where: { id },
+    });
+
+    console.log(`🗑️ Waitlist entry deleted: ${existing.email}`);
+
+    return response.success(res, "Waitlist entry deleted successfully", {
+      id: existing.id,
+      email: existing.email,
+    });
+  } catch (error) {
+    console.error("Delete waitlist entry error:", error);
+    return response.error(res, "Failed to delete waitlist entry", 500);
+  }
+};
