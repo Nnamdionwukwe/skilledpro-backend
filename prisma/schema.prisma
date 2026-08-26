@@ -229,6 +229,8 @@ enum AuditResult {
 
 model User {
   id                  String    @id @default(uuid())
+    feedback      Feedback[] @relation("FeedbackUser")
+  reviewedFeedback Feedback[] @relation("FeedbackReviewer")
   email               String    @unique
   phone               String?   @unique
   password            String
