@@ -289,7 +289,7 @@ function baseTemplate({ title, preheader, body }) {
 }
 
 // ── Core send function ─────────────────────────────────────────────────────
-async function sendEmail({ to, subject, html }) {
+export async function sendEmail({ to, subject, html }) {
   const fromAddress = (process.env.EMAIL_FROM || "").trim();
   if (!fromAddress) {
     console.error("❌ EMAIL_FROM env var is not set");
