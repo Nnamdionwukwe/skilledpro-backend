@@ -35,6 +35,7 @@ import externalJobRoutes from "./routes/externalJob.routes.js";
 import surveyRoutes from "./routes/survey.routes.js";
 import waitlistRoutes from "./routes/waitlist.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
+import hirerWalletRoutes from "./routes/hirerWallet.routes.js";
 
 import { apiLimiter } from "./middleware/rateLimit.middleware.js";
 import healthRouter from "./routes/health.routes.js";
@@ -139,6 +140,8 @@ app.use("/api/translate", translateRoutes);
 app.use("/api/survey", surveyRoutes);
 app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/feedback", feedbackRoutes);
+app.use("/api/wallet", hirerWalletRoutes);
+
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 

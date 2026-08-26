@@ -1339,4 +1339,123 @@ model Feedback {
   reviewer      User?    @relation("FeedbackReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
 }
 
+// ─── Hirer Wallet Model ──────────────────────────────────────────────────────
+model HirerWallet {
+  id               String          @id @default(uuid())
+  hirerId          String          @unique
+  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
+  balance          Float           @default(0)
+  currency         String          @default("NGN")
+  totalDeposited   Float           @default(0)
+  totalSpent       Float           @default(0)
+  totalWithdrawn   Float           @default(0)
+  isActive         Boolean         @default(true)
+  lastTransactionAt DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  transactions     HirerTransaction[]
+  withdrawals      HirerWithdrawal[]
+  fundingAttempts  HirerFundingAttempt[]
+
+  @@index([hirerId])
+  @@index([createdAt])
+}
+
+// ─── Hirer Wallet Transactions ──────────────────────────────────────────────
+model HirerTransaction {
+  id               String          @id @default(uuid())
+  walletId         String
+  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  hirerId          String
+  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
+  type             String          // DEPOSIT, WITHDRAWAL, PAYMENT, REFUND, BONUS, ADJUSTMENT
+  amount           Float
+  currency         String          @default("NGN")
+  fee              Float           @default(0)
+  netAmount        Float
+  reference        String?         @unique
+  status           String          @default("PENDING") // PENDING, COMPLETED, FAILED, REVERSED
+  description      String?
+  meta             Json?
+  bookingId        String?
+  paymentId        String?
+  balanceBefore    Float
+  balanceAfter     Float
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+
+  booking          Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  payment          Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([reference])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─── Hirer Wallet Withdrawals ──────────────────────────────────────────────
+model HirerWithdrawal {
+  id               String          @id @default(uuid())
+  walletId         String
+  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  hirerId          String
+  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
+  amount           Float
+  currency         String          @default("NGN")
+  fee              Float           @default(0)
+  netAmount        Float
+  bankName         String
+  accountNumber    String
+  accountName      String
+  bankCode         String?
+  reference        String          @unique
+  status           String          @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  failureReason    String?
+  processedAt      DateTime?
+  completedAt      DateTime?
+  meta             Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([reference])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── Hirer Wallet Funding Attempts ──────────────────────────────────────────
+model HirerFundingAttempt {
+  id               String          @id @default(uuid())
+  walletId         String
+  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  hirerId          String
+  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
+  amount           Float
+  currency         String          @default("NGN")
+  provider         String          // FLUTTERWAVE, PAYSTACK, STRIPE
+  providerRef      String          @unique
+  status           String          @default("INITIATED") // INITIATED, PROCESSING, SUCCESS, FAILED, CANCELLED
+  redirectUrl      String?
+  callbackData     Json?
+  paymentLink      String?
+  transactionId    String?
+  meta             Json?
+  expiresAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  transaction      HirerTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([providerRef])
+  @@index([status])
+  @@index([createdAt])
+}
+
 //to format run npx prisma format and to migarate run npx prisma generate
