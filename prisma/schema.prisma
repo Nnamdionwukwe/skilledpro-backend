@@ -1,10 +1,12 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -228,11 +230,11 @@ enum AuditResult {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-    feedback      Feedback[] @relation("FeedbackUser")
-  reviewedFeedback Feedback[] @relation("FeedbackReviewer")
-  email               String    @unique
-  phone               String?   @unique
+  id                  String     @id @default(uuid())
+  feedback            Feedback[] @relation("FeedbackUser")
+  reviewedFeedback    Feedback[] @relation("FeedbackReviewer")
+  email               String     @unique
+  phone               String?    @unique
   password            String
   role                Role
   firstName           String
@@ -245,19 +247,19 @@ model User {
   address             String?
   latitude            Float?
   longitude           Float?
-  currency            String    @default("USD")
-  language            String    @default("en")
-  isEmailVerified     Boolean   @default(false)
-  isPhoneVerified     Boolean   @default(false)
-  isActive            Boolean   @default(true)
-  isBanned            Boolean   @default(false)
+  currency            String     @default("USD")
+  language            String     @default("en")
+  isEmailVerified     Boolean    @default(false)
+  isPhoneVerified     Boolean    @default(false)
+  isActive            Boolean    @default(true)
+  isBanned            Boolean    @default(false)
   emailVerifyToken    String?
   passwordResetToken  String?
   passwordResetExpiry DateTime?
   refreshToken        String?
   lastSeen            DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   workerProfile     WorkerProfile?
   hirerProfile      HirerProfile?
@@ -340,13 +342,11 @@ model User {
   adminJobPosts            JobPost[] @relation("AdminJobPosts")
 
   externalJobClicks ExternalJobClick[]
-
-    // ─── Hirer Wallet Relations ──────────────────────────────────────────────
-  hirerWallet       HirerWallet?          @relation(fields: [hirerWalletId], references: [id])
-  hirerWalletId     String?               @unique
-  hirerTransactions HirerTransaction[]    @relation("HirerTransactions")
-  hirerWithdrawals  HirerWithdrawal[]     @relation("HirerWithdrawals")
-  hirerFundingAttempts HirerFundingAttempt[] @relation("HirerFundingAttempts")
+  // Wallet relations
+  hirerWallets     HirerWallet[]
+  hirerTransactions HirerTransaction[]
+  hirerWithdrawals HirerWithdrawal[]
+  hirerFundingAttempts HirerFundingAttempt[]
 }
 
 model Referral {
@@ -699,9 +699,11 @@ model Booking {
   checkOutLat    Float?
   checkOutLng    Float?
   completedAt    DateTime?
+quantity         Int?          @default(1)
   cancelReason   String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+custom_label     String? 
 
   payments         Payment[] // one booking → many payment attempts
   reviews          Review[]
@@ -769,6 +771,10 @@ model Payment {
   notes String?
 
   referralDeduct Float? @default(0)
+
+  // ─── Wallet Payments ──────────────────────────────────────────────────────
+  walletTransactions HirerTransaction[]
+  walletPaymentId    String?
 }
 
 model Withdrawal {
@@ -846,10 +852,10 @@ model Notification {
   body      String
   type      String
   data      Json?
-  icon      String?  // ← NEW: React Icon name (e.g., "FaCalendarPlus")
+  icon      String? // ← NEW: React Icon name (e.g., "FaCalendarPlus")
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
-  
+
   @@index([userId])
   @@index([isRead])
   @@index([createdAt])
@@ -1192,42 +1198,41 @@ model SavedJob {
 // prisma/schema.prisma
 
 model SurveyResponse {
-  id                  String    @id @default(cuid())
-  role                String?   @map("role")
-  industry            String?   @map("industry")
-  experience          String?   @map("experience_level")
-  problem             String?   @map("biggest_challenge")
-  feature             String?   @map("desired_feature")
-  concern             String?   @map("biggest_concern")
-  hearAbout           String?   @map("hear_about")
-  email               String?   @map("email")
-  name                String?   @map("full_name")
-  phone               String?   @map("phone_number")
-  location            String?   @map("location")
-  additionalFeedback  String?   @map("additional_feedback")
-  rating              Int?      @default(0)
-  status              String    @default("PENDING") @map("status")
-  ipAddress           String?   @map("ip_address")
-  userAgent           String?   @map("user_agent")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id                 String   @id @default(cuid())
+  role               String?  @map("role")
+  industry           String?  @map("industry")
+  experience         String?  @map("experience_level")
+  problem            String?  @map("biggest_challenge")
+  feature            String?  @map("desired_feature")
+  concern            String?  @map("biggest_concern")
+  hearAbout          String?  @map("hear_about")
+  email              String?  @map("email")
+  name               String?  @map("full_name")
+  phone              String?  @map("phone_number")
+  location           String?  @map("location")
+  additionalFeedback String?  @map("additional_feedback")
+  rating             Int?     @default(0)
+  status             String   @default("PENDING") @map("status")
+  ipAddress          String?  @map("ip_address")
+  userAgent          String?  @map("user_agent")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  @@map("survey_responses")
   @@index([email])
   @@index([createdAt])
   @@index([status])
+  @@map("survey_responses")
 }
 
+// ─── Waitlist Model ──────────────────────────────────────────────────────────
 
-// ─── Waitlist Entry Model ──────────────────────────────────────────────────
+// ─── Waitlist Models ──────────────────────────────────────────────────────────
 
 model WaitlistEntry {
   id                String    @id @default(cuid())
   email             String    @unique
   name              String?   @map("full_name")
-  status            String    @default("PENDING") // PENDING | CONFIRMED | UNLOCKED | LAUNCHED
-  
-  // Geolocation
+  status            String    @default("PENDING")
   ipAddress         String?   @map("ip_address")
   country           String?   @map("country")
   region            String?   @map("region")
@@ -1236,9 +1241,7 @@ model WaitlistEntry {
   longitude         Float?    @map("longitude")
   timezone          String?   @map("timezone")
   postalCode        String?   @map("postal_code")
-  
-  // Device Info
-  deviceType        String?   @map("device_type") // mobile | desktop | tablet
+  deviceType        String?   @map("device_type")
   deviceBrand       String?   @map("device_brand")
   deviceModel       String?   @map("device_model")
   osName            String?   @map("os_name")
@@ -1246,154 +1249,147 @@ model WaitlistEntry {
   browserName       String?   @map("browser_name")
   browserVersion    String?   @map("browser_version")
   userAgent         String?   @map("user_agent")
-  
-  // Referral
   referralCode      String?   @unique @map("referral_code")
   referredBy        String?   @map("referred_by")
-  
-  // Tokens & Status
   token             String?   @unique
   tokenExpiresAt    DateTime? @map("token_expires_at")
   confirmedAt       DateTime? @map("confirmed_at")
-  
-  // Unlocked benefits tracking
-  unlockedBenefits  String[]  @map("unlocked_benefits") // EARLY_ACCESS | EXCLUSIVE_BONUS | LIFETIME_BENEFITS | VIP_SUPPORT
+  unlockedBenefits  String[]  @map("unlocked_benefits")
   benefitUnlockedAt DateTime? @map("benefit_unlocked_at")
-  
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  @@map("waitlist_entries")
   @@index([email])
   @@index([status])
   @@index([country])
   @@index([deviceType])
   @@index([createdAt])
+  @@map("waitlist_entries")
 }
-
-// ─── Waitlist Email Campaigns ──────────────────────────────────────────────
 
 model WaitlistCampaign {
-  id                String    @id @default(cuid())
-  title             String    @map("title")
-  subject           String    @map("subject")
-  content           String    @map("content") // HTML content
-  previewText       String?   @map("preview_text")
-  status            String    @default("DRAFT") // DRAFT | SENT | SCHEDULED
-  sentAt            DateTime? @map("sent_at")
-  scheduledFor      DateTime? @map("scheduled_for")
-  recipientCount    Int       @default(0) @map("recipient_count")
-  openedCount       Int       @default(0) @map("opened_count")
-  clickedCount      Int       @default(0) @map("clicked_count")
-  createdBy         String?   @map("created_by")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  title          String    @map("title")
+  subject        String    @map("subject")
+  content        String    @map("content")
+  previewText    String?   @map("preview_text")
+  status         String    @default("DRAFT")
+  sentAt         DateTime? @map("sent_at")
+  scheduledFor   DateTime? @map("scheduled_for")
+  recipientCount Int       @default(0) @map("recipient_count")
+  openedCount    Int       @default(0) @map("opened_count")
+  clickedCount   Int       @default(0) @map("clicked_count")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  @@map("waitlist_campaigns")
   @@index([status])
   @@index([sentAt])
+  @@map("waitlist_campaigns")
 }
 
-// ─── Waitlist Email Logs ────────────────────────────────────────────────────
-
 model WaitlistEmailLog {
-  id                String    @id @default(cuid())
-  waitlistId        String    @map("waitlist_id")
-  campaignId        String?   @map("campaign_id")
-  email             String    @map("email")
-  type              String    @map("type") // CONFIRMATION | BROADCAST | BENEFIT_UNLOCKED | LAUNCH_ANNOUNCEMENT
-  subject           String    @map("subject")
-  opened            Boolean   @default(false) @map("opened")
-  openedAt          DateTime? @map("opened_at")
-  clicked           Boolean   @default(false) @map("clicked")
-  clickedAt         DateTime? @map("clicked_at")
-  sentAt            DateTime  @default(now()) @map("sent_at")
-  error             String?   @map("error")
+  id         String    @id @default(cuid())
+  waitlistId String    @map("waitlist_id")
+  campaignId String?   @map("campaign_id")
+  email      String    @map("email")
+  type       String    @map("type")
+  subject    String    @map("subject")
+  opened     Boolean   @default(false) @map("opened")
+  openedAt   DateTime? @map("opened_at")
+  clicked    Boolean   @default(false) @map("clicked")
+  clickedAt  DateTime? @map("clicked_at")
+  sentAt     DateTime  @default(now()) @map("sent_at")
+  error      String?   @map("error")
 
-  waitlist          WaitlistEntry @relation(fields: [waitlistId], references: [id])
-
-  @@map("waitlist_email_logs")
   @@index([waitlistId])
   @@index([campaignId])
   @@index([type])
   @@index([sentAt])
+  @@map("waitlist_email_logs")
 }
 
 // ─── Feedback Model ──────────────────────────────────────────────────────────
 model Feedback {
-  id            String   @id @default(cuid())
-  type          String   // praise, suggestion, bug, feature, general
-  rating        Int      // 1-5
-  title         String
-  description   String
-  email         String?
-  name          String?
-  tags          String[]
-  screenUrl     String?
-  browserInfo   String?
-  userId        String?
-  status        String   @default("PENDING") // PENDING, REVIEWED, RESOLVED, DISMISSED
-  adminNotes    String?
-  reviewedAt    DateTime?
-  reviewedBy    String?
-  ipAddress     String?
-  userAgent     String?
-  submittedAt   DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(cuid())
+  type        String // praise, suggestion, bug, feature, general
+  rating      Int // 1-5
+  title       String
+  description String
+  email       String?
+  name        String?
+  tags        String[]
+  screenUrl   String?
+  browserInfo String?
+  userId      String?
+  status      String    @default("PENDING") // PENDING, REVIEWED, RESOLVED, DISMISSED
+  adminNotes  String?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  ipAddress   String?
+  userAgent   String?
+  submittedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  user          User?    @relation("FeedbackUser", fields: [userId], references: [id], onDelete: SetNull)
-  reviewer      User?    @relation("FeedbackReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  user     User? @relation("FeedbackUser", fields: [userId], references: [id], onDelete: SetNull)
+  reviewer User? @relation("FeedbackReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
 }
 
 // ─── Hirer Wallet Model ──────────────────────────────────────────────────────
 model HirerWallet {
-  id               String          @id @default(uuid())
-  hirerId          String          @unique
-  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
-  balance          Float           @default(0)
-  currency         String          @default("NGN")
-  totalDeposited   Float           @default(0)
-  totalSpent       Float           @default(0)
-  totalWithdrawn   Float           @default(0)
-  isActive         Boolean         @default(true)
+  id                String    @id @default(uuid())
+  hirerId           String
+  currency          String    @default("NGN")
+  balance           Float     @default(0)
+  totalDeposited    Float     @default(0)
+  totalSpent        Float     @default(0)
+  totalWithdrawn    Float     @default(0)
+  isActive          Boolean   @default(true)
   lastTransactionAt DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
+  // Relations
+  hirer            User                  @relation(fields: [hirerId], references: [id])
   transactions     HirerTransaction[]
   withdrawals      HirerWithdrawal[]
   fundingAttempts  HirerFundingAttempt[]
 
+  @@unique([hirerId, currency])
   @@index([hirerId])
+  @@index([currency])
   @@index([createdAt])
 }
 
-// ─── Hirer Wallet Transactions ──────────────────────────────────────────────
+// ─── Hirer Transaction Model ────────────────────────────────────────────────
 model HirerTransaction {
-  id               String          @id @default(uuid())
-  walletId         String
-  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  hirerId          String
-  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
-  type             String          // DEPOSIT, WITHDRAWAL, PAYMENT, REFUND, BONUS, ADJUSTMENT
-  amount           Float
-  currency         String          @default("NGN")
-  fee              Float           @default(0)
-  netAmount        Float
-  reference        String?         @unique
-  status           String          @default("PENDING") // PENDING, COMPLETED, FAILED, REVERSED
-  description      String?
-  meta             Json?
-  bookingId        String?
-  paymentId        String?
-  balanceBefore    Float
-  balanceAfter     Float
-  completedAt      DateTime?
-  createdAt        DateTime        @default(now())
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  type          String    // DEPOSIT, WITHDRAWAL, PAYMENT, SUBSCRIPTION, REFUND, BONUS, ADJUSTMENT
+  amount        Float
+  currency      String    @default("NGN")
+  fee           Float     @default(0)
+  netAmount     Float
+  reference     String    @unique
+  status        String    // PENDING, PROCESSING, COMPLETED, FAILED, REVERSED
+  description   String?
+  balanceBefore Float?
+  balanceAfter  Float?
+  completedAt   DateTime?
+  meta          Json?
+  createdAt     DateTime  @default(now())
+updatedAt     DateTime  @default(now()) @updatedAt
 
-  booking          Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-  payment          Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  // Relations
+  wallet         HirerWallet          @relation(fields: [walletId], references: [id])
+  hirer          User                 @relation(fields: [hirerId], references: [id])
+  fundingAttempts HirerFundingAttempt[]
+
+  // Payment relation
+  payment        Payment? @relation(fields: [paymentId], references: [id])
+  paymentId      String?
 
   @@index([walletId])
   @@index([hirerId])
@@ -1405,27 +1401,29 @@ model HirerTransaction {
 
 // ─── Hirer Wallet Withdrawals ──────────────────────────────────────────────
 model HirerWithdrawal {
-  id               String          @id @default(uuid())
-  walletId         String
-  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  hirerId          String
-  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
-  amount           Float
-  currency         String          @default("NGN")
-  fee              Float           @default(0)
-  netAmount        Float
-  bankName         String
-  accountNumber    String
-  accountName      String
-  bankCode         String?
-  reference        String          @unique
-  status           String          @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
-  failureReason    String?
-  processedAt      DateTime?
-  completedAt      DateTime?
-  meta             Json?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  amount        Float
+  currency      String    @default("NGN")
+  fee           Float     @default(0)
+  netAmount     Float
+  bankName      String
+  accountNumber String
+  accountName   String
+  bankCode      String?
+  reference     String    @unique
+  status        String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  failureReason String?
+  processedAt   DateTime?
+  completedAt   DateTime?
+  meta          Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  wallet HirerWallet @relation(fields: [walletId], references: [id])
+  hirer  User        @relation(fields: [hirerId], references: [id])
 
   @@index([walletId])
   @@index([hirerId])
@@ -1436,27 +1434,29 @@ model HirerWithdrawal {
 
 // ─── Hirer Wallet Funding Attempts ──────────────────────────────────────────
 model HirerFundingAttempt {
-  id               String          @id @default(uuid())
-  walletId         String
-  wallet           HirerWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  hirerId          String
-  hirer            User            @relation(fields: [hirerId], references: [id], onDelete: Cascade)
-  amount           Float
-  currency         String          @default("NGN")
-  provider         String          // FLUTTERWAVE, PAYSTACK, STRIPE
-  providerRef      String          @unique
-  status           String          @default("INITIATED") // INITIATED, PROCESSING, SUCCESS, FAILED, CANCELLED
-  redirectUrl      String?
-  callbackData     Json?
-  paymentLink      String?
-  transactionId    String?
-  meta             Json?
-  expiresAt        DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  amount        Float
+  currency      String    @default("NGN")
+  provider      String    // FLUTTERWAVE, PAYSTACK, STRIPE
+  providerRef   String    @unique
+  status        String    @default("INITIATED") // INITIATED, PROCESSING, SUCCESS, FAILED, CANCELLED
+  redirectUrl   String?
+  callbackData  Json?
+  paymentLink   String?
+  transactionId String?
+  meta          Json?
+  expiresAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  transaction      HirerTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  // Relations
+  wallet      HirerWallet       @relation(fields: [walletId], references: [id])
+  transaction HirerTransaction? @relation(fields: [transactionId], references: [id])
+
+   hirer       User              @relation(fields: [hirerId], references: [id])
 
   @@index([walletId])
   @@index([hirerId])
@@ -1464,5 +1464,3 @@ model HirerFundingAttempt {
   @@index([status])
   @@index([createdAt])
 }
-
-//to format run npx prisma format and to migarate run npx prisma generate

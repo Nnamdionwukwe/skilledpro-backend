@@ -2723,3 +2723,368 @@ export const validateExportSurveyCSV = [
     .withMessage("toDate must be a valid ISO date"),
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § 36  ADDITIONAL VALIDATORS FOR MISSING ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── AI Routes ──────────────────────────────────────────────────────────────
+export const validateAiRequest = [
+  body("prompt")
+    .trim()
+    .notEmpty()
+    .withMessage("Prompt is required")
+    .isLength({ min: 3, max: 5000 })
+    .withMessage("Prompt must be 3-5000 characters"),
+  body("type")
+    .optional()
+    .isIn(["text", "image", "code", "analysis"])
+    .withMessage("Invalid AI request type"),
+  validate,
+];
+
+// ─── Audit Routes ──────────────────────────────────────────────────────────
+export const validateAuditQuery = [
+  query("action")
+    .optional()
+    .trim()
+    .isIn([
+      "USER_BANNED",
+      "USER_UNBANNED",
+      "USER_DELETED",
+      "USER_ROLE_CHANGED",
+      "PAYMENT_RELEASED",
+      "PAYMENT_REFUNDED",
+      "WITHDRAWAL_APPROVED",
+      "WITHDRAWAL_REJECTED",
+      "REPORT_REVIEWED",
+      "REPORT_RESOLVED",
+      "CATEGORY_CREATED",
+      "CATEGORY_UPDATED",
+      "CATEGORY_DELETED",
+      "BOOKING_STATUS_CHANGED",
+      "DISPUTE_RESOLVED",
+    ])
+    .withMessage("Invalid audit action"),
+  query("targetType")
+    .optional()
+    .trim()
+    .isIn([
+      "USER",
+      "PAYMENT",
+      "WITHDRAWAL",
+      "BOOKING",
+      "JOB_POST",
+      "CATEGORY",
+      "REPORT",
+    ])
+    .withMessage("Invalid target type"),
+  query("fromDate")
+    .optional()
+    .isISO8601()
+    .withMessage("fromDate must be a valid ISO date"),
+  query("toDate")
+    .optional()
+    .isISO8601()
+    .withMessage("toDate must be a valid ISO date"),
+  validate,
+];
+
+// ─── Feedback Routes ──────────────────────────────────────────────────────
+// validateSubmitFeedback already exists in feedback.controller.js validation
+// Adding additional validation for admin feedback actions
+export const validateFeedbackStatus = [
+  param("id").isUUID(4).withMessage("Feedback ID must be a valid UUID"),
+  body("status")
+    .notEmpty()
+    .withMessage("Status is required")
+    .isIn(["PENDING", "REVIEWED", "RESOLVED", "DISMISSED"])
+    .withMessage("Invalid status"),
+  body("adminNotes")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage("Admin notes must not exceed 1000 characters"),
+  validate,
+];
+
+// ─── Health Routes ──────────────────────────────────────────────────────────
+// Health routes typically don't need validation, but we can add basic checks
+export const validateHealthCheck = [
+  query("detailed")
+    .optional()
+    .isBoolean()
+    .withMessage("detailed must be a boolean"),
+  validate,
+];
+
+// ─── Hirer Wallet Routes ──────────────────────────────────────────────────
+export const validateWalletFund = [
+  body("amount")
+    .notEmpty()
+    .withMessage("Amount is required")
+    .isFloat({ min: 100 })
+    .withMessage("Minimum deposit amount is ₦100"),
+  body("currency")
+    .optional()
+    .trim()
+    .isIn([
+      "NGN",
+      "USD",
+      "EUR",
+      "GBP",
+      "GHS",
+      "KES",
+      "ZAR",
+      "INR",
+      "CAD",
+      "AUD",
+      "JPY",
+      "CNY",
+      "BRL",
+      "AED",
+      "SAR",
+      "QAR",
+      "EGP",
+      "TZS",
+      "UGX",
+      "RWF",
+      "XOF",
+      "MAD",
+      "PHP",
+      "IDR",
+      "VND",
+      "THB",
+      "BDT",
+      "PKR",
+      "MYR",
+      "SGD",
+      "HKD",
+    ])
+    .withMessage("Invalid currency"),
+  body("redirectUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isURL()
+    .withMessage("redirectUrl must be a valid URL"),
+  validate,
+];
+
+export const validateWalletWithdraw = [
+  body("amount")
+    .notEmpty()
+    .withMessage("Amount is required")
+    .isFloat({ min: 100 })
+    .withMessage("Minimum withdrawal amount is ₦100"),
+  body("currency")
+    .optional()
+    .trim()
+    .isIn(["NGN", "USD", "EUR", "GBP"])
+    .withMessage("Invalid currency"),
+  body("bankName")
+    .trim()
+    .notEmpty()
+    .withMessage("Bank name is required")
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Bank name must be 2-100 characters"),
+  body("accountNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("Account number is required")
+    .matches(/^\d{10}$/)
+    .withMessage("Account number must be exactly 10 digits"),
+  body("accountName")
+    .trim()
+    .notEmpty()
+    .withMessage("Account name is required")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("Account name must be 2-150 characters"),
+  body("bankCode")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 10 })
+    .withMessage("Bank code must not exceed 10 characters"),
+  validate,
+];
+
+export const validateWalletTransaction = [
+  query("type")
+    .optional()
+    .isIn([
+      "DEPOSIT",
+      "WITHDRAWAL",
+      "PAYMENT",
+      "SUBSCRIPTION",
+      "REFUND",
+      "BONUS",
+      "ADJUSTMENT",
+    ])
+    .withMessage("Invalid transaction type"),
+  query("status")
+    .optional()
+    .isIn(["PENDING", "COMPLETED", "FAILED", "REVERSED"])
+    .withMessage("Invalid transaction status"),
+  query("fromDate")
+    .optional()
+    .isISO8601()
+    .withMessage("fromDate must be a valid ISO date"),
+  query("toDate")
+    .optional()
+    .isISO8601()
+    .withMessage("toDate must be a valid ISO date"),
+  validate,
+];
+
+// ─── Notification Routes ──────────────────────────────────────────────────
+export const validateNotification = [
+  body("userId")
+    .optional()
+    .isUUID(4)
+    .withMessage("User ID must be a valid UUID"),
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("Notification title is required")
+    .isLength({ min: 3, max: 100 })
+    .withMessage("Title must be 3-100 characters"),
+  body("body")
+    .trim()
+    .notEmpty()
+    .withMessage("Notification body is required")
+    .isLength({ min: 5, max: 500 })
+    .withMessage("Body must be 5-500 characters"),
+  body("type")
+    .optional()
+    .isIn(["info", "success", "warning", "error"])
+    .withMessage("Invalid notification type"),
+  validate,
+];
+
+// ─── Translate Routes ─────────────────────────────────────────────────────
+const SUPPORTED_LANGUAGES = [
+  "en", // English
+  "yo", // Yoruba
+  "ha", // Hausa
+  "ig", // Igbo
+  "fr", // French
+  "ar", // Arabic
+  "sw", // Swahili  ← ADD THIS
+  "pt", // Portuguese
+  "hi", // Hindi
+  "es", // Spanish
+  "zh", // Chinese
+  "bn", // Bengali  ← ADD THIS
+];
+
+export const validateTranslateRequest = [
+  body("text")
+    .trim()
+    .notEmpty()
+    .withMessage("Text to translate is required")
+    .isLength({ min: 1, max: 5000 })
+    .withMessage("Text must be 1-5000 characters"),
+
+  body("targetLang")
+    .trim()
+    .notEmpty()
+    .withMessage("Target language is required")
+    .isIn(SUPPORTED_LANGUAGES)
+    .withMessage(
+      (value) =>
+        `"${value}" is not a supported language. Supported: ${SUPPORTED_LANGUAGES.join(", ")}`,
+    ),
+
+  body("sourceLang")
+    .optional({ nullable: true })
+    .trim()
+    .isIn(SUPPORTED_LANGUAGES)
+    .withMessage(
+      (value) =>
+        `"${value}" is not a supported language. Supported: ${SUPPORTED_LANGUAGES.join(", ")}`,
+    ),
+
+  // Add custom validator to log and debug
+  body().custom((value, { req }) => {
+    console.log("Translation request validated:", {
+      text: req.body.text?.substring(0, 50) + "...",
+      targetLang: req.body.targetLang,
+      sourceLang: req.body.sourceLang || "auto",
+    });
+    return true;
+  }),
+
+  validate,
+];
+
+// ─── Waitlist Routes ──────────────────────────────────────────────────────
+export const validateWaitlistJoin = [
+  body("email")
+    .trim()
+    .notEmpty()
+    .withMessage("Email is required")
+    .isEmail()
+    .withMessage("Please provide a valid email address")
+    .normalizeEmail()
+    .isLength({ max: 255 })
+    .withMessage("Email must not exceed 255 characters"),
+  body("name")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Name must be 2-100 characters"),
+  body("country")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 60 })
+    .withMessage("Country must not exceed 60 characters"),
+  body("region")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Region must not exceed 100 characters"),
+  body("city")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("City must not exceed 100 characters"),
+  body("timezone")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("Timezone must not exceed 50 characters"),
+  validate,
+];
+
+export const validateWaitlistBroadcast = [
+  body("subject")
+    .trim()
+    .notEmpty()
+    .withMessage("Subject is required")
+    .isLength({ min: 3, max: 200 })
+    .withMessage("Subject must be 3-200 characters"),
+  body("content")
+    .trim()
+    .notEmpty()
+    .withMessage("Content is required")
+    .isLength({ min: 10, max: 10000 })
+    .withMessage("Content must be 10-10000 characters"),
+  body("targetStatus")
+    .optional()
+    .isIn(["CONFIRMED", "PENDING", "ALL"])
+    .withMessage("Invalid target status"),
+  body("type")
+    .optional()
+    .isIn(["BROADCAST", "LAUNCH_ANNOUNCEMENT", "BENEFIT_UNLOCKED"])
+    .withMessage("Invalid broadcast type"),
+  validate,
+];
+
+export const validateWaitlistStatus = [
+  param("id").isUUID(4).withMessage("Waitlist entry ID must be a valid UUID"),
+  body("status")
+    .notEmpty()
+    .withMessage("Status is required")
+    .isIn(["PENDING", "CONFIRMED", "EXPIRED"])
+    .withMessage("Invalid status"),
+  validate,
+];

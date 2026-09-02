@@ -36,30 +36,50 @@ import surveyRoutes from "./routes/survey.routes.js";
 import waitlistRoutes from "./routes/waitlist.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
 import hirerWalletRoutes from "./routes/hirerWallet.routes.js";
+import refundRoutes from "./routes/refund.routes.js";
 
-import { apiLimiter } from "./middleware/rateLimit.middleware.js";
+import { helmetConfig } from "./config/helmet.config.js";
+import {
+  securityHeaders,
+  corsSecurityHeaders,
+} from "./middleware/securityHeaders.middleware.js";
+import {
+  requestLogger,
+  logger,
+  securityLogger,
+  performanceLogger,
+} from "./utils/logger.js";
+
+import {
+  globalLimiter,
+  authLimiter,
+  registerLimiter,
+  sensitiveLimiter,
+  walletLimiter,
+  adminLimiter,
+  feedbackLimiter,
+  emailLimiter,
+  surveyLimiter,
+} from "./middleware/security.middleware.js";
+
 import healthRouter from "./routes/health.routes.js";
-
 import "./services/expiry.service.js"; // starts the cron job
 
-// NOTE: dotenv is NOT called here — server.js handles it via "import dotenv/config"
-// before this file is imported.
-
 const app = express();
+app.use(securityHeaders);
+app.use(corsSecurityHeaders);
 app.use("/health", healthRouter);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-// Single cors() call — handles both regular requests AND OPTIONS preflight.
-// Never call cors() a second time anywhere (no app.options + cors(), no per-router cors()).
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin: mobile apps, server-to-server, curl, Postman
     if (!origin) return callback(null, true);
 
     const allowed = [
-      process.env.CLIENT_URL, // set in .env, e.g. https://www.skilledproz.com
+      process.env.CLIENT_URL,
       "https://skilledproz.com",
       "https://www.skilledproz.com",
+      "https://api.skilledproz.com",
       "https://skilledproz.vercel.app",
       "http://localhost:3000",
       "http://localhost:5173",
@@ -81,27 +101,59 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // ── Stripe webhook — raw body BEFORE express.json() ───────────────────────────
-// Stripe requires the raw, unparsed body to verify the webhook signature.
-// This must come before express.json() so the body is not consumed first.
 app.use(
   "/api/payments/webhook/stripe",
   express.raw({ type: "application/json" }),
 );
 
 // ── Security & logging ────────────────────────────────────────────────────────
-app.use(
-  helmet({
-    crossOriginResourcePolicy: false,
-    crossOriginOpenerPolicy: false,
-  }),
-);
-app.use(morgan("dev"));
+app.use(helmet(helmetConfig));
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    performanceLogger.api(req.path, req.method, res.statusCode, duration, {
+      ip: req.ip,
+      userId: req.user?.id || "anonymous",
+    });
+  });
+  next();
+});
 
 // ── Body parsers ──────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use("/api", apiLimiter);
+// ─── Rate Limiting ──────────────────────────────────────────────────────────
+// Apply global rate limiter to all API routes
+app.use("/api", globalLimiter);
+
+// Apply stricter limits to specific routes
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", registerLimiter);
+app.use("/api/auth/forgot-password", sensitiveLimiter);
+app.use("/api/auth/reset-password", sensitiveLimiter);
+app.use("/api/auth/resend-verification", sensitiveLimiter);
+app.use("/api/auth/verify-email", sensitiveLimiter);
+
+// Wallet routes
+app.use("/api/wallet", walletLimiter);
+app.use("/api/wallet/fund", walletLimiter);
+app.use("/api/wallet/withdraw", walletLimiter);
+
+// Admin routes
+app.use("/api/admin", adminLimiter);
+app.use("/api/admin/*", adminLimiter);
+
+// Feedback routes
+app.use("/api/feedback", feedbackLimiter);
+
+// Survey routes
+app.use("/api/survey", surveyLimiter);
+
+// Email/Notification routes
+app.use("/api/notifications/broadcast", emailLimiter);
+app.use("/api/waitlist/admin/broadcast", emailLimiter);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));
@@ -136,11 +188,11 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/admin", adminJobRoutes);
 app.use("/api/external-jobs", externalJobRoutes);
-app.use("/api/translate", translateRoutes);
 app.use("/api/survey", surveyRoutes);
 app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/wallet", hirerWalletRoutes);
+app.use("/api/refunds", refundRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);

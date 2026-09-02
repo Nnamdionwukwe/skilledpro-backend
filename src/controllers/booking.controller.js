@@ -23,6 +23,7 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+
 // ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
   try {
@@ -62,25 +63,24 @@ export const createBooking = async (req, res) => {
         longitude: longitude ? parseFloat(longitude) : null,
         scheduledAt: new Date(scheduledAt),
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
-        estimatedUnit: estimatedUnit || "hours", // ← saved
-        estimatedValue: estimatedValue || null, // ← saved
+        estimatedUnit: estimatedUnit || "hours",
+        estimatedValue: estimatedValue || null,
         agreedRate:
           isNegotiated && negotiatedRate
             ? parseFloat(negotiatedRate)
             : parseFloat(agreedRate),
-
         currency: currency || "USD",
         notes,
-        jobType: jobType || null, // ← ADD
-        locationType: locationType || null, // ← ADD
+        jobType: jobType || null,
+        locationType: locationType || null,
         isNegotiated: isNegotiated === true || isNegotiated === "true",
         negotiatedRate:
           isNegotiated && negotiatedRate ? parseFloat(negotiatedRate) : null,
         negotiationNote:
           isNegotiated && negotiationNote ? negotiationNote.trim() : null,
+        requirements: requirements || null, // ← Moved INSIDE data
+        responsibilities: responsibilities || null, // ← Moved INSIDE data
       },
-      requirements: requirements || null,
-      responsibilities: responsibilities || null,
       include: {
         hirer: {
           select: { id: true, firstName: true, lastName: true, email: true },
@@ -212,7 +212,15 @@ export const getBooking = async (req, res) => {
       return sendError(res, "Forbidden", 403);
     }
 
-    return sendResponse(res, { data: { booking } });
+    // Ensure duration fields are properly included
+    const responseData = {
+      ...booking,
+      estimatedHours: booking.estimatedHours || null,
+      estimatedUnit: booking.estimatedUnit || "hours",
+      estimatedValue: booking.estimatedValue || null,
+    };
+
+    return sendResponse(res, { data: { booking: responseData } });
   } catch (err) {
     console.error("getBooking error:", err.message);
     return sendError(res, "Failed to fetch booking");
