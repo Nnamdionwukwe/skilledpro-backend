@@ -1,21 +1,18 @@
 // src/services/refund.service.js
 import prisma from "../config/database.js";
-import { sendResponse, sendError } from "../utils/response.js";
 import { createNotification } from "./notification.service.js";
 import { v4 as uuidv4 } from "uuid";
 
 // ── Constants ──────────────────────────────────────────────────────────
 const REFUND_TIME_LIMIT_HOURS = 48;
-const PLATFORM_FEE_PERCENT = 0.1; // 10%
+const PLATFORM_FEE_PERCENT = 0.05;
 
 // ── Check if refund is within time limit ────────────────────────────
 export const isRefundEligible = (booking) => {
   if (booking.status !== "COMPLETED") return false;
-
   const completedAt = booking.completedAt || booking.updatedAt;
   const hoursSinceCompletion =
     (Date.now() - new Date(completedAt).getTime()) / (1000 * 60 * 60);
-
   return hoursSinceCompletion <= REFUND_TIME_LIMIT_HOURS;
 };
 
@@ -54,7 +51,6 @@ export const calculateRefundAmounts = (
 
     case "CUSTOM_AMOUNT":
       finalPercentage = (refundAmount / originalAmount) * 100;
-      // Custom amount logic handled separately
       break;
 
     case "DISPUTE":
@@ -116,30 +112,32 @@ export const processRefund = async (refundId) => {
       });
     }
 
-    // 3. Debit Worker's wallet (if they have balance)
+    // 3. Debit Worker's wallet and update earnings
     const worker = await prisma.user.findUnique({
       where: { id: refund.workerId },
       include: { workerProfile: true },
     });
 
-    if (worker) {
-      // Check worker's wallet balance
-      const workerWallet = await prisma.workerWallet?.findUnique({
-        where: { workerId: refund.workerId },
+    if (worker && worker.workerProfile) {
+      // Update worker profile earnings
+      await prisma.workerProfile.update({
+        where: { userId: refund.workerId },
+        data: {
+          totalEarnings: { decrement: refund.workerAmountDeducted },
+        },
       });
-
-      if (workerWallet) {
-        await prisma.workerWallet.update({
-          where: { id: workerWallet.id },
-          data: {
-            balance: { decrement: refund.workerAmountDeducted },
-            pendingBalance: { decrement: refund.workerAmountDeducted },
-          },
-        });
-      }
     }
 
-    // 4. Create wallet transaction for Hirer
+    // 4. Update payment status to REFUNDED
+    await prisma.payment.update({
+      where: { id: refund.paymentId },
+      data: {
+        status: "REFUNDED",
+        refundedAt: new Date(),
+      },
+    });
+
+    // 5. Create wallet transaction for Hirer
     await prisma.hirerTransaction.create({
       data: {
         walletId: hirerWallet.id,
@@ -161,7 +159,26 @@ export const processRefund = async (refundId) => {
       },
     });
 
-    // 5. Update refund status to COMPLETED
+    // 6. Create a negative transaction for worker (deduction)
+    // This tracks the deduction from worker's earnings
+    await prisma.transaction
+      .create?.({
+        data: {
+          userId: refund.workerId,
+          type: "REFUND_DEDUCTION",
+          amount: -refund.workerAmountDeducted,
+          currency: refund.currency,
+          description: `Refund deduction for booking ${refund.booking.title}`,
+          reference: refund.reference,
+          meta: {
+            bookingId: refund.bookingId,
+            refundId: refund.id,
+          },
+        },
+      })
+      .catch(() => {});
+
+    // 7. Update refund status to COMPLETED
     await prisma.refund.update({
       where: { id: refundId },
       data: {
@@ -170,7 +187,7 @@ export const processRefund = async (refundId) => {
       },
     });
 
-    // 6. Update booking
+    // 8. Update booking
     await prisma.booking.update({
       where: { id: refund.bookingId },
       data: {
@@ -179,7 +196,7 @@ export const processRefund = async (refundId) => {
       },
     });
 
-    // 7. Send notifications
+    // 9. Send notifications
     await createNotification({
       userId: refund.hirerId,
       title: "Refund Processed",
@@ -192,7 +209,7 @@ export const processRefund = async (refundId) => {
     await createNotification({
       userId: refund.workerId,
       title: "Refund Processed",
-      body: `${refund.currency} ${refund.workerAmountDeducted.toLocaleString()} has been deducted from your wallet for booking "${refund.booking.title}".`,
+      body: `${refund.currency} ${refund.workerAmountDeducted.toLocaleString()} has been deducted from your earnings for booking "${refund.booking.title}".`,
       type: "REFUND_DEDUCTED",
       data: { bookingId: refund.bookingId, refundId: refund.id },
       icon: "FaExclamationTriangle",
@@ -212,53 +229,110 @@ export const processRefund = async (refundId) => {
   }
 };
 
-// ── Auto-approve refund (if enabled) ──────────────────────────────
-export const autoApproveRefund = async (refundId) => {
+// ── Reverse refund (restore funds to worker) ──────────────────────────
+export const reverseRefund = async (refundId, adminId) => {
   const refund = await prisma.refund.findUnique({
     where: { id: refundId },
     include: {
       booking: true,
       payment: true,
+      hirer: true,
+      worker: true,
     },
   });
 
   if (!refund) throw new Error("Refund not found");
-  if (refund.status !== "PENDING") return refund;
+  if (refund.status !== "COMPLETED")
+    throw new Error("Only completed refunds can be reversed");
 
-  // Check if auto-approval is enabled in settings
-  const settings = await prisma.appSettings.findFirst({
-    where: { key: "refund_auto_approve" },
-  });
+  try {
+    // 1. Debit Hirer's wallet (reverse the credit)
+    const hirerWallet = await prisma.hirerWallet.findUnique({
+      where: { hirerId: refund.hirerId },
+    });
 
-  const isAutoApprove = settings?.value === "true";
+    if (hirerWallet) {
+      await prisma.hirerWallet.update({
+        where: { id: hirerWallet.id },
+        data: {
+          balance: { decrement: refund.amount },
+          refundsReceived: { decrement: refund.amount },
+        },
+      });
+    }
 
-  if (!isAutoApprove) return refund;
+    // 2. Credit Worker's wallet and earnings
+    if (refund.workerId) {
+      // Update worker profile earnings
+      await prisma.workerProfile.update({
+        where: { userId: refund.workerId },
+        data: {
+          totalEarnings: { increment: refund.workerAmountDeducted },
+        },
+      });
+    }
 
-  // Check if within time limit
-  const eligible = isRefundEligible(refund.booking);
-  if (!eligible) {
+    // 3. Update payment status back to RELEASED
+    await prisma.payment.update({
+      where: { id: refund.paymentId },
+      data: {
+        status: "RELEASED",
+        escrowReleasedAt: new Date(),
+      },
+    });
+
+    // 4. Create reverse transaction for Hirer
+    await prisma.hirerTransaction.create({
+      data: {
+        walletId: hirerWallet.id,
+        hirerId: refund.hirerId,
+        type: "REFUND_REVERSAL",
+        amount: -refund.amount,
+        currency: refund.currency,
+        fee: 0,
+        netAmount: -refund.amount,
+        reference: `REV-${refund.reference}`,
+        status: "COMPLETED",
+        description: `Refund reversal for booking ${refund.booking.title}`,
+        meta: {
+          bookingId: refund.bookingId,
+          refundId: refund.id,
+          reversedBy: adminId,
+        },
+      },
+    });
+
+    // 5. Update refund status to REVERSED
     await prisma.refund.update({
       where: { id: refundId },
       data: {
-        status: "REJECTED",
-        adminNotes: "Refund requested outside 48-hour window",
+        status: "REVERSED",
+        adminId: adminId,
+        adminNotes: `Reversed by admin ${adminId}`,
       },
     });
-    return refund;
+
+    // 6. Send notifications
+    await createNotification({
+      userId: refund.hirerId,
+      title: "Refund Reversed",
+      body: `${refund.currency} ${refund.amount.toLocaleString()} has been deducted from your wallet for booking "${refund.booking.title}".`,
+      type: "REFUND_REVERSED",
+      data: { bookingId: refund.bookingId, refundId: refund.id },
+      icon: "FaExclamationTriangle",
+    });
+
+    await createNotification({
+      userId: refund.workerId,
+      title: "Refund Reversed",
+      body: `${refund.currency} ${refund.workerAmountDeducted.toLocaleString()} has been restored to your earnings for booking "${refund.booking.title}".`,
+      type: "REFUND_REVERSED",
+      data: { bookingId: refund.bookingId, refundId: refund.id },
+      icon: "FaCheckCircle",
+    });
+
+    return { success: true, refund };
+  } catch (error) {
+    throw error;
   }
-
-  // Auto-approve
-  await prisma.refund.update({
-    where: { id: refundId },
-    data: {
-      status: "APPROVED",
-      isAutomatic: true,
-      autoApprovedAt: new Date(),
-    },
-  });
-
-  // Process the refund
-  await processRefund(refundId);
-
-  return refund;
 };

@@ -9,6 +9,18 @@ import {
   sendReviewRequestEmail,
 } from "../services/email.service.js";
 
+import {
+  notifyBookingRequest,
+  notifyBookingAccepted,
+  notifyBookingRejected,
+  notifyBookingCancelled,
+  notifyBookingInProgress,
+  notifyBookingCompleted,
+
+  notifyReviewRequest,    // ✅ ADD THIS
+  notifyNewReview, 
+} from "../services/notification.service.js";
+
 import { convertReferral } from "./referral.controller.js";
 import {
   paginate,
@@ -24,7 +36,6 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
-// ── Create booking ────────────────────────────────────────────────────────────
 export const createBooking = async (req, res) => {
   try {
     const {
@@ -45,10 +56,12 @@ export const createBooking = async (req, res) => {
       agreedRate,
       currency,
       notes,
-      jobType, // ← ADD
-      locationType, // ← ADD
+      jobType,
+      locationType,
       requirements,
       responsibilities,
+      quantity,
+      customLabel,
     } = req.body;
 
     const booking = await prisma.booking.create({
@@ -64,22 +77,21 @@ export const createBooking = async (req, res) => {
         scheduledAt: new Date(scheduledAt),
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
         estimatedUnit: estimatedUnit || "hours",
-        estimatedValue: estimatedValue || null,
-        agreedRate:
-          isNegotiated && negotiatedRate
-            ? parseFloat(negotiatedRate)
-            : parseFloat(agreedRate),
+        estimatedValue: estimatedValue ? String(estimatedValue) : null,
+        quantity: quantity || 1,
+        custom_label: customLabel || null,
+        agreedRate: isNegotiated && negotiatedRate
+          ? parseFloat(negotiatedRate)
+          : parseFloat(agreedRate),
         currency: currency || "USD",
         notes,
         jobType: jobType || null,
         locationType: locationType || null,
         isNegotiated: isNegotiated === true || isNegotiated === "true",
-        negotiatedRate:
-          isNegotiated && negotiatedRate ? parseFloat(negotiatedRate) : null,
-        negotiationNote:
-          isNegotiated && negotiationNote ? negotiationNote.trim() : null,
-        requirements: requirements || null, // ← Moved INSIDE data
-        responsibilities: responsibilities || null, // ← Moved INSIDE data
+        negotiatedRate: isNegotiated && negotiatedRate ? parseFloat(negotiatedRate) : null,
+        negotiationNote: isNegotiated && negotiationNote ? negotiationNote.trim() : null,
+        requirements: requirements || null,
+        responsibilities: responsibilities || null,
       },
       include: {
         hirer: {
@@ -218,6 +230,8 @@ export const getBooking = async (req, res) => {
       estimatedHours: booking.estimatedHours || null,
       estimatedUnit: booking.estimatedUnit || "hours",
       estimatedValue: booking.estimatedValue || null,
+      quantity: booking.quantity || 1, // ← Add this
+customLabel: booking.custom_label || null, 
     };
 
     return sendResponse(res, { data: { booking: responseData } });
@@ -248,7 +262,6 @@ export const updateBookingStatus = async (req, res) => {
     if (!booking) return sendError(res, "Booking not found", 404);
 
     // ── Permission check ──────────────────────────────────────────────────────
-    // Workers can now cancel too (PENDING or ACCEPTED only)
     const allowed = {
       WORKER: {
         PENDING: ["ACCEPTED", "REJECTED", "CANCELLED"],
@@ -309,6 +322,17 @@ export const updateBookingStatus = async (req, res) => {
           currency: booking.currency,
         },
       });
+
+      // ── In-app notification for Hirer when Worker accepts ──────────────────
+      try {
+        await notifyBookingAccepted(
+          booking.hirerId,
+          `${booking.worker.firstName} ${booking.worker.lastName}`,
+          booking
+        );
+      } catch (notificationError) {
+        console.error("Failed to send booking accepted notification:", notificationError);
+      }
     }
 
     if (status === "CANCELLED") {
@@ -376,9 +400,27 @@ export const updateBookingStatus = async (req, res) => {
           otherPartyName: `${booking.hirer.firstName} ${booking.hirer.lastName}`,
           booking: { id: booking.id, title: booking.title },
         }),
-        convertReferral(booking.workerId, booking.agreedRate), // ← pass agreedRate
+        convertReferral(booking.workerId, booking.agreedRate),
         convertReferral(booking.hirerId, booking.agreedRate),
       ]).catch((err) => console.error("convertReferral error:", err));
+
+      // ── In-app notification for review requests (both parties) ─────────────
+      try {
+        await Promise.all([
+          notifyReviewRequest(
+            booking.hirerId,
+            `${booking.worker.firstName} ${booking.worker.lastName}`,
+            booking
+          ),
+          notifyReviewRequest(
+            booking.workerId,
+            `${booking.hirer.firstName} ${booking.hirer.lastName}`,
+            booking
+          ),
+        ]);
+      } catch (notificationError) {
+        console.error("Failed to send review request notifications:", notificationError);
+      }
     }
 
     return sendResponse(res, {

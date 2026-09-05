@@ -1,33 +1,16 @@
-import { PrismaClient } from "../generated/prisma/index.js";
-import { PrismaPg } from "@prisma/adapter-pg";
-import pg from "pg";
-
-const { Pool } = pg;
+import { PrismaClient } from '../generated/prisma/index.js';
 
 let prisma;
 
-function getPrisma() {
-  if (!prisma) {
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: false,
-      max: 20, // Increase pool size
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+if (process.env.NODE_ENV === 'production') {
+  prisma = new PrismaClient();
+} else {
+  if (!global.prisma) {
+    global.prisma = new PrismaClient({
+      log: ['query', 'info', 'warn', 'error'],
     });
-    const adapter = new PrismaPg(pool);
-    prisma = new PrismaClient({ adapter });
-    // Set statement timeout to 60 seconds to prevent hanging queries
-    prisma.$executeRaw`SET statement_timeout = '60000'`;
   }
-  return prisma;
+  prisma = global.prisma;
 }
 
-export default new Proxy(
-  {},
-  {
-    get(_, prop) {
-      return getPrisma()[prop];
-    },
-  },
-);
+export default prisma;

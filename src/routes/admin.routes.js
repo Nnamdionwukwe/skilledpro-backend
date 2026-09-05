@@ -74,6 +74,9 @@ import {
 
 import { approveWithdrawalPayout } from "../controllers/payment.controller.js";
 
+// ── Refund Controllers ────────────────────────────────────────────────────────
+import * as adminRefundController from "../controllers/admin/admin.refund.controller.js";
+
 import {
   validateCreateCategory,
   validateBroadcast,
@@ -87,7 +90,7 @@ router.use(protect, requireRole("ADMIN"));
 
 // ── Analytics ──────────────────────────────────────────────────────────────────
 router.get("/stats", getPlatformStats);
-router.get("/dashboard", getAdminDashboard); // FIX: was bare `getAdminDashboard;` — never registered
+router.get("/dashboard", getAdminDashboard);
 router.get("/analytics/users", getUserGrowthAnalytics);
 router.get("/analytics/revenue", getRevenueAnalytics);
 
@@ -142,31 +145,19 @@ router.patch(
 // /payments/stats          ← must be before /payments/:paymentId
 // /payments/booking/…      ← must be before /payments/:paymentId
 // /payments/:paymentId     ← catch-all for single payment lookup, comes last
-//
-// FIX 1: /payments/stats was registered AFTER /payments/:paymentId — Express
-//         would match "stats" as a paymentId UUID, validateUUIDParam would 400.
-// FIX 2: GET /payments was registered twice (getAllPayments + adminGetManualPayments).
-//         Express uses the first match so adminGetManualPayments never ran.
-//         Replaced the first registration with adminGetManualPayments everywhere.
-// FIX 3: PATCH verify + reject-manual were each registered twice (old + new functions).
-//         Removed the old verifyManualPayment / rejectManualPayment duplicates.
 
-router.get("/payments/stats", adminManualPaymentStats); // static — MUST be first
-
+router.get("/payments/stats", adminManualPaymentStats);
 router.get(
   "/payments/booking/:bookingId/attempts",
   ...validateUUIDParam("bookingId"),
   adminGetPaymentAttempts,
-); // static sub-path — before /:paymentId
-
-router.get("/payments", validatePagination, adminGetManualPayments); // list — returns bank+crypto, all statuses, with referralDiscount
-
+);
+router.get("/payments", validatePagination, adminGetManualPayments);
 router.get(
   "/payments/:paymentId",
   ...validateUUIDParam("paymentId"),
   getPaymentDetail,
-); // single lookup — last
-
+);
 router.post(
   "/payments/:bookingId/release",
   ...validateUUIDParam("bookingId"),
@@ -177,17 +168,16 @@ router.post(
   ...validateUUIDParam("bookingId"),
   adminRefundPayment,
 );
-
 router.patch(
   "/payments/:bookingId/verify",
   ...validateUUIDParam("bookingId"),
   adminVerifyManualPayment,
-); // FIX: was verifyManualPayment (duplicate removed)
+);
 router.patch(
   "/payments/:bookingId/reject-manual",
   ...validateUUIDParam("bookingId"),
   adminRejectManualPayment,
-); // FIX: was rejectManualPayment (duplicate removed)
+);
 
 // ── Withdrawals ────────────────────────────────────────────────────────────────
 router.get("/withdrawals", validatePagination, getAllWithdrawals);
@@ -271,12 +261,12 @@ router.delete(
   "/posts/comments/:commentId",
   ...validateUUIDParam("commentId"),
   adminDeleteComment,
-); // static sub-path first
+);
 router.delete(
   "/posts/:postId",
   ...validateUUIDParam("postId"),
   adminDeletePost,
-); // parameterized after
+);
 
 // ── Messages ───────────────────────────────────────────────────────────────────
 router.get("/conversations", validatePagination, getAllConversations);
@@ -291,5 +281,21 @@ router.post("/broadcast", validateBroadcast, broadcastNotification);
 
 // ── Video calls ────────────────────────────────────────────────────────────────
 router.get("/video-calls", validatePagination, getAllVideoCalls);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── REFUND ROUTES ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Get all refunds with filters and stats ──────────────────────────────────
+router.get("/refunds", getAllRefunds);
+router.get("/refunds/:id", getRefundDetails);
+router.put("/refunds/:id/approve", approveRefund);
+router.put("/refunds/:id/reject", rejectRefund);
+router.put("/refunds/:id/reverse", reverseRefund);
+router.post("/refunds/bulk-approve", bulkApproveRefunds);
+router.post("/refunds/bulk-reject", bulkRejectRefunds);
+router.get("/refunds/stats/summary", getRefundStats);
+router.put("/settings/refund-auto-approve", toggleAutoApproval);
+router.get("/settings/refund-auto-approve", getAutoApprovalStatus);
 
 export default router;

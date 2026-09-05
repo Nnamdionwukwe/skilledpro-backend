@@ -1,10 +1,10 @@
 // src/controllers/admin/admin.refund.controller.js
-import prisma from "../../config/database.js";
-import { sendResponse, sendError } from "../../utils/response.js";
-import { paginate } from "../../utils/helpers.js";
-import { processRefund } from "../../services/refund.service.js";
-import { createNotification } from "../../services/notification.service.js";
-import { logAdminAction } from "../../utils/auditLog.js";
+import prisma from "../config/database.js";
+import { sendResponse, sendError } from "../utils/response.js";
+import { paginate } from "../utils/helpers.js";
+import { processRefund } from "../services/refund.service.js";
+import { createNotification } from "../services/notification.service.js";
+import { logAdminAction } from "../utils/auditLog.js";
 
 // ── Get All Refunds (Admin) ────────────────────────────────────────
 export const getAllRefunds = async (req, res) => {
@@ -284,5 +284,58 @@ export const toggleAutoApproval = async (req, res) => {
   } catch (err) {
     console.error("toggleAutoApproval error:", err);
     return sendError(res, "Failed to update settings");
+  }
+};
+
+// ── Reverse Refund (Admin) ──────────────────────────────────────────
+export const reverseRefund = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const refund = await prisma.refund.findUnique({
+      where: { id },
+      include: {
+        booking: true,
+        hirer: true,
+        worker: true,
+      },
+    });
+
+    if (!refund) return sendError(res, "Refund not found", 404);
+
+    if (refund.status !== "COMPLETED") {
+      return sendError(
+        res,
+        `Refund is ${refund.status.toLowerCase()}, only completed refunds can be reversed`,
+        400,
+      );
+    }
+
+    // Reverse the refund (restore funds to worker)
+    const result = await reverseRefund(id, req.user.id);
+
+    // Log admin action
+    await logAdminAction({
+      req,
+      adminId: req.user.id,
+      action: "REFUND_REVERSED",
+      targetType: "REFUND",
+      targetId: refund.id,
+      description: `Reversed refund ${refund.reference} for booking ${refund.booking.title}`,
+      meta: {
+        amount: refund.amount,
+        currency: refund.currency,
+        reason: reason,
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Refund reversed successfully",
+      data: { refund: result.refund },
+    });
+  } catch (err) {
+    console.error("reverseRefund error:", err);
+    return sendError(res, "Failed to reverse refund");
   }
 };
