@@ -10,7 +10,18 @@
 
 import { body, param, query, validationResult } from "express-validator"; // ← fixed
 import { LocationType } from "../generated/prisma/index.js";
+const VALID_ROLES = ["HIRER", "WORKER", "ADMIN"];
 
+const VALID_INDUSTRIES = [
+  "plumbing",
+  "electrical",
+  "carpentry",
+  "cleaning",
+  "hvac",
+  "painting",
+  "office",
+  "other",
+];
 // ─────────────────────────────────────────────────────────────────────────────
 // § 0  CORE RESULT HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +80,8 @@ const CURRENCIES = [
   "USDC",
   "USDT",
 ];
+
+const VALID_EXPERIENCE = ["beginner", "intermediate", "expert"];
 
 const SALARY_PERIODS = ["HOURLY", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"];
 const EDUCATION_LEVELS = [

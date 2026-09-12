@@ -170,7 +170,7 @@ export const getAllFeedback = async (req, res) => {
     ]);
 
     // Get stats
-    const stats = await getFeedbackStats();
+    const stats = await getFeedbackStatsInternal();
 
     return sendResponse(res, {
       message: "Feedback retrieved successfully",
@@ -195,7 +195,7 @@ export const getAllFeedback = async (req, res) => {
 
 export const getFeedbackStats = async (req, res) => {
   try {
-    const stats = await getFeedbackStats();
+    const stats = await getFeedbackStatsInternal();
 
     return sendResponse(res, {
       message: "Feedback stats retrieved",
@@ -209,7 +209,7 @@ export const getFeedbackStats = async (req, res) => {
 
 // ─── Helper: Get Feedback Stats ───────────────────────────────────────────
 
-const getFeedbackStats = async () => {
+const getFeedbackStatsInternal = async () => {
   const [
     total,
     pending,
