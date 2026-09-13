@@ -39,6 +39,7 @@ import waitlistRoutes from "./routes/waitlist.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
 import hirerWalletRoutes from "./routes/hirerWallet.routes.js";
 import adminLogsRoutes from "./routes/adminLogs.routes.js";
+import refundRoutes from "./routes/refund.routes.js";
 import healthRouter from "./routes/health.routes.js";
 
 // ── Config & middleware ──────────────────────────────────────────────────────
@@ -64,6 +65,8 @@ import {
 import "./services/expiry.service.js"; // starts the cron job
 
 const app = express();
+
+app.set("trust proxy", 1);
 
 // ─── Request Logging ────────────────────────────────────────────────────────
 app.use(requestLogger);
@@ -189,6 +192,7 @@ app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/wallet", hirerWalletRoutes);
 app.use("/api/admin", adminLogsRoutes);
+app.use("/api/refunds", refundRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
