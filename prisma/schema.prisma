@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
   previewFeatures = ["driverAdapters"]
 }
 
@@ -341,12 +341,17 @@ model User {
   withdrawalPinLockedUntil DateTime? // locked until this time after 3 wrong attempts
   adminJobPosts            JobPost[] @relation("AdminJobPosts")
 
-  externalJobClicks ExternalJobClick[]
+  externalJobClicks    ExternalJobClick[]
   // Wallet relations
-  hirerWallets     HirerWallet[]
-  hirerTransactions HirerTransaction[]
-  hirerWithdrawals HirerWithdrawal[]
+  hirerWallets         HirerWallet[]
+  hirerTransactions    HirerTransaction[]
+  hirerWithdrawals     HirerWithdrawal[]
   hirerFundingAttempts HirerFundingAttempt[]
+
+  // Inside model User { ... }
+  hirerRefunds  Refund[] @relation("HirerRefunds")
+  workerRefunds Refund[] @relation("WorkerRefunds")
+  adminRefunds  Refund[] @relation("AdminRefunds")
 }
 
 model Referral {
@@ -699,11 +704,11 @@ model Booking {
   checkOutLat    Float?
   checkOutLng    Float?
   completedAt    DateTime?
-quantity         Int?          @default(1)
+  quantity       Int?          @default(1)
   cancelReason   String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-custom_label     String? 
+  custom_label   String?
 
   payments         Payment[] // one booking → many payment attempts
   reviews          Review[]
@@ -732,6 +737,9 @@ custom_label     String?
   disputeReason      String? // reason for the dispute
   disputeDescription String? // detailed description
   disputeEvidence    String[] @default([]) // array of image/PDF URLs
+
+  // Inside model Booking { ... }
+  refunds Refund[]
 }
 
 model Payment {
@@ -775,6 +783,9 @@ model Payment {
   // ─── Wallet Payments ──────────────────────────────────────────────────────
   walletTransactions HirerTransaction[]
   walletPaymentId    String?
+
+  // Inside model Payment { ... }
+  refunds Refund[]
 }
 
 model Withdrawal {
@@ -1351,10 +1362,10 @@ model HirerWallet {
   updatedAt         DateTime  @updatedAt
 
   // Relations
-  hirer            User                  @relation(fields: [hirerId], references: [id])
-  transactions     HirerTransaction[]
-  withdrawals      HirerWithdrawal[]
-  fundingAttempts  HirerFundingAttempt[]
+  hirer           User                  @relation(fields: [hirerId], references: [id])
+  transactions    HirerTransaction[]
+  withdrawals     HirerWithdrawal[]
+  fundingAttempts HirerFundingAttempt[]
 
   @@unique([hirerId, currency])
   @@index([hirerId])
@@ -1367,29 +1378,29 @@ model HirerTransaction {
   id            String    @id @default(uuid())
   walletId      String
   hirerId       String
-  type          String    // DEPOSIT, WITHDRAWAL, PAYMENT, SUBSCRIPTION, REFUND, BONUS, ADJUSTMENT
+  type          String // DEPOSIT, WITHDRAWAL, PAYMENT, SUBSCRIPTION, REFUND, BONUS, ADJUSTMENT
   amount        Float
   currency      String    @default("NGN")
   fee           Float     @default(0)
   netAmount     Float
   reference     String    @unique
-  status        String    // PENDING, PROCESSING, COMPLETED, FAILED, REVERSED
+  status        String // PENDING, PROCESSING, COMPLETED, FAILED, REVERSED
   description   String?
   balanceBefore Float?
   balanceAfter  Float?
   completedAt   DateTime?
   meta          Json?
   createdAt     DateTime  @default(now())
-updatedAt     DateTime  @default(now()) @updatedAt
+  updatedAt     DateTime  @default(now()) @updatedAt
 
   // Relations
-  wallet         HirerWallet          @relation(fields: [walletId], references: [id])
-  hirer          User                 @relation(fields: [hirerId], references: [id])
+  wallet          HirerWallet           @relation(fields: [walletId], references: [id])
+  hirer           User                  @relation(fields: [hirerId], references: [id])
   fundingAttempts HirerFundingAttempt[]
 
   // Payment relation
-  payment        Payment? @relation(fields: [paymentId], references: [id])
-  paymentId      String?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+  paymentId String?
 
   @@index([walletId])
   @@index([hirerId])
@@ -1439,7 +1450,7 @@ model HirerFundingAttempt {
   hirerId       String
   amount        Float
   currency      String    @default("NGN")
-  provider      String    // FLUTTERWAVE, PAYSTACK, STRIPE
+  provider      String // FLUTTERWAVE, PAYSTACK, STRIPE
   providerRef   String    @unique
   status        String    @default("INITIATED") // INITIATED, PROCESSING, SUCCESS, FAILED, CANCELLED
   redirectUrl   String?
@@ -1456,11 +1467,83 @@ model HirerFundingAttempt {
   wallet      HirerWallet       @relation(fields: [walletId], references: [id])
   transaction HirerTransaction? @relation(fields: [transactionId], references: [id])
 
-   hirer       User              @relation(fields: [hirerId], references: [id])
+  hirer User @relation(fields: [hirerId], references: [id])
 
   @@index([walletId])
   @@index([hirerId])
   @@index([providerRef])
   @@index([status])
   @@index([createdAt])
+}
+
+// ─── Refund Enums ────────────────────────────────────────────────────────────
+enum RefundStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  FAILED
+  REVERSED
+  DISPUTED
+}
+
+enum RefundType {
+  FULL
+  PARTIAL
+  CUSTOM_AMOUNT
+  DISPUTE
+}
+
+// ─── Refund Model ────────────────────────────────────────────────────────────
+model Refund {
+  id        String  @id @default(uuid())
+  reference String  @unique
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  hirerId   String
+  hirer     User    @relation("HirerRefunds", fields: [hirerId], references: [id])
+  workerId  String?
+  worker    User?   @relation("WorkerRefunds", fields: [workerId], references: [id])
+  adminId   String?
+  admin     User?   @relation("AdminRefunds", fields: [adminId], references: [id])
+
+  amount               Float
+  currency             String       @default("NGN")
+  platformFeeRefunded  Float        @default(0)
+  workerAmountDeducted Float        @default(0)
+  refundType           RefundType   @default(FULL)
+  percentage           Float?
+  reason               String
+  adminNotes           String?
+  status               RefundStatus @default(PENDING)
+  processedAt          DateTime?
+  meta                 Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([paymentId])
+  @@index([hirerId])
+  @@index([workerId])
+  @@index([adminId])
+  @@index([status])
+  @@index([reference])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ─── App Settings ────────────────────────────────────────────────────────────
+model AppSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
 }

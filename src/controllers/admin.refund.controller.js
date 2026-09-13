@@ -2,7 +2,10 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { paginate } from "../utils/helpers.js";
-import { processRefund } from "../services/refund.service.js";
+import {
+  processRefund,
+  reverseRefund as reverseRefundService,
+} from "../services/refund.service.js";
 import { createNotification } from "../services/notification.service.js";
 import { logAdminAction } from "../utils/auditLog.js";
 
@@ -69,7 +72,7 @@ export const getAllRefunds = async (req, res) => {
         total,
         page: parseInt(page),
         pages: Math.ceil(total / take),
-        stats: await getRefundStats(),
+        stats: await computeRefundStats(),
       },
     });
   } catch (err) {
@@ -78,8 +81,63 @@ export const getAllRefunds = async (req, res) => {
   }
 };
 
-// ── Get Refund Stats ──────────────────────────────────────────────────
-async function getRefundStats() {
+// ── Get Single Refund Details (Admin) ──────────────────────────────
+export const getRefundDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const refund = await prisma.refund.findUnique({
+      where: { id },
+      include: {
+        booking: true,
+        hirer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        worker: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        admin: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!refund) return sendError(res, "Refund not found", 404);
+
+    return sendResponse(res, { data: { refund } });
+  } catch (err) {
+    console.error("getRefundDetails error:", err);
+    return sendError(res, "Failed to fetch refund details");
+  }
+};
+
+// ── Get Refund Stats (Admin) ───────────────────────────────────────
+export const getRefundStats = async (req, res) => {
+  try {
+    const stats = await computeRefundStats();
+    return sendResponse(res, { data: { stats } });
+  } catch (err) {
+    console.error("getRefundStats error:", err);
+    return sendError(res, "Failed to fetch refund stats");
+  }
+};
+
+// Internal helper — computes stats (used by getAllRefunds and getRefundStats)
+async function computeRefundStats() {
   const stats = await prisma.$transaction([
     prisma.refund.count({ where: { status: "PENDING" } }),
     prisma.refund.count({ where: { status: "APPROVED" } }),
@@ -248,6 +306,161 @@ export const rejectRefund = async (req, res) => {
   }
 };
 
+// ── Bulk Approve Refunds (Admin) ───────────────────────────────────
+export const bulkApproveRefunds = async (req, res) => {
+  try {
+    const { ids, notes } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return sendError(res, "ids must be a non-empty array", 400);
+    }
+
+    const results = { approved: [], failed: [] };
+
+    for (const id of ids) {
+      try {
+        const refund = await prisma.refund.findUnique({
+          where: { id },
+          include: { booking: true, hirer: true },
+        });
+
+        if (!refund) {
+          results.failed.push({ id, reason: "Not found" });
+          continue;
+        }
+        if (refund.status !== "PENDING") {
+          results.failed.push({
+            id,
+            reason: `Already ${refund.status.toLowerCase()}`,
+          });
+          continue;
+        }
+
+        await prisma.refund.update({
+          where: { id },
+          data: {
+            status: "APPROVED",
+            adminId: req.user.id,
+            adminNotes: notes || null,
+          },
+        });
+
+        await logAdminAction({
+          req,
+          adminId: req.user.id,
+          action: "REFUND_APPROVED",
+          targetType: "REFUND",
+          targetId: refund.id,
+          description: `Bulk approved refund ${refund.reference}`,
+          meta: { amount: refund.amount, currency: refund.currency },
+        });
+
+        await processRefund(id);
+
+        await createNotification({
+          userId: refund.hirerId,
+          title: "Refund Approved",
+          body: `Your refund of ${refund.currency} ${refund.amount.toLocaleString()} for booking "${refund.booking.title}" has been approved and is being processed.`,
+          type: "REFUND_APPROVED",
+          data: { bookingId: refund.bookingId, refundId: refund.id },
+          icon: "FaCheckCircle",
+        });
+
+        results.approved.push(id);
+      } catch (err) {
+        console.error(`bulkApproveRefunds error for ${id}:`, err);
+        results.failed.push({ id, reason: err.message });
+      }
+    }
+
+    return sendResponse(res, {
+      message: `Approved ${results.approved.length} of ${ids.length} refunds`,
+      data: results,
+    });
+  } catch (err) {
+    console.error("bulkApproveRefunds error:", err);
+    return sendError(res, "Failed to bulk approve refunds");
+  }
+};
+
+// ── Bulk Reject Refunds (Admin) ────────────────────────────────────
+export const bulkRejectRefunds = async (req, res) => {
+  try {
+    const { ids, reason } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return sendError(res, "ids must be a non-empty array", 400);
+    }
+    if (!reason || !reason.trim()) {
+      return sendError(res, "Rejection reason is required", 400);
+    }
+
+    const results = { rejected: [], failed: [] };
+
+    for (const id of ids) {
+      try {
+        const refund = await prisma.refund.findUnique({
+          where: { id },
+          include: { booking: true, hirer: true },
+        });
+
+        if (!refund) {
+          results.failed.push({ id, reason: "Not found" });
+          continue;
+        }
+        if (refund.status !== "PENDING") {
+          results.failed.push({
+            id,
+            reason: `Already ${refund.status.toLowerCase()}`,
+          });
+          continue;
+        }
+
+        await prisma.refund.update({
+          where: { id },
+          data: {
+            status: "REJECTED",
+            adminId: req.user.id,
+            adminNotes: reason.trim(),
+          },
+        });
+
+        await logAdminAction({
+          req,
+          adminId: req.user.id,
+          action: "REFUND_REJECTED",
+          targetType: "REFUND",
+          targetId: refund.id,
+          description: `Bulk rejected refund ${refund.reference}`,
+          meta: { amount: refund.amount, currency: refund.currency, reason },
+        });
+
+        await createNotification({
+          userId: refund.hirerId,
+          title: "Refund Rejected",
+          body: `Your refund request for booking "${refund.booking.title}" was rejected. Reason: ${reason}`,
+          type: "REFUND_REJECTED",
+          data: { bookingId: refund.bookingId, refundId: refund.id },
+          icon: "FaTimesCircle",
+        });
+
+        results.rejected.push(id);
+      } catch (err) {
+        console.error(`bulkRejectRefunds error for ${id}:`, err);
+        results.failed.push({ id, reason: err.message });
+      }
+    }
+
+    return sendResponse(res, {
+      message: `Rejected ${results.rejected.length} of ${ids.length} refunds`,
+      data: results,
+    });
+  } catch (err) {
+    console.error("bulkRejectRefunds error:", err);
+    return sendError(res, "Failed to bulk reject refunds");
+  }
+};
+
 // ── Toggle Auto-Approval Settings ──────────────────────────────────
 export const toggleAutoApproval = async (req, res) => {
   try {
@@ -287,6 +500,27 @@ export const toggleAutoApproval = async (req, res) => {
   }
 };
 
+// ── Get Auto-Approval Status ───────────────────────────────────────
+export const getAutoApprovalStatus = async (req, res) => {
+  try {
+    const settings = await prisma.appSettings.findUnique({
+      where: { key: "refund_auto_approve" },
+    });
+
+    const enabled = settings?.value === "true";
+
+    return sendResponse(res, {
+      data: {
+        enabled,
+        setting: settings || null,
+      },
+    });
+  } catch (err) {
+    console.error("getAutoApprovalStatus error:", err);
+    return sendError(res, "Failed to fetch auto-approval status");
+  }
+};
+
 // ── Reverse Refund (Admin) ──────────────────────────────────────────
 export const reverseRefund = async (req, res) => {
   try {
@@ -313,7 +547,7 @@ export const reverseRefund = async (req, res) => {
     }
 
     // Reverse the refund (restore funds to worker)
-    const result = await reverseRefund(id, req.user.id);
+    const result = await reverseRefundService(id, req.user.id);
 
     // Log admin action
     await logAdminAction({

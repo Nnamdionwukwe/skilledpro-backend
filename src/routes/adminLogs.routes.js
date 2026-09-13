@@ -1,28 +1,47 @@
-// src/routes/dispute.routes.js
-import express from "express";
-import { protect } from "../middleware/auth.middleware.js";
-import { requireAdmin } from "../middleware/role.middleware.js";
-import * as disputeController from "../controllers/refund.dispute.controller.js";
+// src/routes/adminLogs.routes.js
+import { Router } from "express";
+import { protect, requireRole } from "../middleware/auth.middleware.js";
+import {
+  getAuditLogs,
+  getAuditLogById,
+  getAuditLogStats,
+  getAuditLogsByAdmin,
+  getAuditLogsByTarget,
+  exportAuditLogs,
+} from "../controllers/adminLog.controller.js";
+import { validatePagination, validateUUIDParam } from "../utils/validators.js";
 
-const router = express.Router();
+const router = Router();
 
-// ── User Dispute Routes ─────────────────────────────────────────────
-router.post("/raise", protect, disputeController.raiseDispute);
-router.get("/my", protect, disputeController.getMyDisputes);
-router.get("/:id", protect, disputeController.getDisputeDetails);
+// All admin-log routes require an authenticated admin
+router.use(protect, requireRole("ADMIN"));
 
-// ── Admin Dispute Routes ─────────────────────────────────────────────
+// ── Stats ──────────────────────────────────────────────────────────────────
+// NOTE: static paths BEFORE parameterized ones
+router.get("/logs/stats/summary", getAuditLogStats);
+
+// ── Export (must be before /logs/:id) ─────────────────────────────────────
+router.get("/logs/export", exportAuditLogs);
+
+// ── List with filters ─────────────────────────────────────────────────────
+router.get("/logs", validatePagination, getAuditLogs);
+
+// ── By admin ───────────────────────────────────────────────────────────────
 router.get(
-  "/admin/all",
-  protect,
-  requireAdmin,
-  disputeController.adminGetAllDisputes,
+  "/logs/admin/:adminId",
+  ...validateUUIDParam("adminId"),
+  validatePagination,
+  getAuditLogsByAdmin,
 );
-router.put(
-  "/admin/:id/resolve",
-  protect,
-  requireAdmin,
-  disputeController.resolveDispute,
+
+// ── By target ──────────────────────────────────────────────────────────────
+router.get(
+  "/logs/target/:targetType/:targetId",
+  validatePagination,
+  getAuditLogsByTarget,
 );
+
+// ── Single log (must be last — matches /logs/:id) ─────────────────────────
+router.get("/logs/:id", ...validateUUIDParam("id"), getAuditLogById);
 
 export default router;

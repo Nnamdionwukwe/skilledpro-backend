@@ -29,20 +29,17 @@ export const requestRefund = async (req, res) => {
     // Check if booking exists
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: {
-        hirer: true,
-        worker: true,
-      },
+      include: { hirer: true, worker: true },
     });
 
     if (!booking) return sendError(res, "Booking not found", 404);
 
-    // Check if user is the hirer
+    // Only hirer can request
     if (booking.hirerId !== req.user.id) {
       return sendError(res, "Only the hirer can request a refund", 403);
     }
 
-    // Check if refund is eligible
+    // Eligibility check
     if (!isRefundEligible(booking)) {
       return sendError(
         res,
@@ -51,26 +48,24 @@ export const requestRefund = async (req, res) => {
       );
     }
 
-    // Check if payment exists
+    // Payment exists
     const payment = await prisma.payment.findUnique({
       where: { id: paymentId },
     });
-
     if (!payment) return sendError(res, "Payment not found", 404);
 
-    // Check if refund already exists for this payment
+    // No duplicate refund
     const existingRefund = await prisma.refund.findFirst({
       where: {
-        paymentId: paymentId,
+        paymentId,
         status: { notIn: ["REJECTED", "FAILED"] },
       },
     });
-
     if (existingRefund) {
       return sendError(res, "A refund already exists for this payment", 400);
     }
 
-    // Calculate refund amounts
+    // Calculate amounts
     let refundAmount = amount || 0;
     let calculatedAmounts = {};
 
@@ -105,7 +100,7 @@ export const requestRefund = async (req, res) => {
         currency: payment.currency || "NGN",
         platformFeeRefunded: calculatedAmounts.platformFeeRefunded || 0,
         workerAmountDeducted: calculatedAmounts.workerAmountDeducted || 0,
-        refundType: refundType,
+        refundType,
         percentage: calculatedAmounts.finalPercentage || null,
         reason: reason.trim(),
         status: "PENDING",
@@ -119,23 +114,35 @@ export const requestRefund = async (req, res) => {
       },
     });
 
-    // Auto-approve if enabled
-    await autoApproveRefund(refund.id);
+    // Try auto-approval
+    const autoResult = await autoApproveRefund(refund.id);
 
-    // Notify admin
-    await createNotification({
-      userId: "admin",
-      title: "New Refund Request",
-      body: `${booking.hirer.firstName} ${booking.hirer.lastName} requested a refund for booking "${booking.title}"`,
-      type: "REFUND_REQUESTED",
-      data: { bookingId, refundId: refund.id },
-      icon: "FaMoneyBillWave",
+    // Notify admin only if not auto-approved
+    if (!autoResult.approved) {
+      await createNotification({
+        userId: "admin",
+        title: "New Refund Request",
+        body: `${booking.hirer.firstName} ${booking.hirer.lastName} requested a refund for booking "${booking.title}"`,
+        type: "REFUND_REQUESTED",
+        data: { bookingId, refundId: refund.id },
+        icon: "FaMoneyBillWave",
+      });
+    }
+
+    // Reload refund to get its final status
+    const finalRefund = await prisma.refund.findUnique({
+      where: { id: refund.id },
     });
 
     return sendResponse(res, {
       status: 201,
-      message: "Refund requested successfully",
-      data: { refund },
+      message: autoResult.approved
+        ? "Refund auto-approved and processed"
+        : "Refund requested — awaiting admin review",
+      data: {
+        refund: finalRefund,
+        autoApproved: !!autoResult.approved,
+      },
     });
   } catch (err) {
     console.error("requestRefund error:", err);
@@ -143,7 +150,7 @@ export const requestRefund = async (req, res) => {
   }
 };
 
-// ── Get User Refunds ──────────────────────────────────────────────────
+// ── Get User Refunds ────────────────────────────────────────────────
 export const getMyRefunds = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
@@ -152,7 +159,6 @@ export const getMyRefunds = async (req, res) => {
     const where = {
       OR: [{ hirerId: req.user.id }, { workerId: req.user.id }],
     };
-
     if (status) where.status = status;
 
     const [refunds, total] = await Promise.all([
@@ -161,27 +167,9 @@ export const getMyRefunds = async (req, res) => {
         skip,
         take,
         include: {
-          booking: {
-            select: {
-              id: true,
-              title: true,
-              status: true,
-            },
-          },
-          payment: {
-            select: {
-              id: true,
-              provider: true,
-              providerRef: true,
-            },
-          },
-          admin: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
+          booking: { select: { id: true, title: true, status: true } },
+          payment: { select: { id: true, provider: true, providerRef: true } },
+          admin: { select: { id: true, firstName: true, lastName: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -202,7 +190,7 @@ export const getMyRefunds = async (req, res) => {
   }
 };
 
-// ── Get Refund Details ──────────────────────────────────────────────────
+// ── Get Refund Details ──────────────────────────────────────────────
 export const getRefundDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -245,7 +233,7 @@ export const getRefundDetails = async (req, res) => {
 
     if (!refund) return sendError(res, "Refund not found", 404);
 
-    // Check permission
+    // Permission
     if (
       refund.hirerId !== req.user.id &&
       refund.workerId !== req.user.id &&

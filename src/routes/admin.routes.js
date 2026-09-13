@@ -30,7 +30,7 @@ import {
   getPaymentDetail,
   adminReleasePayment,
   adminRefundPayment,
-  // Payments — manual verification (these REPLACE verifyManualPayment / rejectManualPayment)
+  // Payments — manual verification
   adminGetManualPayments,
   adminGetPaymentAttempts,
   adminVerifyManualPayment,
@@ -75,7 +75,18 @@ import {
 import { approveWithdrawalPayout } from "../controllers/payment.controller.js";
 
 // ── Refund Controllers ────────────────────────────────────────────────────────
-import * as adminRefundController from "../controllers/admin/admin.refund.controller.js";
+import {
+  getAllRefunds,
+  getRefundDetails,
+  approveRefund,
+  rejectRefund,
+  reverseRefund,
+  bulkApproveRefunds,
+  bulkRejectRefunds,
+  getRefundStats,
+  toggleAutoApproval,
+  getAutoApprovalStatus,
+} from "../controllers/admin.refund.controller.js";
 
 import {
   validateCreateCategory,
@@ -136,16 +147,12 @@ router.patch(
 router.get("/disputes", validatePagination, getDisputes);
 router.patch(
   "/disputes/:bookingId/resolve",
-  validateResolveDispute,
+  ...validateResolveDispute,
   resolveDispute,
 );
 
 // ── Payments ───────────────────────────────────────────────────────────────────
 // CRITICAL ORDER: specific static paths MUST come before parameterized ones.
-// /payments/stats          ← must be before /payments/:paymentId
-// /payments/booking/…      ← must be before /payments/:paymentId
-// /payments/:paymentId     ← catch-all for single payment lookup, comes last
-
 router.get("/payments/stats", adminManualPaymentStats);
 router.get(
   "/payments/booking/:bookingId/attempts",
@@ -219,8 +226,7 @@ router.delete(
   deleteReview,
 );
 
-// ── Jobs ───────────────────────────────────────────────────────────────────────
-// ── Jobs (Platform) ──────────────────────────────────────────────────────────
+// ── Jobs (Platform) ────────────────────────────────────────────────────────────
 router.get("/platform/jobs", validatePagination, getAllJobPosts);
 router.get(
   "/platform/jobs/:jobId",
@@ -255,7 +261,6 @@ router.delete(
 );
 
 // ── Community posts ────────────────────────────────────────────────────────────
-// NOTE: /posts/comments/:commentId MUST come before /posts/:postId
 router.get("/posts", validatePagination, getAllPosts);
 router.delete(
   "/posts/comments/:commentId",
@@ -285,16 +290,21 @@ router.get("/video-calls", validatePagination, getAllVideoCalls);
 // ═══════════════════════════════════════════════════════════════════════════════
 // ── REFUND ROUTES ─────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
+// ORDER MATTERS:
+//   /refunds/stats/summary  → must be BEFORE /refunds/:id
+//   /refunds/bulk-*         → must be BEFORE /refunds/:id (though PUT/POST differ)
+//   /refunds                → collection, comes first
 
-// ── Get all refunds with filters and stats ──────────────────────────────────
-router.get("/refunds", getAllRefunds);
+router.get("/refunds", validatePagination, getAllRefunds);
+router.get("/refunds/stats/summary", getRefundStats);
+router.put("/refunds/bulk-approve", bulkApproveRefunds);
+router.put("/refunds/bulk-reject", bulkRejectRefunds);
+router.post("/refunds/bulk-approve", bulkApproveRefunds);
+router.post("/refunds/bulk-reject", bulkRejectRefunds);
 router.get("/refunds/:id", getRefundDetails);
 router.put("/refunds/:id/approve", approveRefund);
 router.put("/refunds/:id/reject", rejectRefund);
 router.put("/refunds/:id/reverse", reverseRefund);
-router.post("/refunds/bulk-approve", bulkApproveRefunds);
-router.post("/refunds/bulk-reject", bulkRejectRefunds);
-router.get("/refunds/stats/summary", getRefundStats);
 router.put("/settings/refund-auto-approve", toggleAutoApproval);
 router.get("/settings/refund-auto-approve", getAutoApprovalStatus);
 

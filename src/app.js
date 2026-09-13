@@ -1,8 +1,10 @@
+// src/app.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import morgan from "morgan";
 import { errorHandler } from "./middleware/error.middleware.js";
+
+// ── Route imports ────────────────────────────────────────────────────────────
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import workerRoutes from "./routes/worker.routes.js";
@@ -36,11 +38,16 @@ import surveyRoutes from "./routes/survey.routes.js";
 import waitlistRoutes from "./routes/waitlist.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
 import hirerWalletRoutes from "./routes/hirerWallet.routes.js";
-import { helmetConfig } from './config/helmet.config.js';
-import { securityHeaders, corsSecurityHeaders } from './middleware/securityHeaders.middleware.js';
-import { requestLogger, logger, securityLogger, performanceLogger } from './utils/logger.js';
 import adminLogsRoutes from "./routes/adminLogs.routes.js";
+import healthRouter from "./routes/health.routes.js";
 
+// ── Config & middleware ──────────────────────────────────────────────────────
+import { helmetConfig } from "./config/helmet.config.js";
+import {
+  securityHeaders,
+  corsSecurityHeaders,
+} from "./middleware/securityHeaders.middleware.js";
+import { requestLogger, logger, performanceLogger } from "./utils/logger.js";
 
 import {
   globalLimiter,
@@ -54,16 +61,17 @@ import {
   surveyLimiter,
 } from "./middleware/security.middleware.js";
 
-import healthRouter from "./routes/health.routes.js";
 import "./services/expiry.service.js"; // starts the cron job
 
 const app = express();
+
 // ─── Request Logging ────────────────────────────────────────────────────────
 app.use(requestLogger);
 
 // Log startup
-logger.info('🚀 Server starting...');
-logger.info(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+logger.info("🚀 Server starting...");
+logger.info(`📡 Environment: ${process.env.NODE_ENV || "development"}`);
+
 app.use(securityHeaders);
 app.use(corsSecurityHeaders);
 app.use("/health", healthRouter);
@@ -108,49 +116,40 @@ app.use(
 app.use(helmet(helmetConfig));
 app.use((req, res, next) => {
   const start = Date.now();
-  res.on('finish', () => {
+  res.on("finish", () => {
     const duration = Date.now() - start;
     performanceLogger.api(req.path, req.method, res.statusCode, duration, {
       ip: req.ip,
-      userId: req.user?.id || 'anonymous',
+      userId: req.user?.id || "anonymous",
     });
   });
   next();
 });
 
 // ── Body parsers ──────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ─── Rate Limiting ──────────────────────────────────────────────────────────
-// Apply global rate limiter to all API routes
-app.use('/api', globalLimiter);
+app.use("/api", globalLimiter);
 
-// Apply stricter limits to specific routes
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/register', registerLimiter);
-app.use('/api/auth/forgot-password', sensitiveLimiter);
-app.use('/api/auth/reset-password', sensitiveLimiter);
-app.use('/api/auth/resend-verification', sensitiveLimiter);
-app.use('/api/auth/verify-email', sensitiveLimiter);
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", registerLimiter);
+app.use("/api/auth/forgot-password", sensitiveLimiter);
+app.use("/api/auth/reset-password", sensitiveLimiter);
+app.use("/api/auth/resend-verification", sensitiveLimiter);
+app.use("/api/auth/verify-email", sensitiveLimiter);
 
-// Wallet routes
-app.use('/api/wallet', walletLimiter);
-app.use('/api/wallet/fund', walletLimiter);
-app.use('/api/wallet/withdraw', walletLimiter);
+app.use("/api/wallet", walletLimiter);
+app.use("/api/wallet/fund", walletLimiter);
+app.use("/api/wallet/withdraw", walletLimiter);
 
-// Admin routes
-app.use('/api/admin', adminLimiter);
+app.use("/api/admin", adminLimiter);
+app.use("/api/feedback", feedbackLimiter);
+app.use("/api/survey", surveyLimiter);
 
-// Feedback routes
-app.use('/api/feedback', feedbackLimiter);
-
-// Survey routes
-app.use('/api/survey', surveyLimiter);
-
-// Email/Notification routes
-app.use('/api/notifications/broadcast', emailLimiter);
-app.use('/api/waitlist/admin/broadcast', emailLimiter);
+app.use("/api/notifications/broadcast", emailLimiter);
+app.use("/api/waitlist/admin/broadcast", emailLimiter);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));

@@ -2,70 +2,60 @@
 import express from "express";
 import { protect } from "../middleware/auth.middleware.js";
 import { requireAdmin } from "../middleware/role.middleware.js";
-import * as refundController from "../controllers/refund.controller.js";
-import * as adminRefundController from "../controllers/admin.refund.controller.js";
+
+import {
+  requestRefund,
+  getMyRefunds,
+  getRefundDetails,
+} from "../controllers/refund.controller.js";
+
+import {
+  getAllRefunds,
+  getRefundDetails as adminGetRefundDetails,
+  approveRefund,
+  rejectRefund,
+  reverseRefund,
+  bulkApproveRefunds,
+  bulkRejectRefunds,
+  getRefundStats,
+  toggleAutoApproval,
+  getAutoApprovalStatus,
+} from "../controllers/admin.refund.controller.js";
 
 const router = express.Router();
 
 // ── User Refund Routes ─────────────────────────────────────────────
-router.post("/request", protect, refundController.requestRefund);
-router.get("/my", protect, refundController.getMyRefunds);
-router.get("/:id", protect, refundController.getRefundDetails);
+router.post("/request", protect, requestRefund);
+router.get("/my", protect, getMyRefunds);
 
 // ── Admin Refund Routes ─────────────────────────────────────────────
-router.get(
-  "/admin/all",
-  protect,
-  requireAdmin,
-  adminRefundController.getAllRefunds,
-);
-router.put(
-  "/admin/:id/approve",
-  protect,
-  requireAdmin,
-  adminRefundController.approveRefund,
-);
-router.put(
-  "/admin/:id/reject",
-  protect,
-  requireAdmin,
-  adminRefundController.rejectRefund,
-);
-router.put(
-  "/admin/:id/reverse",
-  protect,
-  requireAdmin,
-  adminRefundController.reverseRefund,
-);
-router.post(
-  "/admin/bulk-approve",
-  protect,
-  requireAdmin,
-  adminRefundController.bulkApproveRefunds,
-);
-router.post(
-  "/admin/bulk-reject",
-  protect,
-  requireAdmin,
-  adminRefundController.bulkRejectRefunds,
-);
-router.get(
-  "/admin/stats/summary",
-  protect,
-  requireAdmin,
-  adminRefundController.getRefundStats,
-);
+// NOTE: these MUST come before the "/:id" catch-all below, otherwise
+// "/admin/..." would be swallowed by the user-route "/:id".
+router.get("/admin/all", protect, requireAdmin, getAllRefunds);
+router.get("/admin/stats/summary", protect, requireAdmin, getRefundStats);
+router.put("/admin/bulk-approve", protect, requireAdmin, bulkApproveRefunds);
+router.post("/admin/bulk-approve", protect, requireAdmin, bulkApproveRefunds);
+router.put("/admin/bulk-reject", protect, requireAdmin, bulkRejectRefunds);
+router.post("/admin/bulk-reject", protect, requireAdmin, bulkRejectRefunds);
 router.put(
   "/admin/settings/auto-approve",
   protect,
   requireAdmin,
-  adminRefundController.toggleAutoApproval,
+  toggleAutoApproval,
 );
 router.get(
   "/admin/settings/auto-approve",
   protect,
   requireAdmin,
-  adminRefundController.getAutoApprovalStatus,
+  getAutoApprovalStatus,
 );
+router.put("/admin/:id/approve", protect, requireAdmin, approveRefund);
+router.put("/admin/:id/reject", protect, requireAdmin, rejectRefund);
+router.put("/admin/:id/reverse", protect, requireAdmin, reverseRefund);
+router.get("/admin/:id", protect, requireAdmin, adminGetRefundDetails);
+
+// ── User catch-all ─────────────────────────────────────────────────
+// Keep this LAST so it doesn't shadow /admin/* routes
+router.get("/:id", protect, getRefundDetails);
 
 export default router;
