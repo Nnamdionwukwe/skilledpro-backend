@@ -499,20 +499,33 @@ export const deleteAccount = async (req, res) => {
   try {
     const { password, reason } = req.body;
     if (!password) return sendError(res, "Password confirmation required", 400);
+
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return sendError(res, "User not found", 404);
+
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return sendError(res, "Incorrect password", 400);
+
+    // ── Soft delete with FULL anonymization ─────────────────────────────────
+    // We rename the email, null out the googleId, and mark the account
+    // inactive. Renaming the email frees it for future registration, and
+    // nulling googleId frees it for future Google signups — otherwise a
+    // re-registration with the same Google account would hit a unique
+    // constraint violation on googleId.
     await prisma.user.update({
       where: { id: req.user.id },
       data: {
         isActive: false,
         email: `deleted_${Date.now()}_${user.email}`,
+        googleId: null,
         refreshToken: null,
         bio: reason ? `Deleted: ${reason}` : "Account deleted",
       },
     });
+
     return sendResponse(res, { message: "Account deleted" });
   } catch (err) {
+    console.error("deleteAccount error:", err.message);
     return sendError(res, "Failed to delete account");
   }
 };

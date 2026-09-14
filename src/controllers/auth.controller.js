@@ -110,11 +110,18 @@ export const register = asyncHandler(async (req, res) => {
     });
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // ── Check for existing active user (exclude tombstones) ────────────────────
+  // A tombstone is a soft-deleted row whose email has been prefixed with
+  // "deleted_". Those rows occupy the email UNIQUE slot only for their own
+  // prefixed email, so they don't block re-registration with the original.
+  const existing = await prisma.user.findFirst({
+    where: {
+      email,
+      NOT: { email: { startsWith: "deleted_" } },
+    },
+  });
+
   if (existing) {
-    // ── Ban / deletion gates take priority over "already registered" ────────
-    // A banned or deactivated user should see the ban message, not
-    // "email already registered" — otherwise they can't tell what happened.
     if (existing.isBanned === true) {
       return res.status(403).json({
         success: false,
@@ -829,11 +836,18 @@ export const googleCallback = asyncHandler(async (req, res) => {
 
 // ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
 // POST /api/auth/google
-// `role` is only used when creating a NEW user via Google.
-// Existing users keep their stored role — the hint is ignored for them.
+// Body: { idToken } OR { accessToken, role? }
 //
-// Banned or deactivated users are blocked BEFORE any token is issued — this
-// mirrors the manual-login gates so a user can't slip in through Google.
+// Handles three cases:
+//   1. Existing user with this googleId → sign in
+//   2. Existing user with this email (no googleId yet) → link + sign in
+//   3. No user → create new (with the requested role)
+//
+// Tombstone rows (email starts with "deleted_") are treated as if the
+// user doesn't exist, so re-registration through Google works after a
+// soft delete.
+//
+// Banned / deactivated users are blocked BEFORE any token is issued.
 export const googleSignIn = asyncHandler(async (req, res) => {
   const { idToken, accessToken, role } = req.body;
 
@@ -853,24 +867,76 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       : await getGoogleUserFromAccessToken(accessToken);
   } catch (err) {
     console.error("Google token verification failed:", err.message);
-    return res
-      .status(401)
-      .json({ success: false, message: "Invalid Google token" });
+    return res.status(401).json({
+      success: false,
+      code: "INVALID_GOOGLE_TOKEN",
+      message:
+        "Could not verify your Google account. Please try signing in again.",
+    });
   }
 
-  // ── 2. Find existing user (by googleId OR email) ───────────────────────────
+  if (!googleUser.email) {
+    return res.status(400).json({
+      success: false,
+      message: "Google account has no email",
+    });
+  }
+
+  // ── 2. Find existing user ──────────────────────────────────────────────────
+  // 2a. Look up by googleId first, EXCLUDING tombstones.
   let user = await prisma.user.findFirst({
     where: {
-      OR: [{ googleId: googleUser.googleId }, { email: googleUser.email }],
+      googleId: googleUser.googleId,
+      NOT: { email: { startsWith: "deleted_" } },
     },
   });
+
+  // 2b. If not found, look up by email (excluding tombstones).
+  if (!user) {
+    user = await prisma.user.findFirst({
+      where: {
+        email: googleUser.email,
+        NOT: { email: { startsWith: "deleted_" } },
+      },
+    });
+
+    // ── Collision guard: if this row already has a DIFFERENT googleId,
+    //     the email and Google identity are mismatched. Reject rather than
+    //     clobber.
+    if (user && user.googleId && user.googleId !== googleUser.googleId) {
+      return res.status(409).json({
+        success: false,
+        code: "GOOGLE_ACCOUNT_MISMATCH",
+        message:
+          "This email is already linked to a different Google account. Contact support if this is a mistake.",
+      });
+    }
+
+    // ── Collision guard: if another non-tombstone row already claims this
+    //     googleId, we must not steal it. (Extremely rare, but defensive.)
+    if (user && !user.googleId) {
+      const otherOwner = await prisma.user.findFirst({
+        where: {
+          googleId: googleUser.googleId,
+          NOT: { email: { startsWith: "deleted_" } },
+        },
+        select: { id: true },
+      });
+      if (otherOwner && otherOwner.id !== user.id) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account instead.",
+        });
+      }
+    }
+  }
 
   let isNewUser = false;
 
   if (user) {
-    // ── 2a. Ban / deactivation gates (BEFORE issuing any tokens) ───────────
-    // A banned or deactivated user must not be able to authenticate via
-    // Google either. This mirrors the manual-login gate.
+    // ── 3a. Ban / deactivation gates ────────────────────────────────────────
     if (user.isBanned === true) {
       return res.status(403).json({
         success: false,
@@ -888,7 +954,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       });
     }
 
-    // ── 2b. Existing user — update smartly (never overwrite customizations) ─
+    // ── 3b. Existing user — update smartly ──────────────────────────────────
     const nameCustom = user.nameCustom === true;
     const avatarCustom = user.avatarCustom === true;
 
@@ -933,32 +999,67 @@ export const googleSignIn = asyncHandler(async (req, res) => {
 
     console.log("[google-auth:signin] willApply", updates);
 
-    user = await prisma.user.update({ where: { id: user.id }, data: updates });
+    try {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: updates,
+      });
+    } catch (err) {
+      // Race condition: another request just claimed this googleId.
+      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account.",
+        });
+      }
+      throw err;
+    }
   } else {
-    // ── 3. New user ─────────────────────────────────────────────────────────
-    // Note: we do NOT gate new Google signups on ban/deletion — those
-    // accounts don't exist yet, so they can't be banned. If the email
-    // matches an existing banned user, we already caught it in step 2a.
-
+    // ── 4. New user — create account ────────────────────────────────────────
+    // Note: tombstones were excluded from the search, so re-registration
+    // through Google works after a soft delete. If a tombstone owned this
+    // email, we still own it now because the tombstone's email is prefixed.
     isNewUser = true;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);
 
-    user = await prisma.user.create({
-      data: {
-        firstName: googleUser.firstName || "User",
-        lastName: googleUser.lastName || "",
-        email: googleUser.email,
-        password: hashedPassword,
-        role: requestedRole,
-        avatar: googleUser.avatar,
-        isEmailVerified: googleUser.emailVerified || false,
-        googleId: googleUser.googleId,
-        authProvider: "GOOGLE",
-        avatarCustom: false,
-        nameCustom: false,
-      },
-    });
+    try {
+      user = await prisma.user.create({
+        data: {
+          firstName: googleUser.firstName || "User",
+          lastName: googleUser.lastName || "",
+          email: googleUser.email,
+          password: hashedPassword,
+          role: requestedRole,
+          avatar: googleUser.avatar,
+          isEmailVerified: googleUser.emailVerified || false,
+          googleId: googleUser.googleId,
+          authProvider: "GOOGLE",
+          avatarCustom: false,
+          nameCustom: false,
+        },
+      });
+    } catch (err) {
+      // Race conditions: someone just created this email or Google ID.
+      if (err.code === "P2002" && err.meta?.target?.includes("email")) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "An account with this email already exists. Please sign in with your existing method.",
+        });
+      }
+      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account.",
+        });
+      }
+      throw err;
+    }
 
     if (requestedRole === "WORKER") {
       await prisma.workerProfile
@@ -991,7 +1092,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── 4. Issue tokens ────────────────────────────────────────────────────────
+  // ── 5. Issue tokens ────────────────────────────────────────────────────────
   const { accessToken: ourAccessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({
     where: { id: user.id },
