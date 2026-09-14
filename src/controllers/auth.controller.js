@@ -309,13 +309,35 @@ export const login = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Invalid credentials" });
   }
   if (user.isBanned) {
-    return res
-      .status(403)
-      .json({ success: false, message: "Account suspended" });
+    return res.status(403).json({
+      success: false,
+      code: "ACCOUNT_BANNED",
+      message: "Account suspended",
+    });
+  }
+  if (user.isActive === false) {
+    return res.status(403).json({
+      success: false,
+      code: "ACCOUNT_DELETED",
+      message: "Account has been deactivated. Contact support.",
+    });
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
+
+  // ── Password mismatch ────────────────────────────────────────────────────
   if (!isMatch) {
+    // If the account was created via Google and the user never set a
+    // password, guide them to use Google OR to set a password.
+    if (user.authProvider === "GOOGLE") {
+      return res.status(409).json({
+        success: false,
+        code: "GOOGLE_ACCOUNT_NO_PASSWORD",
+        message:
+          "This account was created with Google. Sign in with Google, or set a password to log in manually.",
+        canResetPassword: true,
+      });
+    }
     return res
       .status(401)
       .json({ success: false, message: "Invalid credentials" });
@@ -327,7 +349,7 @@ export const login = asyncHandler(async (req, res) => {
     data: { refreshToken, lastSeen: new Date() },
   });
 
-  // ── FIXED: send response first, then fire-and-forget side effects ────────────
+  // ── FIXED: send response first, then fire-and-forget side effects ────────
   res.status(200).json({
     success: true,
     message: "Login successful",
@@ -347,7 +369,7 @@ export const login = asyncHandler(async (req, res) => {
     },
   });
 
-  // ── Fire-and-forget: none of these should delay the login response ────────────
+  // ── Fire-and-forget: none of these should delay the login response ────────
   const ip =
     req.headers["x-real-ip"] ||
     req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
