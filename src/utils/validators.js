@@ -3102,13 +3102,27 @@ export const validateWaitlistStatus = [
   validate,
 ];
 
-// §35 GOOGLE SIGN-IN
 export const validateGoogleSignIn = [
   body("idToken")
+    .optional()
     .trim()
-    .notEmpty()
-    .withMessage("Google ID token is required")
+    .isString()
+    .withMessage("idToken must be a string")
     .isLength({ min: 20, max: 5000 })
     .withMessage("Invalid Google ID token format"),
+  body("accessToken")
+    .optional()
+    .trim()
+    .isString()
+    .withMessage("accessToken must be a string")
+    .isLength({ min: 20, max: 5000 })
+    .withMessage("Invalid Google access token format"),
+  body().custom((_, { req }) => {
+    const { idToken, accessToken } = req.body || {};
+    if (!idToken && !accessToken) {
+      throw new Error("Either idToken or accessToken is required");
+    }
+    return true;
+  }),
   validate,
-];
+]; // §35 GOOGLE SIGN-IN (updated: accepts idToken OR accessToken)

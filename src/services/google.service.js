@@ -63,3 +63,19 @@ export function getGoogleAuthUrl(state = "") {
     prompt: "consent",
   });
 }
+
+export async function getGoogleUserFromAccessToken(accessToken) {
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch Google userinfo");
+  const payload = await res.json();
+  return {
+    googleId: payload.sub,
+    email: payload.email,
+    emailVerified: payload.email_verified,
+    firstName: payload.given_name || "",
+    lastName: payload.family_name || "",
+    avatar: payload.picture || null,
+  };
+}

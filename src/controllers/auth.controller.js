@@ -55,6 +55,7 @@ import {
   getGoogleUserFromCode,
   verifyGoogleIdToken,
   getGoogleAuthUrl,
+  getGoogleUserFromAccessToken,
 } from "../services/google.service.js";
 // ─── Token helpers ─────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
@@ -766,22 +767,24 @@ export const googleCallback = asyncHandler(async (req, res) => {
   return res.redirect(`${frontendUrl}/auth/google/callback?${params}`);
 });
 
-// ─── Google Sign-In (mobile/SPA — verifies ID token) ─────────────────────────
+// ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
 // POST /api/auth/google
-// Body: { idToken: "eyJ..." }
+// Body: { idToken: "eyJ..." }  OR  { accessToken: "ya29..." }
 export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken } = req.body;
+  const { idToken, accessToken } = req.body;
 
-  if (!idToken) {
+  if (!idToken && !accessToken) {
     return res
       .status(400)
-      .json({ success: false, message: "Missing Google ID token" });
+      .json({ success: false, message: "Missing Google token" });
   }
 
   // ── 1. Verify token with Google ────────────────────────────────────────────
   let googleUser;
   try {
-    googleUser = await verifyGoogleIdToken(idToken);
+    googleUser = idToken
+      ? await verifyGoogleIdToken(idToken)
+      : await getGoogleUserFromAccessToken(accessToken);
   } catch (err) {
     console.error("Google token verification failed:", err.message);
     return res
@@ -789,7 +792,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Invalid Google token" });
   }
 
-  // ── 2. Find existing user ──────────────────────────────────────────────────
+  // ── 2. Find existing user (by googleId OR email) ───────────────────────────
   let user = await prisma.user.findFirst({
     where: {
       OR: [{ googleId: googleUser.googleId }, { email: googleUser.email }],
@@ -880,8 +883,8 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── 3. Tokens ──────────────────────────────────────────────────────────────
-  const { accessToken, refreshToken } = generateTokens(user.id);
+  // ── 3. Issue tokens ────────────────────────────────────────────────────────
+  const { accessToken: ourAccessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({
     where: { id: user.id },
     data: { refreshToken, lastSeen: new Date() },
@@ -891,7 +894,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     success: true,
     message: isNewUser ? "Account created" : "Login successful",
     data: {
-      accessToken,
+      accessToken: ourAccessToken,
       refreshToken,
       isNewUser,
       user: {
