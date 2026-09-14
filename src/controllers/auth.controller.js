@@ -769,9 +769,15 @@ export const googleCallback = asyncHandler(async (req, res) => {
 
 // ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
 // POST /api/auth/google
-// Body: { idToken: "eyJ..." }  OR  { accessToken: "ya29..." }
+// Body: { idToken: "eyJ..." }  OR  { accessToken: "ya29...", role?: "HIRER"|"WORKER" }
+//
+// `role` is only used when creating a NEW user via Google.
+// Existing users keep their stored role — the hint is ignored for them.
 export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken, accessToken } = req.body;
+  const { idToken, accessToken, role } = req.body; // CHANGED: added `role`
+
+  // CHANGED: whitelist — only HIRER or WORKER allowed. Anything else → HIRER.
+  const requestedRole = ["HIRER", "WORKER"].includes(role) ? role : "HIRER";
 
   if (!idToken && !accessToken) {
     return res
@@ -810,6 +816,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     console.log("[google-auth:signin] existing user", {
       id: user.id,
       email: user.email,
+      role: user.role, // CHANGED: log role so we can verify
       nameCustom,
       avatarCustom,
       before: {
@@ -849,6 +856,10 @@ export const googleSignIn = asyncHandler(async (req, res) => {
 
     console.log("[google-auth:signin] willApply", updates);
 
+    // NOTE: `role` is intentionally NOT in `updates` — existing users keep
+    // whatever role they were created with. The `requestedRole` hint only
+    // affects new-account creation below.
+
     user = await prisma.user.update({ where: { id: user.id }, data: updates });
   } else {
     // ── New user ─────────────────────────────────────────────────────────────
@@ -862,7 +873,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
         lastName: googleUser.lastName || "",
         email: googleUser.email,
         password: hashedPassword,
-        role: "HIRER",
+        role: requestedRole, // CHANGED: was hardcoded "HIRER"
         avatar: googleUser.avatar,
         isEmailVerified: googleUser.emailVerified || false,
         googleId: googleUser.googleId,
@@ -872,9 +883,30 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       },
     });
 
-    await prisma.hirerProfile
-      .create({ data: { userId: user.id } })
-      .catch(() => {});
+    // CHANGED: create the profile that matches the chosen role.
+    if (requestedRole === "WORKER") {
+      await prisma.workerProfile
+        .create({
+          data: {
+            userId: user.id,
+            title:
+              `${googleUser.firstName || "User"} ${googleUser.lastName || ""}`.trim() ||
+              "Skilled Worker",
+            hourlyRate: 0,
+            currency: "USD",
+          },
+        })
+        .catch((err) => {
+          console.error(
+            "Failed to create worker profile for Google user:",
+            err.message,
+          );
+        });
+    } else {
+      await prisma.hirerProfile
+        .create({ data: { userId: user.id } })
+        .catch(() => {});
+    }
 
     sendWelcomeEmail({
       to: user.email,
