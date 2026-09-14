@@ -112,6 +112,25 @@ export const register = asyncHandler(async (req, res) => {
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
+    // ── Ban / deletion gates take priority over "already registered" ────────
+    // A banned or deactivated user should see the ban message, not
+    // "email already registered" — otherwise they can't tell what happened.
+    if (existing.isBanned === true) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BANNED",
+        message:
+          "This email is associated with a suspended account. Contact support if you believe this is a mistake.",
+      });
+    }
+    if (existing.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_DELETED",
+        message:
+          "This email is associated with a deactivated account. Contact support to restore access.",
+      });
+    }
     return res
       .status(409)
       .json({ success: false, message: "Email already registered" });
@@ -655,21 +674,28 @@ export const googleCallback = asyncHandler(async (req, res) => {
     } catch {}
   }
 
+  const frontendUrl = process.env.CLIENT_URL || "http://localhost:5173";
+
   // ── 1. Exchange code for Google user info ──────────────────────────────────
   let googleUser;
   try {
     googleUser = await getGoogleUserFromCode(code);
   } catch (err) {
     console.error("Google code exchange failed:", err.message);
-    return res
-      .status(401)
-      .json({ success: false, message: "Google authentication failed" });
+    // Redirect with error rather than JSON, since this is a browser flow
+    return res.redirect(
+      `${frontendUrl}/login?code=GOOGLE_AUTH_FAILED&reason=${encodeURIComponent(
+        "Google authentication failed",
+      )}`,
+    );
   }
 
   if (!googleUser.email) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Google account has no email" });
+    return res.redirect(
+      `${frontendUrl}/login?code=GOOGLE_AUTH_FAILED&reason=${encodeURIComponent(
+        "Google account has no email",
+      )}`,
+    );
   }
 
   // ── 2. Find existing user (by googleId OR email) ───────────────────────────
@@ -679,15 +705,33 @@ export const googleCallback = asyncHandler(async (req, res) => {
     },
   });
 
+  // ── 3. Ban / deactivation gates (BEFORE issuing tokens) ───────────────────
+  // Redirect the user to login with the right code so the frontend shows
+  // the correct banner.
+  if (user) {
+    if (user.isBanned === true) {
+      const params = new URLSearchParams({
+        code: "ACCOUNT_BANNED",
+        reason: "This account has been suspended.",
+      });
+      return res.redirect(`${frontendUrl}/login?${params}`);
+    }
+    if (user.isActive === false) {
+      const params = new URLSearchParams({
+        code: "ACCOUNT_DELETED",
+        reason: "This account has been deactivated.",
+      });
+      return res.redirect(`${frontendUrl}/login?${params}`);
+    }
+  }
+
   let isNewUser = false;
 
   if (user) {
     // ── Existing user ────────────────────────────────────────────────────────
-    // Normalize legacy nulls so strict checks below work reliably.
     const nameCustom = user.nameCustom === true;
     const avatarCustom = user.avatarCustom === true;
 
-    // Audit log — shows exactly what will be applied and why.
     console.log("[google-auth:callback] existing user", {
       id: user.id,
       email: user.email,
@@ -705,22 +749,17 @@ export const googleCallback = asyncHandler(async (req, res) => {
       },
     });
 
-    const updates = {
-      lastSeen: new Date(),
-    };
+    const updates = { lastSeen: new Date() };
 
     if (!user.googleId) {
       updates.googleId = googleUser.googleId;
     }
 
-    // Auto-verify email if Google says it's verified and we haven't yet
     if (googleUser.emailVerified && !user.isEmailVerified) {
       updates.isEmailVerified = true;
       updates.emailVerifyToken = null;
     }
 
-    // ⚠️ CRITICAL: Only overwrite when the user has NEVER customized.
-    // Strict `=== false`: undefined / null must NOT count as "not custom".
     if (nameCustom === false && googleUser.firstName) {
       updates.firstName = googleUser.firstName;
     }
@@ -771,15 +810,14 @@ export const googleCallback = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── 3. Issue tokens ────────────────────────────────────────────────────────
+  // ── 4. Issue tokens ────────────────────────────────────────────────────────
   const { accessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({
     where: { id: user.id },
     data: { refreshToken, lastSeen: new Date() },
   });
 
-  // ── 4. Redirect to frontend with tokens ────────────────────────────────────
-  const frontendUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  // ── 5. Redirect to frontend with tokens ────────────────────────────────────
   const params = new URLSearchParams({
     accessToken,
     refreshToken,
@@ -791,14 +829,14 @@ export const googleCallback = asyncHandler(async (req, res) => {
 
 // ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
 // POST /api/auth/google
-// Body: { idToken: "eyJ..." }  OR  { accessToken: "ya29...", role?: "HIRER"|"WORKER" }
-//
 // `role` is only used when creating a NEW user via Google.
 // Existing users keep their stored role — the hint is ignored for them.
+//
+// Banned or deactivated users are blocked BEFORE any token is issued — this
+// mirrors the manual-login gates so a user can't slip in through Google.
 export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken, accessToken, role } = req.body; // CHANGED: added `role`
+  const { idToken, accessToken, role } = req.body;
 
-  // CHANGED: whitelist — only HIRER or WORKER allowed. Anything else → HIRER.
   const requestedRole = ["HIRER", "WORKER"].includes(role) ? role : "HIRER";
 
   if (!idToken && !accessToken) {
@@ -830,15 +868,34 @@ export const googleSignIn = asyncHandler(async (req, res) => {
   let isNewUser = false;
 
   if (user) {
-    // ── Existing user ────────────────────────────────────────────────────────
-    // Normalize legacy nulls so strict checks below work reliably.
+    // ── 2a. Ban / deactivation gates (BEFORE issuing any tokens) ───────────
+    // A banned or deactivated user must not be able to authenticate via
+    // Google either. This mirrors the manual-login gate.
+    if (user.isBanned === true) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BANNED",
+        message:
+          "This account has been suspended. Contact support if you believe this is a mistake.",
+      });
+    }
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_DELETED",
+        message:
+          "This account has been deactivated. Contact support to restore access.",
+      });
+    }
+
+    // ── 2b. Existing user — update smartly (never overwrite customizations) ─
     const nameCustom = user.nameCustom === true;
     const avatarCustom = user.avatarCustom === true;
 
     console.log("[google-auth:signin] existing user", {
       id: user.id,
       email: user.email,
-      role: user.role, // CHANGED: log role so we can verify
+      role: user.role,
       nameCustom,
       avatarCustom,
       before: {
@@ -864,8 +921,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       updates.emailVerifyToken = null;
     }
 
-    // ⚠️ CRITICAL: Only overwrite when the user has NEVER customized.
-    // Strict `=== false`: undefined / null must NOT count as "not custom".
     if (nameCustom === false && googleUser.firstName) {
       updates.firstName = googleUser.firstName;
     }
@@ -878,13 +933,13 @@ export const googleSignIn = asyncHandler(async (req, res) => {
 
     console.log("[google-auth:signin] willApply", updates);
 
-    // NOTE: `role` is intentionally NOT in `updates` — existing users keep
-    // whatever role they were created with. The `requestedRole` hint only
-    // affects new-account creation below.
-
     user = await prisma.user.update({ where: { id: user.id }, data: updates });
   } else {
-    // ── New user ─────────────────────────────────────────────────────────────
+    // ── 3. New user ─────────────────────────────────────────────────────────
+    // Note: we do NOT gate new Google signups on ban/deletion — those
+    // accounts don't exist yet, so they can't be banned. If the email
+    // matches an existing banned user, we already caught it in step 2a.
+
     isNewUser = true;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);
@@ -895,7 +950,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
         lastName: googleUser.lastName || "",
         email: googleUser.email,
         password: hashedPassword,
-        role: requestedRole, // CHANGED: was hardcoded "HIRER"
+        role: requestedRole,
         avatar: googleUser.avatar,
         isEmailVerified: googleUser.emailVerified || false,
         googleId: googleUser.googleId,
@@ -905,7 +960,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       },
     });
 
-    // CHANGED: create the profile that matches the chosen role.
     if (requestedRole === "WORKER") {
       await prisma.workerProfile
         .create({
@@ -937,7 +991,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── 3. Issue tokens ────────────────────────────────────────────────────────
+  // ── 4. Issue tokens ────────────────────────────────────────────────────────
   const { accessToken: ourAccessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({
     where: { id: user.id },
