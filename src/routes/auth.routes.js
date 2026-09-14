@@ -15,6 +15,9 @@ import {
   logout,
   getMe,
   logoutAll,
+  googleAuthUrl,
+  googleCallback,
+  googleSignIn,
 } from "../controllers/auth.controller.js";
 import {
   validateRegister,
@@ -22,6 +25,7 @@ import {
   validateForgotPassword,
   validateResetPassword,
   validateResendVerification,
+  validateGoogleSignIn,
 } from "../utils/validators.js";
 
 // ─── Rate Limiters ──────────────────────────────────────────────────────────
@@ -55,6 +59,11 @@ router.post(
   validateResetPassword,
   resetPassword,
 );
+
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+router.get("/google/url", authLimiter, googleAuthUrl);
+router.get("/google/callback", authLimiter, googleCallback);
+router.post("/google", authLimiter, validateGoogleSignIn, googleSignIn);
 
 // ── Protected ─────────────────────────────────────────────────────────────────
 router.post("/refresh", protect, refreshToken);

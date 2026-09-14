@@ -352,6 +352,13 @@ model User {
   hirerRefunds  Refund[] @relation("HirerRefunds")
   workerRefunds Refund[] @relation("WorkerRefunds")
   adminRefunds  Refund[] @relation("AdminRefunds")
+  
+    // ── Google OAuth ────────────────────────────────────────
+  googleId      String?  @unique
+  authProvider  String   @default("LOCAL")   // "LOCAL" | "GOOGLE"
+  avatarCustom  Boolean  @default(false)      // true once user sets their own avatar
+  nameCustom    Boolean  @default(false)      // true once user sets their own name
+
 }
 
 model Referral {

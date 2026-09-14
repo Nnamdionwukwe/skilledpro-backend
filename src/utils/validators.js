@@ -3101,3 +3101,14 @@ export const validateWaitlistStatus = [
     .withMessage("Invalid status"),
   validate,
 ];
+
+// §35 GOOGLE SIGN-IN
+export const validateGoogleSignIn = [
+  body("idToken")
+    .trim()
+    .notEmpty()
+    .withMessage("Google ID token is required")
+    .isLength({ min: 20, max: 5000 })
+    .withMessage("Invalid Google ID token format"),
+  validate,
+];

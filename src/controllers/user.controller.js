@@ -2,7 +2,20 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
 import { markProfileSetupComplete } from "./campaign.controller.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
+
 // user.controller.js — getProfile, change only the hirerProfile line in the select
 export const getProfile = async (req, res) => {
   try {
@@ -70,6 +83,7 @@ export const getProfile = async (req, res) => {
   }
 };
 
+// src/controllers/user.controller.js
 export const updateProfile = async (req, res) => {
   try {
     const {
@@ -85,10 +99,12 @@ export const updateProfile = async (req, res) => {
       language,
       latitude,
       longitude,
+      avatar,
     } = req.body;
 
-    // ✅ Only update fields that were actually sent
+    // ── Build update payload — only include fields that were actually sent ────
     const data = {};
+
     if (firstName !== undefined) data.firstName = firstName;
     if (lastName !== undefined) data.lastName = lastName;
     if (bio !== undefined) data.bio = bio;
@@ -99,11 +115,25 @@ export const updateProfile = async (req, res) => {
     if (phone !== undefined) data.phone = phone;
     if (currency !== undefined) data.currency = currency;
     if (language !== undefined) data.language = language;
+
     if (latitude !== undefined)
       data.latitude = latitude ? parseFloat(latitude) : null;
     if (longitude !== undefined)
       data.longitude = longitude ? parseFloat(longitude) : null;
 
+    if (avatar !== undefined) data.avatar = avatar;
+
+    // ── Flag customizations so Google sign-in won't overwrite them ────────────
+    // Once the user has customized their name or avatar, we set a flag
+    // that permanently prevents Google OAuth from overwriting those fields.
+    if (firstName !== undefined || lastName !== undefined) {
+      data.nameCustom = true;
+    }
+    if (avatar !== undefined) {
+      data.avatarCustom = true;
+    }
+
+    // ── Persist ───────────────────────────────────────────────────────────────
     const user = await prisma.user.update({
       where: { id: req.user.id },
       data,
@@ -121,6 +151,8 @@ export const updateProfile = async (req, res) => {
         currency: true,
         language: true,
         avatar: true,
+        nameCustom: true,
+        avatarCustom: true,
         updatedAt: true,
       },
     });

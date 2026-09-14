@@ -50,6 +50,12 @@ import {
   setTokenCookies,
   clearTokenCookies,
 } from "../services/auth.service.js";
+
+import {
+  getGoogleUserFromCode,
+  verifyGoogleIdToken,
+  getGoogleAuthUrl,
+} from "../services/google.service.js";
 // ─── Token helpers ─────────────────────────────────────────────────────────────
 function generateToken(id, secret, expiresIn) {
   return jwt.sign({ id }, secret, { expiresIn });
@@ -598,3 +604,249 @@ export const logoutAll = async (req, res) => {
       .json({ success: false, message: "Failed to sign out from all devices" });
   }
 };
+
+// ─── Google OAuth: Get auth URL ───────────────────────────────────────────────
+// GET /api/auth/google/url?redirectTo=/dashboard
+export const googleAuthUrl = asyncHandler(async (req, res) => {
+  const redirectTo = req.query.redirectTo || "/";
+  const state = Buffer.from(JSON.stringify({ redirectTo })).toString("base64");
+
+  const url = getGoogleAuthUrl(state);
+  return res.json({ success: true, data: { url } });
+});
+
+// ─── Google OAuth: Callback ───────────────────────────────────────────────────
+// GET /api/auth/google/callback?code=xxx&state=xxx
+export const googleCallback = asyncHandler(async (req, res) => {
+  const { code, state } = req.query;
+
+  if (!code) {
+    return res.status(400).json({ success: false, message: "Missing code" });
+  }
+
+  let redirectTo = "/";
+  if (state) {
+    try {
+      const parsed = JSON.parse(Buffer.from(state, "base64").toString());
+      redirectTo = parsed.redirectTo || "/";
+    } catch {}
+  }
+
+  // ── 1. Exchange code for Google user info ──────────────────────────────────
+  let googleUser;
+  try {
+    googleUser = await getGoogleUserFromCode(code);
+  } catch (err) {
+    console.error("Google code exchange failed:", err.message);
+    return res
+      .status(401)
+      .json({ success: false, message: "Google authentication failed" });
+  }
+
+  if (!googleUser.email) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Google account has no email" });
+  }
+
+  // ── 2. Find existing user (by googleId OR email) ───────────────────────────
+  let user = await prisma.user.findFirst({
+    where: {
+      OR: [{ googleId: googleUser.googleId }, { email: googleUser.email }],
+    },
+  });
+
+  let isNewUser = false;
+
+  if (user) {
+    // ── Existing user ────────────────────────────────────────────────────────
+    // Only update googleId if it wasn't set. Never overwrite name/avatar.
+    const updates = {
+      lastSeen: new Date(),
+    };
+
+    if (!user.googleId) {
+      updates.googleId = googleUser.googleId;
+    }
+
+    // Auto-verify email if Google says it's verified and we haven't yet
+    if (googleUser.emailVerified && !user.isEmailVerified) {
+      updates.isEmailVerified = true;
+      updates.emailVerifyToken = null;
+    }
+
+    // ⚠️ CRITICAL: Only fill name/avatar if user has NEVER customized them
+    if (!user.nameCustom) {
+      updates.firstName = googleUser.firstName || user.firstName;
+      updates.lastName = googleUser.lastName || user.lastName;
+    }
+    if (!user.avatarCustom && googleUser.avatar) {
+      updates.avatar = googleUser.avatar;
+    }
+
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: updates,
+    });
+  } else {
+    // ── New user — create account ────────────────────────────────────────────
+    isNewUser = true;
+
+    // Generate a random password (user will use Google, not password)
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    const hashedPassword = await bcrypt.hash(randomPassword, 12);
+
+    user = await prisma.user.create({
+      data: {
+        firstName: googleUser.firstName || "User",
+        lastName: googleUser.lastName || "",
+        email: googleUser.email,
+        password: hashedPassword,
+        role: "HIRER", // Default role — user can change later
+        avatar: googleUser.avatar,
+        isEmailVerified: googleUser.emailVerified || false,
+        googleId: googleUser.googleId,
+        authProvider: "GOOGLE",
+        avatarCustom: false,
+        nameCustom: false,
+      },
+    });
+
+    // Auto-create role profile
+    await prisma.hirerProfile
+      .create({ data: { userId: user.id } })
+      .catch(() => {});
+
+    // Send welcome email
+    sendWelcomeEmail({
+      to: user.email,
+      firstName: user.firstName,
+      role: user.role,
+    }).catch(() => {});
+  }
+
+  // ── 3. Issue tokens ────────────────────────────────────────────────────────
+  const { accessToken, refreshToken } = generateTokens(user.id);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { refreshToken, lastSeen: new Date() },
+  });
+
+  // ── 4. Redirect to frontend with tokens ────────────────────────────────────
+  const frontendUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  const params = new URLSearchParams({
+    accessToken,
+    refreshToken,
+    isNewUser: isNewUser ? "1" : "0",
+  });
+
+  return res.redirect(`${frontendUrl}/auth/google/callback?${params}`);
+});
+
+// ─── Google Sign-In (mobile/SPA — verifies ID token) ─────────────────────────
+// POST /api/auth/google
+// Body: { idToken: "eyJ..." }
+export const googleSignIn = asyncHandler(async (req, res) => {
+  const { idToken } = req.body;
+
+  if (!idToken) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing Google ID token" });
+  }
+
+  // ── 1. Verify token with Google ────────────────────────────────────────────
+  let googleUser;
+  try {
+    googleUser = await verifyGoogleIdToken(idToken);
+  } catch (err) {
+    console.error("Google token verification failed:", err.message);
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid Google token" });
+  }
+
+  // ── 2. Find existing user ──────────────────────────────────────────────────
+  let user = await prisma.user.findFirst({
+    where: {
+      OR: [{ googleId: googleUser.googleId }, { email: googleUser.email }],
+    },
+  });
+
+  let isNewUser = false;
+
+  if (user) {
+    // Existing user — update smartly (never overwrite user's customizations)
+    const updates = { lastSeen: new Date() };
+    if (!user.googleId) updates.googleId = googleUser.googleId;
+    if (googleUser.emailVerified && !user.isEmailVerified) {
+      updates.isEmailVerified = true;
+      updates.emailVerifyToken = null;
+    }
+    if (!user.nameCustom) {
+      updates.firstName = googleUser.firstName || user.firstName;
+      updates.lastName = googleUser.lastName || user.lastName;
+    }
+    if (!user.avatarCustom && googleUser.avatar) {
+      updates.avatar = googleUser.avatar;
+    }
+    user = await prisma.user.update({ where: { id: user.id }, data: updates });
+  } else {
+    // New user
+    isNewUser = true;
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    const hashedPassword = await bcrypt.hash(randomPassword, 12);
+
+    user = await prisma.user.create({
+      data: {
+        firstName: googleUser.firstName || "User",
+        lastName: googleUser.lastName || "",
+        email: googleUser.email,
+        password: hashedPassword,
+        role: "HIRER",
+        avatar: googleUser.avatar,
+        isEmailVerified: googleUser.emailVerified || false,
+        googleId: googleUser.googleId,
+        authProvider: "GOOGLE",
+        avatarCustom: false,
+        nameCustom: false,
+      },
+    });
+
+    await prisma.hirerProfile
+      .create({ data: { userId: user.id } })
+      .catch(() => {});
+
+    sendWelcomeEmail({
+      to: user.email,
+      firstName: user.firstName,
+      role: user.role,
+    }).catch(() => {});
+  }
+
+  // ── 3. Tokens ──────────────────────────────────────────────────────────────
+  const { accessToken, refreshToken } = generateTokens(user.id);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { refreshToken, lastSeen: new Date() },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: isNewUser ? "Account created" : "Login successful",
+    data: {
+      accessToken,
+      refreshToken,
+      isNewUser,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        isEmailVerified: user.isEmailVerified,
+      },
+    },
+  });
+});
