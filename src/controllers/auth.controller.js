@@ -660,7 +660,28 @@ export const googleCallback = asyncHandler(async (req, res) => {
 
   if (user) {
     // ── Existing user ────────────────────────────────────────────────────────
-    // Only update googleId if it wasn't set. Never overwrite name/avatar.
+    // Normalize legacy nulls so strict checks below work reliably.
+    const nameCustom = user.nameCustom === true;
+    const avatarCustom = user.avatarCustom === true;
+
+    // Audit log — shows exactly what will be applied and why.
+    console.log("[google-auth:callback] existing user", {
+      id: user.id,
+      email: user.email,
+      nameCustom,
+      avatarCustom,
+      before: {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+      },
+      fromGoogle: {
+        firstName: googleUser.firstName,
+        lastName: googleUser.lastName,
+        avatar: googleUser.avatar,
+      },
+    });
+
     const updates = {
       lastSeen: new Date(),
     };
@@ -675,14 +696,19 @@ export const googleCallback = asyncHandler(async (req, res) => {
       updates.emailVerifyToken = null;
     }
 
-    // ⚠️ CRITICAL: Only fill name/avatar if user has NEVER customized them
-    if (!user.nameCustom) {
-      updates.firstName = googleUser.firstName || user.firstName;
-      updates.lastName = googleUser.lastName || user.lastName;
+    // ⚠️ CRITICAL: Only overwrite when the user has NEVER customized.
+    // Strict `=== false`: undefined / null must NOT count as "not custom".
+    if (nameCustom === false && googleUser.firstName) {
+      updates.firstName = googleUser.firstName;
     }
-    if (!user.avatarCustom && googleUser.avatar) {
+    if (nameCustom === false && googleUser.lastName) {
+      updates.lastName = googleUser.lastName;
+    }
+    if (avatarCustom === false && googleUser.avatar) {
       updates.avatar = googleUser.avatar;
     }
+
+    console.log("[google-auth:callback] willApply", updates);
 
     user = await prisma.user.update({
       where: { id: user.id },
@@ -692,7 +718,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
     // ── New user — create account ────────────────────────────────────────────
     isNewUser = true;
 
-    // Generate a random password (user will use Google, not password)
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);
 
@@ -702,7 +727,7 @@ export const googleCallback = asyncHandler(async (req, res) => {
         lastName: googleUser.lastName || "",
         email: googleUser.email,
         password: hashedPassword,
-        role: "HIRER", // Default role — user can change later
+        role: "HIRER",
         avatar: googleUser.avatar,
         isEmailVerified: googleUser.emailVerified || false,
         googleId: googleUser.googleId,
@@ -712,12 +737,10 @@ export const googleCallback = asyncHandler(async (req, res) => {
       },
     });
 
-    // Auto-create role profile
     await prisma.hirerProfile
       .create({ data: { userId: user.id } })
       .catch(() => {});
 
-    // Send welcome email
     sendWelcomeEmail({
       to: user.email,
       firstName: user.firstName,
@@ -776,23 +799,56 @@ export const googleSignIn = asyncHandler(async (req, res) => {
   let isNewUser = false;
 
   if (user) {
-    // Existing user — update smartly (never overwrite user's customizations)
+    // ── Existing user ────────────────────────────────────────────────────────
+    // Normalize legacy nulls so strict checks below work reliably.
+    const nameCustom = user.nameCustom === true;
+    const avatarCustom = user.avatarCustom === true;
+
+    console.log("[google-auth:signin] existing user", {
+      id: user.id,
+      email: user.email,
+      nameCustom,
+      avatarCustom,
+      before: {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+      },
+      fromGoogle: {
+        firstName: googleUser.firstName,
+        lastName: googleUser.lastName,
+        avatar: googleUser.avatar,
+      },
+    });
+
     const updates = { lastSeen: new Date() };
-    if (!user.googleId) updates.googleId = googleUser.googleId;
+
+    if (!user.googleId) {
+      updates.googleId = googleUser.googleId;
+    }
+
     if (googleUser.emailVerified && !user.isEmailVerified) {
       updates.isEmailVerified = true;
       updates.emailVerifyToken = null;
     }
-    if (!user.nameCustom) {
-      updates.firstName = googleUser.firstName || user.firstName;
-      updates.lastName = googleUser.lastName || user.lastName;
+
+    // ⚠️ CRITICAL: Only overwrite when the user has NEVER customized.
+    // Strict `=== false`: undefined / null must NOT count as "not custom".
+    if (nameCustom === false && googleUser.firstName) {
+      updates.firstName = googleUser.firstName;
     }
-    if (!user.avatarCustom && googleUser.avatar) {
+    if (nameCustom === false && googleUser.lastName) {
+      updates.lastName = googleUser.lastName;
+    }
+    if (avatarCustom === false && googleUser.avatar) {
       updates.avatar = googleUser.avatar;
     }
+
+    console.log("[google-auth:signin] willApply", updates);
+
     user = await prisma.user.update({ where: { id: user.id }, data: updates });
   } else {
-    // New user
+    // ── New user ─────────────────────────────────────────────────────────────
     isNewUser = true;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);

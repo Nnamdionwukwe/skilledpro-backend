@@ -169,13 +169,19 @@ export const updateProfile = async (req, res) => {
 export const updateAvatar = async (req, res) => {
   try {
     if (!req.file) return sendError(res, "No file uploaded", 400);
+
     const user = await prisma.user.update({
       where: { id: req.user.id },
-      data: { avatar: req.file.path },
-      select: { id: true, avatar: true },
+      data: {
+        avatar: req.file.path,
+        avatarCustom: true, // ✅ ADD THIS
+      },
+      select: { id: true, avatar: true, avatarCustom: true },
     });
+
     return sendResponse(res, { message: "Avatar updated", data: { user } });
   } catch (err) {
+    console.error("updateAvatar error:", err.message);
     return sendError(res, "Avatar update failed");
   }
 };

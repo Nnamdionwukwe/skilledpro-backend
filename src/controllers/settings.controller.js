@@ -161,10 +161,25 @@ export const updateProfile = async (req, res) => {
         ? parseFloat(req.body.longitude)
         : null;
 
+    // ── Customization flags ──────────────────────────────────────────────────
+    // If the client sent a non-empty firstName/lastName, lock it from OAuth
+    // overwrite. Once `nameCustom = true`, Google sign-in will never touch
+    // firstName / lastName again.
+    const hasNonEmptyName =
+      (data.firstName && data.firstName.length > 0) ||
+      (data.lastName && data.lastName.length > 0);
+    if (hasNonEmptyName) {
+      data.nameCustom = true;
+    }
+
     const user = await prisma.user.update({
       where: { id: req.user.id },
       data,
-      select: USER_SELECT,
+      select: {
+        ...USER_SELECT,
+        nameCustom: true,
+        avatarCustom: true,
+      },
     });
     return sendResponse(res, { message: "Profile updated", data: { user } });
   } catch (err) {
@@ -180,34 +195,50 @@ export const updateAvatar = async (req, res) => {
   try {
     if (!req.file) return sendError(res, "No image file provided", 400);
 
-    // Delete old avatar from Cloudinary
+    // ── CloudinaryStorage already uploaded the file. ──────────────────────────
+    // `req.file.path` is the Cloudinary secure_url. `req.file.filename` is the
+    // public_id. We only need to delete the OLD avatar from Cloudinary and
+    // save the NEW url to the DB.
+    const newUrl = req.file.path || req.file.secure_url;
+    if (!newUrl) {
+      console.error("updateAvatar: multer did not populate req.file.path");
+      return sendError(
+        res,
+        "Upload failed — no URL returned from storage",
+        500,
+      );
+    }
+
+    // Delete old avatar from Cloudinary (best-effort)
     const current = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { avatar: true },
     });
-    if (current?.avatar) {
+    if (current?.avatar && current.avatar !== newUrl) {
       const match = current.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/);
       if (match) {
         try {
           await cloudinary.uploader.destroy(match[1]);
-        } catch {}
+        } catch (err) {
+          console.warn(
+            "Failed to delete old avatar from Cloudinary:",
+            err.message,
+          );
+        }
       }
     }
 
-    const b64 = Buffer.from(req.file.buffer).toString("base64");
-    const dataUri = `data:${req.file.mimetype};base64,${b64}`;
-    const upload = await cloudinary.uploader.upload(dataUri, {
-      folder: "skilledpro/avatars",
-      transformation: [
-        { width: 400, height: 400, crop: "fill", gravity: "face" },
-      ],
-    });
-
+    // Persist the new URL AND flag the avatar as user-customized so that
+    // Google sign-in will never overwrite it.
     const user = await prisma.user.update({
       where: { id: req.user.id },
-      data: { avatar: upload.secure_url },
-      select: { id: true, avatar: true },
+      data: {
+        avatar: newUrl,
+        avatarCustom: true, // ✅ critical — locks the field from OAuth override
+      },
+      select: { id: true, avatar: true, avatarCustom: true },
     });
+
     return sendResponse(res, {
       message: "Avatar updated",
       data: { avatar: user.avatar, user },
