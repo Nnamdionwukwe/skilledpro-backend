@@ -147,6 +147,11 @@ enum AuditAction {
   // ── Withdrawal management ────────────────────────────────────────────────
   WITHDRAWAL_APPROVED
   WITHDRAWAL_REJECTED
+  // ── Worker debt management ───────────────────────────────────────────────
+  WORKER_DEBT_CREATED
+  WORKER_DEBT_DEDUCTED
+  WORKER_DEBT_FORGIVEN
+  WORKER_DEBT_MARKED_COLLECTION
   // ── Report management ────────────────────────────────────────────────────
   REPORT_REVIEWED
   REPORT_RESOLVED
@@ -361,6 +366,11 @@ model User {
   disputesRaised   Dispute[] @relation("DisputesRaisedBy")
   disputesAgainst  Dispute[] @relation("DisputesAgainst")
   disputesResolved Dispute[] @relation("DisputesResolvedBy")
+
+  // ── Worker debt relations ────────────────────────────────────────────────
+  workerDebts           WorkerDebt[] @relation("WorkerDebts")
+  forgivenDebts         WorkerDebt[] @relation("ForgivenDebts")
+  markedCollectionDebts WorkerDebt[] @relation("MarkedCollectionDebts")
 
   // ── Google OAuth ────────────────────────────────────────
   googleId     String? @unique
@@ -614,6 +624,59 @@ model WorkerProfile {
   profileCurrency String?          @default("USD")
 
   dailyRate Float?
+
+  // ── Worker debt (populated when a refund cannot be clawed back from balance) ──
+  debtBalance    Float     @default(0)
+  debtCreatedAt  DateTime?
+  debtForgivenAt DateTime?
+  debtReason     String?
+
+  // Relation to individual debt records
+  debts WorkerDebt[]
+}
+
+// ─── Worker Debt Model ───────────────────────────────────────────────────────
+// Tracks amounts a worker owes the platform, created when a dispute refund
+// cannot be clawed back from the worker's available balance because the
+// money was already withdrawn.
+model WorkerDebt {
+  id              String        @id @default(uuid())
+  workerId        String
+  worker          User          @relation("WorkerDebts", fields: [workerId], references: [id], onDelete: Cascade)
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  amount         Float // original debt amount
+  amountPaid     Float  @default(0) // how much has been auto-deducted
+  amountForgiven Float  @default(0) // how much admin forgave
+  currency       String @default("NGN")
+
+  reason     String // "DISPUTE_REFUND" | "CHARGEBACK" | "FRAUD_REVERSAL" | "OTHER"
+  reasonNote String? // human-readable context
+
+  refundId String? // refund that created this debt
+  refund   Refund? @relation("RefundWorkerDebts", fields: [refundId], references: [id], onDelete: SetNull)
+
+  status String @default("OUTSTANDING") // OUTSTANDING | CLEARED | FORGIVEN | COLLECTION
+
+  clearedAt            DateTime?
+  forgivenAt           DateTime?
+  forgivenById         String?
+  forgivenBy           User?     @relation("ForgivenDebts", fields: [forgivenById], references: [id])
+  markedCollectionAt   DateTime?
+  markedCollectionById String?
+  markedCollectionBy   User?     @relation("MarkedCollectionDebts", fields: [markedCollectionById], references: [id])
+
+  meta Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workerId])
+  @@index([workerProfileId])
+  @@index([status])
+  @@index([reason])
+  @@index([createdAt(sort: Desc)])
 }
 
 model HirerProfile {
@@ -1563,6 +1626,9 @@ model Refund {
   // ── NEW: link back to dispute if this refund came from one ──────────────
   disputeId String?  @unique
   dispute   Dispute? @relation("RefundFromDispute", fields: [disputeId], references: [id], onDelete: SetNull)
+
+  // ── NEW: debts created because of this refund ──────────────────────────
+  workerDebts WorkerDebt[] @relation("RefundWorkerDebts")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

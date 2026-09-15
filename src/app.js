@@ -41,6 +41,9 @@ import hirerWalletRoutes from "./routes/hirerWallet.routes.js";
 import adminLogsRoutes from "./routes/adminLogs.routes.js";
 import refundRoutes from "./routes/refund.routes.js";
 import healthRouter from "./routes/health.routes.js";
+import adminDebtRoutes from "./routes/admin.debt.routes.js";
+import "./services/expiry.service.js"; // starts the cron job
+import { startDebtCron } from "./services/debtCron.service.js";
 
 // ── Config & middleware ──────────────────────────────────────────────────────
 import { helmetConfig } from "./config/helmet.config.js";
@@ -65,6 +68,8 @@ import {
 import "./services/expiry.service.js"; // starts the cron job
 
 const app = express();
+
+startDebtCron();
 
 app.set("trust proxy", 1);
 
@@ -194,6 +199,7 @@ app.use("/api/feedback", feedbackRoutes);
 app.use("/api/wallet", hirerWalletRoutes);
 app.use("/api/admin", adminLogsRoutes);
 app.use("/api/refunds", refundRoutes);
+app.use("/api/admin/worker-debts", adminDebtRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);

@@ -30,6 +30,8 @@ import {
   processRefund,
 } from "../services/refund.service.js";
 
+import { createNotification } from "../services/notification.service.js";
+
 import { logAdminAction } from "../utils/auditLog.js";
 import {
   paginate,
@@ -935,11 +937,15 @@ export const refundPayment = asyncHandler(async (req, res) => {
 // Body (crypto):
 //   { amount, currency, method: "crypto",
 //     cryptoAddress, cryptoCurrency, cryptoNetwork }
+//
+// Debt handling: if the worker has an outstanding debt (from a dispute
+// refund that couldn't be clawed back because they had already withdrawn
+// the earnings), the debt is auto-deducted from this payout first.
 // ─────────────────────────────────────────────────────────────────────────────
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const {
-    pin, // ← NEW: 4-digit withdrawal PIN
+    pin, // ← 4-digit withdrawal PIN
     amount,
     currency = "NGN",
     method = "bank_transfer",
@@ -979,7 +985,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     },
   });
 
-  // Enforce PIN is set before any withdrawal
   if (!user.withdrawalPinSet) {
     return res.status(403).json({
       success: false,
@@ -1044,6 +1049,37 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── 3.5. Auto-deduct any outstanding debt ─────────────────────────────────
+  // When a worker owes the platform (e.g., a dispute refund was clawed back
+  // after they had already withdrawn the earnings), the debt is recovered
+  // from the next withdrawal. We deduct as much as possible from this payout.
+  const workerProfile = await prisma.workerProfile.findUnique({
+    where: { userId: workerId },
+    select: { id: true, debtBalance: true },
+  });
+
+  const outstandingDebt = workerProfile?.debtBalance || 0;
+  let debtDeducted = 0;
+  let finalPayoutAmount = parseFloat(amount);
+
+  if (outstandingDebt > 0) {
+    debtDeducted = Math.min(finalPayoutAmount, outstandingDebt);
+    finalPayoutAmount = finalPayoutAmount - debtDeducted;
+
+    // If the debt consumed the entire withdrawal, reject — no point
+    // creating a Withdrawal row for a payout of zero.
+    if (finalPayoutAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Your outstanding debt of ${currency} ${outstandingDebt.toFixed(2)} exceeds this withdrawal amount. Please withdraw more, or contact support.`,
+        data: {
+          debtBalance: outstandingDebt,
+          requestedAmount: parseFloat(amount),
+        },
+      });
+    }
+  }
+
   // ── 4. Build destination ──────────────────────────────────────────────────
   let destination = "";
   let methodMeta = {};
@@ -1091,20 +1127,80 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await prisma.withdrawal.create({
     data: {
       workerId,
-      amount: parseFloat(amount),
+      amount: finalPayoutAmount, // ← deducted amount (or full if no debt)
       currency: currency.toUpperCase(),
       method,
       destination,
       reference,
       status: "PENDING",
-      notes: JSON.stringify({
+      details: {
         ...methodMeta,
         requestedAt: new Date().toISOString(),
-      }),
+        originalAmount: parseFloat(amount),
+        debtDeducted: debtDeducted || 0,
+        debtBalanceBefore: outstandingDebt || 0,
+      },
     },
   });
 
-  // Notify admins
+  // ── 5. Apply the debt deduction to WorkerDebt rows (FIFO) ─────────────────
+  if (debtDeducted > 0 && workerProfile) {
+    await prisma.workerProfile.update({
+      where: { id: workerProfile.id },
+      data: { debtBalance: { decrement: debtDeducted } },
+    });
+
+    let remaining = debtDeducted;
+    const outstandingDebts = await prisma.workerDebt.findMany({
+      where: { workerId, status: "OUTSTANDING" },
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const debt of outstandingDebts) {
+      if (remaining <= 0) break;
+
+      const owed = debt.amount - debt.amountPaid;
+      const applied = Math.min(remaining, owed);
+      const newPaid = debt.amountPaid + applied;
+      const newStatus = newPaid >= debt.amount ? "CLEARED" : "OUTSTANDING";
+
+      await prisma.workerDebt.update({
+        where: { id: debt.id },
+        data: {
+          amountPaid: newPaid,
+          status: newStatus,
+          clearedAt: newStatus === "CLEARED" ? new Date() : undefined,
+          meta: {
+            ...(debt.meta || {}),
+            lastDeductionAt: new Date().toISOString(),
+            lastDeductionFrom: withdrawal.reference,
+          },
+        },
+      });
+
+      remaining -= applied;
+    }
+
+    console.log(
+      `[requestWithdrawal] Deducted ${debtDeducted} ${currency} of debt from worker ${workerId} via withdrawal ${reference}`,
+    );
+
+    await createNotification({
+      userId: workerId,
+      title: "Debt deducted from withdrawal",
+      body: `${currency} ${debtDeducted.toFixed(2)} was deducted from your withdrawal to pay down your outstanding balance.`,
+      type: "WORKER_DEBT_DEDUCTED",
+      data: {
+        withdrawalId: withdrawal.id,
+        reference,
+        debtDeducted,
+        remainingDebt: Math.max(0, outstandingDebt - debtDeducted),
+      },
+      icon: "FaExclamationTriangle",
+    }).catch(() => {});
+  }
+
+  // ── 6. Notify admins ──────────────────────────────────────────────────────
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
     select: { id: true },
@@ -1113,20 +1209,34 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     data: admins.map((a) => ({
       userId: a.id,
       title: "Withdrawal Request 💸",
-      body: `Worker requested ${currency.toUpperCase()} ${amount} via ${method.replace("_", " ")} — Ref: ${reference}`,
+      body: `Worker requested ${currency.toUpperCase()} ${finalPayoutAmount.toFixed(2)}${debtDeducted > 0 ? ` (debt deduction: ${currency} ${debtDeducted.toFixed(2)})` : ""} via ${method.replace("_", " ")} — Ref: ${reference}`,
       type: "WITHDRAWAL_REQUESTED",
-      data: { withdrawalId: withdrawal.id, workerId, amount, currency, method },
+      data: {
+        withdrawalId: withdrawal.id,
+        workerId,
+        amount: finalPayoutAmount,
+        currency,
+        method,
+        debtDeducted,
+      },
     })),
   });
 
+  // ── 7. Return response ────────────────────────────────────────────────────
   return res.status(201).json({
     success: true,
     message:
-      "Withdrawal request submitted. Processing within 1–3 business days.",
-    data: { withdrawal },
+      debtDeducted > 0
+        ? `Withdrawal of ${currency} ${finalPayoutAmount.toFixed(2)} submitted. ${currency} ${debtDeducted.toFixed(2)} was applied to your outstanding debt.`
+        : "Withdrawal request submitted. Processing within 1–3 business days.",
+    data: {
+      withdrawal,
+      debtDeducted: debtDeducted || 0,
+      finalPayoutAmount,
+      remainingDebt: Math.max(0, outstandingDebt - (debtDeducted || 0)),
+    },
   });
 });
-
 // ─────────────────────────────────────────────────────────────────────────────
 // § 12  ADMIN — APPROVE WITHDRAWAL (auto-triggers real payout)
 // PATCH /api/admin/withdrawals/:withdrawalId/approve
@@ -1337,13 +1447,16 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 13  WORKER — GET WITHDRAWALS + LIVE BALANCE
 // GET /api/payments/withdrawals
+//
+// Returns the worker's balance summary (including debtBalance so the
+// frontend can show a warning card) and paginated withdrawal history.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const { page = 1, limit = 15 } = req.query;
   const { skip, take } = paginate(page, limit);
 
-  const [earnedAgg, escrowAgg, pendingAgg, withdrawals, total] =
+  const [earnedAgg, escrowAgg, pendingAgg, withdrawals, total, workerProfile] =
     await Promise.all([
       prisma.payment.aggregate({
         where: { booking: { workerId }, status: "RELEASED" },
@@ -1364,12 +1477,26 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
         take,
       }),
       prisma.withdrawal.count({ where: { workerId } }),
+      // Read the debt fields
+      prisma.workerProfile.findUnique({
+        where: { userId: workerId },
+        select: {
+          debtBalance: true,
+          debtCreatedAt: true,
+          debtForgivenAt: true,
+          debtReason: true,
+        },
+      }),
     ]);
 
   const totalEarned = earnedAgg._sum.workerPayout ?? 0;
   const inEscrow = escrowAgg._sum.workerPayout ?? 0;
   const pendingPayout = pendingAgg._sum.amount ?? 0;
-  const available = Math.max(0, totalEarned - pendingPayout);
+  const outstandingDebt = workerProfile?.debtBalance ?? 0;
+
+  // The "available" balance reflects earnings minus pending payouts AND
+  // minus any outstanding debt (since debt will be deducted on next withdrawal).
+  const available = Math.max(0, totalEarned - pendingPayout - outstandingDebt);
 
   // Parse notes back for display
   const parsed = withdrawals.map((w) => ({
@@ -1381,15 +1508,18 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
     success: true,
     data: {
       balance: {
-        available,
-        totalEarned,
-        inEscrow,
-        pendingPayout,
+        available, // spendable right now (post-debt)
+        totalEarned, // lifetime released earnings
+        inEscrow, // held but not yet released
+        pendingPayout, // withdrawals currently queued
+        debtBalance: outstandingDebt, // ← NEW: outstanding debt
+        debtCreatedAt: workerProfile?.debtCreatedAt ?? null, // ← NEW
+        debtReason: workerProfile?.debtReason ?? null, // ← NEW
         // Fee config — frontend renders dynamically from these, never hardcodes
-        withdrawalFeeRate: FEE_CONFIG.WITHDRAWAL_FEE_RATE, // 0 in Phase 1
+        withdrawalFeeRate: FEE_CONFIG.WITHDRAWAL_FEE_RATE,
         withdrawalFeeCap: FEE_CONFIG.WITHDRAWAL_FEE_CAP,
-        workerFeeRate: FEE_CONFIG.WORKER_FEE_RATE, // 0 in Phase 1
-        hirerFeeRate: FEE_CONFIG.HIRER_FEE_RATE, // 0.05
+        workerFeeRate: FEE_CONFIG.WORKER_FEE_RATE,
+        hirerFeeRate: FEE_CONFIG.HIRER_FEE_RATE,
         feePhase: FEE_CONFIG.phase,
       },
       withdrawals: parsed,

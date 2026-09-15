@@ -243,18 +243,98 @@ export const processRefund = async (refundId) => {
       });
     }
 
-    // 4. Debit Worker's earnings
+    // 4. Handle the worker's side (debt-aware)
+    // Two paths depending on whether the worker has already withdrawn:
+    //  a) Worker hasn't withdrawn since release → debit earnings (they still hold funds)
+    //  b) Worker has withdrawn since release  → create a debt (recovery via future earnings)
     if (refund.workerId) {
-      await prisma.workerProfile
-        .update({
-          where: { userId: refund.workerId },
-          data: {
-            totalEarnings: { decrement: refund.workerAmountDeducted },
-          },
-        })
-        .catch(() => {
-          // Worker profile might not exist (e.g. admin-only user)
-        });
+      const workerProfile = await prisma.workerProfile.findUnique({
+        where: { userId: refund.workerId },
+        select: { id: true, totalEarnings: true, debtBalance: true },
+      });
+
+      if (!workerProfile) {
+        console.warn(
+          `processRefund: no WorkerProfile for user ${refund.workerId} — skipping worker debit`,
+        );
+      } else {
+        // Was the payment already released AND has the worker withdrawn since?
+        const paymentReleasedAt = refund.payment?.escrowReleasedAt;
+        let hasWithdrawnSinceRelease = false;
+
+        if (refund.payment?.status === "RELEASED" && paymentReleasedAt) {
+          const recentWithdrawal = await prisma.withdrawal.findFirst({
+            where: {
+              workerId: refund.workerId,
+              status: "COMPLETED",
+              completedAt: { gte: paymentReleasedAt },
+            },
+            select: { id: true, completedAt: true, amount: true },
+          });
+          hasWithdrawnSinceRelease = !!recentWithdrawal;
+        }
+
+        const amountToClawBack = refund.workerAmountDeducted || 0;
+
+        if (hasWithdrawnSinceRelease) {
+          // ── CASE D: Worker already withdrew — create a debt record ──────
+          await prisma.workerDebt.create({
+            data: {
+              workerId: refund.workerId,
+              workerProfileId: workerProfile.id,
+              amount: amountToClawBack,
+              currency: refund.currency || "NGN",
+              reason: "DISPUTE_REFUND",
+              reasonNote: `Refund ${refund.reference} on booking "${refund.booking?.title}" after withdrawal`,
+              refundId: refund.id,
+              status: "OUTSTANDING",
+              meta: {
+                bookingId: refund.bookingId,
+                paymentId: refund.paymentId,
+                originalRefundType: refund.refundType,
+                paymentReleasedAt: paymentReleasedAt?.toISOString() || null,
+              },
+            },
+          });
+
+          // Update the worker's aggregate debt balance
+          await prisma.workerProfile.update({
+            where: { id: workerProfile.id },
+            data: {
+              debtBalance: { increment: amountToClawBack },
+              debtCreatedAt:
+                workerProfile.debtBalance === 0 ? new Date() : undefined,
+              debtReason: "Outstanding dispute refund debt",
+            },
+          });
+
+          // Notify the worker about the debt
+          await createNotification({
+            userId: refund.workerId,
+            title: "Dispute resolved — debt created",
+            body: `${refund.currency} ${amountToClawBack.toLocaleString()} is now owed to SkilledProz because the payment had already been withdrawn. It will be deducted from your next withdrawals.`,
+            type: "WORKER_DEBT_CREATED",
+            data: {
+              refundId: refund.id,
+              bookingId: refund.bookingId,
+              amount: amountToClawBack,
+            },
+            icon: "FaExclamationTriangle",
+          }).catch(() => {});
+
+          console.log(
+            `[processRefund] Created WorkerDebt of ${amountToClawBack} ${refund.currency} for worker ${refund.workerId}`,
+          );
+        } else {
+          // ── CASE A/B/C: Worker still holds the funds — debit earnings ──
+          await prisma.workerProfile.update({
+            where: { id: workerProfile.id },
+            data: {
+              totalEarnings: { decrement: amountToClawBack },
+            },
+          });
+        }
+      }
     }
 
     // 5. Update payment status to REFUNDED
@@ -381,7 +461,39 @@ export const reverseRefund = async (refundId, adminId) => {
     }
 
     // 3. Credit Worker's earnings back
+    // If a WorkerDebt was created for this refund, mark it as CLEARED here
+    // so the debt is cancelled out alongside the refund reversal.
     if (refund.workerId) {
+      const debtsFromThisRefund = await prisma.workerDebt.findMany({
+        where: { refundId: refund.id, status: "OUTSTANDING" },
+      });
+
+      for (const debt of debtsFromThisRefund) {
+        // Reduce the worker's aggregate debt balance by the debt amount
+        await prisma.workerProfile.update({
+          where: { userId: refund.workerId },
+          data: {
+            debtBalance: { decrement: debt.amount },
+          },
+        });
+
+        // Mark the debt as CLEARED (was already "recovered" via the reversal)
+        await prisma.workerDebt.update({
+          where: { id: debt.id },
+          data: {
+            status: "CLEARED",
+            amountPaid: debt.amount,
+            clearedAt: new Date(),
+            meta: {
+              ...(debt.meta || {}),
+              clearedBy: "REFUND_REVERSAL",
+              clearedByAdmin: adminId,
+            },
+          },
+        });
+      }
+
+      // Also restore totalEarnings for the case where the worker hadn't withdrawn
       await prisma.workerProfile
         .update({
           where: { userId: refund.workerId },

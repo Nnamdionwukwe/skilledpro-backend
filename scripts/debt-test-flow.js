@@ -1,0 +1,225 @@
+// scripts/debt-test-flow.js
+// ─────────────────────────────────────────────────────────────────────────────
+// DEBT SYSTEM END-TO-END TEST — Step 6b: Dispute → Refund → Debt
+//
+// Token path is data.accessToken (confirmed from /api/auth/login response).
+// ─────────────────────────────────────────────────────────────────────────────
+import prisma from "../src/config/database.js";
+
+const API       = "http://localhost:5000/api";
+const BOOKING   = "2d2cc0ff-d16d-4fe5-9521-686715e924fd";
+const PAYMENT   = "1a46a069-73f6-4911-a4d4-f61c41b83d17";
+const HIRER_ID  = "a3ad7c49-3ff2-42b6-afbc-b182350c54c1";
+const WORKER_ID = "d6389516-a87b-4bac-8d12-96d7c9f13a5e";
+
+const HIRER_EMAIL = "skilledprozmarketplace@gmail.com";
+const ADMIN_EMAIL = "nnamdionwukwe@gmail.com";
+const PASSWORD    = "123456789N";
+
+async function api(method, path, body, token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  return { status: res.status, json };
+}
+
+function extractToken(loginJson) {
+  return (
+    loginJson?.data?.accessToken ||
+    loginJson?.data?.token ||
+    loginJson?.accessToken ||
+    loginJson?.token ||
+    null
+  );
+}
+
+function log(label, value) {
+  console.log(`  ${label}:`, typeof value === "object" ? JSON.stringify(value, null, 2) : value);
+}
+
+function section(title) {
+  console.log("");
+  console.log("════════════════════════════════════════════════════════════");
+  console.log("  " + title);
+  console.log("════════════════════════════════════════════════════════════");
+}
+
+async function main() {
+  // ── 1. Login as hirer ────────────────────────────────────────────────────
+  section("1. LOGIN AS HIRER");
+  const hirerLogin = await api("POST", "/auth/login", {
+    email: HIRER_EMAIL,
+    password: PASSWORD,
+  });
+  log("status", hirerLogin.status);
+  if (hirerLogin.status !== 200) {
+    log("body", hirerLogin.json);
+    throw new Error("Hirer login failed");
+  }
+  const hirerToken = extractToken(hirerLogin.json);
+  if (!hirerToken) {
+    console.log("  LOGIN BODY:", JSON.stringify(hirerLogin.json, null, 2));
+    throw new Error("No hirer token in response");
+  }
+  console.log("  ✅ Hirer logged in (token starts with:", hirerToken.slice(0, 20) + "...)");
+
+  // ── 2. Raise dispute as hirer ────────────────────────────────────────────
+  section("2. RAISE DISPUTE (as hirer)");
+  const raiseRes = await api("POST", "/disputes/raise", {
+    bookingId: BOOKING,
+    reason: "Service not completed as described — E2E debt test",
+    description: "Automated E2E test: raising dispute to exercise debt-creation path.",
+    evidence: [],
+  }, hirerToken);
+  log("status", raiseRes.status);
+  log("body", raiseRes.json);
+  if (raiseRes.status !== 201 && raiseRes.status !== 200) {
+    throw new Error("Raise dispute failed");
+  }
+  const disputeId =
+    raiseRes.json?.data?.dispute?.id ||
+    raiseRes.json?.data?.id ||
+    raiseRes.json?.dispute?.id;
+  if (!disputeId) throw new Error("No dispute id in response");
+  console.log("  ✅ Dispute created:", disputeId);
+
+  // ── 3. Login as admin ────────────────────────────────────────────────────
+  section("3. LOGIN AS ADMIN");
+  const adminLogin = await api("POST", "/auth/login", {
+    email: ADMIN_EMAIL,
+    password: PASSWORD,
+  });
+  log("status", adminLogin.status);
+  if (adminLogin.status !== 200) {
+    log("body", adminLogin.json);
+    throw new Error("Admin login failed");
+  }
+  const adminToken = extractToken(adminLogin.json);
+  if (!adminToken) throw new Error("No admin token in response");
+  console.log("  ✅ Admin logged in");
+
+  // ── 4. Resolve dispute as REFUND at 100% ─────────────────────────────────
+  section("4. RESOLVE DISPUTE AS REFUND (100%)");
+  const resolveRes = await api("PATCH", `/disputes/admin/${disputeId}/resolve`, {
+    resolution: "REFUND",
+    refundPercentage: 100,
+    adminNotes: "E2E debt test — full refund",
+  }, adminToken);
+  log("status", resolveRes.status);
+  log("body", resolveRes.json);
+  if (resolveRes.status !== 200) {
+    throw new Error("Resolve dispute failed");
+  }
+  console.log("  ✅ Dispute resolved as REFUND");
+
+  // ── 5. Verify everything in DB ───────────────────────────────────────────
+  section("5. VERIFY DB STATE");
+
+  const dispute = await prisma.dispute.findUnique({
+    where: { id: disputeId },
+    include: { refund: true },
+  });
+  console.log("── Dispute ──");
+  log("status", dispute?.status);
+  log("resolution", dispute?.resolution);
+  log("refund relation", dispute?.refund ? {
+    id: dispute.refund.id,
+    reference: dispute.refund.reference,
+    status: dispute.refund.status,
+    amount: dispute.refund.amount,
+  } : null);
+
+  const refund = await prisma.refund.findFirst({ where: { disputeId } });
+  console.log("── Refund ──");
+  log("status", refund?.status);
+  log("amount", refund?.amount);
+  log("currency", refund?.currency);
+  log("refundType", refund?.refundType);
+  log("workerAmountDeducted", refund?.workerAmountDeducted);
+  log("processedAt", refund?.processedAt?.toISOString());
+
+  const debts = await prisma.workerDebt.findMany({
+    where: { workerId: WORKER_ID },
+    orderBy: { createdAt: "desc" },
+  });
+  console.log("── WorkerDebt rows ──");
+  console.log("  count:", debts.length);
+  for (const d of debts) {
+    log("  debt", {
+      id: d.id,
+      status: d.status,
+      amount: d.amount,
+      amountPaid: d.amountPaid,
+      currency: d.currency,
+      reason: d.reason,
+      refundId: d.refundId,
+      createdAt: d.createdAt.toISOString(),
+    });
+  }
+
+  const wp = await prisma.workerProfile.findUnique({
+    where: { userId: WORKER_ID },
+    select: { id: true, debtBalance: true, debtCreatedAt: true, debtReason: true, totalEarnings: true },
+  });
+  console.log("── WorkerProfile ──");
+  log("debtBalance", wp?.debtBalance);
+  log("debtCreatedAt", wp?.debtCreatedAt?.toISOString());
+  log("debtReason", wp?.debtReason);
+  log("totalEarnings", wp?.totalEarnings);
+
+  const payment = await prisma.payment.findUnique({ where: { id: PAYMENT } });
+  console.log("── Payment ──");
+  log("status", payment?.status);
+  log("refundedAt", payment?.refundedAt?.toISOString());
+
+  const booking = await prisma.booking.findUnique({ where: { id: BOOKING } });
+  console.log("── Booking ──");
+  log("status", booking?.status);
+  log("refundCount", booking?.refundCount);
+  log("totalRefunded", booking?.totalRefunded);
+
+  const wallet = await prisma.hirerWallet.findFirst({
+    where: { hirerId: HIRER_ID },
+    select: { id: true, balance: true, totalRefunded: true, currency: true },
+  });
+  console.log("── HirerWallet ──");
+  log("balance", wallet?.balance);
+  log("totalRefunded", wallet?.totalRefunded);
+
+  // ── 6. Verdict ───────────────────────────────────────────────────────────
+  section("VERDICT");
+  const debtCreated        = debts.length > 0;
+  const debtBalanceSet     = (wp?.debtBalance || 0) > 0;
+  const workerNotClawedBack = (wp?.totalEarnings || 0) === 0;
+  const paymentRefunded    = payment?.status === "REFUNDED";
+  const bookingCancelled   = booking?.status === "CANCELLED";
+  const hirerCredited      = (wallet?.balance || 0) > 0;
+
+  console.log("  ✅ WorkerDebt created      :", debtCreated);
+  console.log("  ✅ debtBalance incremented :", debtBalanceSet);
+  console.log("  ✅ totalEarnings unchanged :", workerNotClawedBack, "(should stay 0 — no decrement)");
+  console.log("  ✅ Payment REFUNDED        :", paymentRefunded);
+  console.log("  ✅ Booking CANCELLED       :", bookingCancelled);
+  console.log("  ✅ Hirer wallet credited   :", hirerCredited);
+
+  const allGreen = debtCreated && debtBalanceSet && workerNotClawedBack && paymentRefunded && bookingCancelled && hirerCredited;
+  console.log("");
+  console.log(allGreen ? "🎉 ALL GREEN — DEBT SYSTEM WORKS END-TO-END" : "❌ SOME CHECKS FAILED — see above");
+
+  await prisma.$disconnect();
+  process.exit(allGreen ? 0 : 1);
+}
+
+main().catch(async (err) => {
+  console.error("");
+  console.error("TEST FAILED:", err.message);
+  try { await prisma.$disconnect(); } catch {}
+  process.exit(1);
+});
