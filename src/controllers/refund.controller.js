@@ -132,6 +132,16 @@ export const requestRefund = async (req, res) => {
     // Reload refund to get its final status
     const finalRefund = await prisma.refund.findUnique({
       where: { id: refund.id },
+      include: {
+        dispute: {
+          select: {
+            id: true,
+            reason: true,
+            raisedByRole: true,
+            resolvedAt: true,
+          },
+        },
+      },
     });
 
     return sendResponse(res, {
@@ -140,7 +150,14 @@ export const requestRefund = async (req, res) => {
         ? "Refund auto-approved and processed"
         : "Refund requested — awaiting admin review",
       data: {
-        refund: finalRefund,
+        refund: {
+          ...finalRefund,
+          source: finalRefund.disputeId
+            ? "DISPUTE"
+            : finalRefund.adminId
+              ? "ADMIN"
+              : "USER",
+        },
         autoApproved: !!autoResult.approved,
       },
     });
@@ -170,15 +187,29 @@ export const getMyRefunds = async (req, res) => {
           booking: { select: { id: true, title: true, status: true } },
           payment: { select: { id: true, provider: true, providerRef: true } },
           admin: { select: { id: true, firstName: true, lastName: true } },
+          dispute: {
+            select: {
+              id: true,
+              reason: true,
+              raisedByRole: true,
+              resolvedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),
       prisma.refund.count({ where }),
     ]);
 
+    // Annotate each refund with its source so the frontend can label it
+    const shaped = refunds.map((r) => ({
+      ...r,
+      source: r.disputeId ? "DISPUTE" : r.adminId ? "ADMIN" : "USER",
+    }));
+
     return sendResponse(res, {
       data: {
-        refunds,
+        refunds: shaped,
         total,
         page: parseInt(page),
         pages: Math.ceil(total / take),
@@ -228,6 +259,24 @@ export const getRefundDetails = async (req, res) => {
             email: true,
           },
         },
+        dispute: {
+          select: {
+            id: true,
+            reason: true,
+            description: true,
+            raisedByRole: true,
+            raisedById: true,
+            againstId: true,
+            resolvedAt: true,
+            adminNotes: true,
+            raisedBy: {
+              select: { id: true, firstName: true, lastName: true, role: true },
+            },
+            against: {
+              select: { id: true, firstName: true, lastName: true, role: true },
+            },
+          },
+        },
       },
     });
 
@@ -242,7 +291,18 @@ export const getRefundDetails = async (req, res) => {
       return sendError(res, "Forbidden", 403);
     }
 
-    return sendResponse(res, { data: { refund } });
+    return sendResponse(res, {
+      data: {
+        refund: {
+          ...refund,
+          source: refund.disputeId
+            ? "DISPUTE"
+            : refund.adminId
+              ? "ADMIN"
+              : "USER",
+        },
+      },
+    });
   } catch (err) {
     console.error("getRefundDetails error:", err);
     return sendError(res, "Failed to fetch refund details");

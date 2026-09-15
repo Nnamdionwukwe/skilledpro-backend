@@ -24,6 +24,12 @@ import {
   getHirerFirstBookingDiscount,
 } from "./referral.controller.js";
 
+import { releaseEscrow } from "../services/payment.service.js";
+import {
+  createRefundFromAdmin,
+  processRefund,
+} from "../services/refund.service.js";
+
 import { logAdminAction } from "../utils/auditLog.js";
 import {
   paginate,
@@ -797,6 +803,7 @@ export const releasePayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
 
+  // ── Authorize ────────────────────────────────────────────────────────────
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
     return res
@@ -805,6 +812,7 @@ export const releasePayment = asyncHandler(async (req, res) => {
   if (booking.hirerId !== hirerId)
     return res.status(403).json({ success: false, message: "Forbidden" });
 
+  // ── Find HELD payment ────────────────────────────────────────────────────
   const payment = await prisma.payment.findFirst({
     where: { bookingId, status: "HELD" },
     orderBy: { createdAt: "desc" },
@@ -814,39 +822,25 @@ export const releasePayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "No payment in escrow" });
 
-  const [updatedPayment] = await Promise.all([
-    prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: "RELEASED", escrowReleasedAt: new Date() },
-    }),
-    prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    }),
-    prisma.workerProfile.update({
-      where: { userId: booking.workerId },
-      data: { completedJobs: { increment: 1 } },
-    }),
-    _convertReferral(booking.workerId, payment.amount).catch((err) =>
-      console.error("convertReferral (release) error:", err),
-    ),
-  ]);
+  // ── Delegate to the canonical service ────────────────────────────────────
+  try {
+    const { payment: updatedPayment } = await releaseEscrow(payment.id, {
+      triggeredBy: hirerId,
+      triggeredByRole: "HIRER",
+    });
 
-  await prisma.notification.create({
-    data: {
-      userId: booking.workerId,
-      title: "Payment Released 🎉",
-      body: `Payment for "${booking.title}" has been released to you.`,
-      type: "PAYMENT_RELEASED",
-      data: { bookingId },
-    },
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: "Payment released to worker",
-    data: updatedPayment,
-  });
+    return res.status(200).json({
+      success: true,
+      message: "Payment released to worker",
+      data: updatedPayment,
+    });
+  } catch (err) {
+    console.error("releasePayment error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to release payment",
+    });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -873,37 +867,57 @@ export const refundPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "No refundable payment found" });
 
-  const updatedPayment = await prisma.payment.update({
-    where: { id: payment.id },
-    data: { status: "REFUNDED", refundedAt: new Date() },
+  // Guard: never create a duplicate refund for the same payment
+  const existingRefund = await prisma.refund.findFirst({
+    where: {
+      paymentId: payment.id,
+      status: { notIn: ["REJECTED", "FAILED"] },
+    },
   });
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: { status: "CANCELLED" },
+  if (existingRefund) {
+    return res.status(400).json({
+      success: false,
+      message: "A refund already exists for this payment",
+    });
+  }
+
+  // ── Create the formal Refund row ─────────────────────────────────────────
+  let refund;
+  try {
+    refund = await createRefundFromAdmin(booking, payment, req.user.id, {
+      percentage: 100,
+      reason:
+        req.user.role === "ADMIN"
+          ? "Admin-initiated refund"
+          : "Hirer-requested refund via legacy route",
+    });
+  } catch (err) {
+    console.error("refundPayment create error:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+
+  // ── Process the refund (moves money) ─────────────────────────────────────
+  try {
+    await processRefund(refund.id);
+  } catch (err) {
+    console.error("refundPayment process error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Refund record created but processing failed. Contact support.",
+      data: { refundId: refund.id },
+    });
+  }
+
+  // ── Reload refund to get final state ─────────────────────────────────────
+  const finalRefund = await prisma.refund.findUnique({
+    where: { id: refund.id },
   });
 
-  await prisma.notification.createMany({
-    data: [
-      {
-        userId: booking.hirerId,
-        title: "Refund Issued 💰",
-        body: "Your payment has been refunded.",
-        type: "PAYMENT_REFUNDED",
-        data: { bookingId },
-      },
-      {
-        userId: booking.workerId,
-        title: "Booking Cancelled",
-        body: "The booking was cancelled and the hirer was refunded.",
-        type: "BOOKING_CANCELLED",
-        data: { bookingId },
-      },
-    ],
+  return res.status(200).json({
+    success: true,
+    message: "Refund processed",
+    data: { refund: finalRefund },
   });
-
-  return res
-    .status(200)
-    .json({ success: true, message: "Refund processed", data: updatedPayment });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

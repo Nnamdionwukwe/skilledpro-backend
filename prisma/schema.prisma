@@ -164,7 +164,11 @@ enum AuditAction {
   FEATURED_REMOVED
   // ── Booking & disputes ───────────────────────────────────────────────────
   BOOKING_STATUS_CHANGED
-  DISPUTE_RESOLVED
+  DISPUTE_RESOLVED // legacy — kept for backwards compat
+  DISPUTE_RAISED
+  DISPUTE_RESOLVED_REFUND
+  DISPUTE_RESOLVED_RELEASE
+  DISPUTE_CANCELLED
   // ── Campaign ─────────────────────────────────────────────────────────────
   CAMPAIGN_SUBMISSION_REVIEWED
   CAMPAIGN_WITHDRAWAL_APPROVED
@@ -348,17 +352,21 @@ model User {
   hirerWithdrawals     HirerWithdrawal[]
   hirerFundingAttempts HirerFundingAttempt[]
 
-  // Inside model User { ... }
+  // ── Refund relations ─────────────────────────────────────────────────────
   hirerRefunds  Refund[] @relation("HirerRefunds")
   workerRefunds Refund[] @relation("WorkerRefunds")
   adminRefunds  Refund[] @relation("AdminRefunds")
-  
-    // ── Google OAuth ────────────────────────────────────────
-  googleId      String?  @unique
-  authProvider  String   @default("LOCAL")   // "LOCAL" | "GOOGLE"
-  avatarCustom  Boolean  @default(false)      // true once user sets their own avatar
-  nameCustom    Boolean  @default(false)      // true once user sets their own name
 
+  // ── Dispute relations ────────────────────────────────────────────────────
+  disputesRaised   Dispute[] @relation("DisputesRaisedBy")
+  disputesAgainst  Dispute[] @relation("DisputesAgainst")
+  disputesResolved Dispute[] @relation("DisputesResolvedBy")
+
+  // ── Google OAuth ────────────────────────────────────────
+  googleId     String? @unique
+  authProvider String  @default("LOCAL") // "LOCAL" | "GOOGLE"
+  avatarCustom Boolean @default(false) // true once user sets their own avatar
+  nameCustom   Boolean @default(false) // true once user sets their own name
 }
 
 model Referral {
@@ -741,12 +749,17 @@ model Booking {
   requirements     String? // e.g., "Must have 3+ years of React experience"
   responsibilities String? // e.g., "Design UI mockups, conduct user tests"
 
-  disputeReason      String? // reason for the dispute
-  disputeDescription String? // detailed description
-  disputeEvidence    String[] @default([]) // array of image/PDF URLs
+  disputeReason      String? // LEGACY mirror of latest dispute — kept for backwards compat
+  disputeDescription String? // LEGACY mirror of latest dispute — kept for backwards compat
+  disputeEvidence    String[] @default([]) // LEGACY mirror — kept for backwards compat
 
-  // Inside model Booking { ... }
-  refunds Refund[]
+  // ── Refund counters ──────────────────────────────────────────────────────
+  refundCount   Int   @default(0)
+  totalRefunded Float @default(0)
+
+  // ── Relations ────────────────────────────────────────────────────────────
+  refunds  Refund[]
+  disputes Dispute[]
 }
 
 model Payment {
@@ -1363,6 +1376,7 @@ model HirerWallet {
   totalDeposited    Float     @default(0)
   totalSpent        Float     @default(0)
   totalWithdrawn    Float     @default(0)
+  totalRefunded     Float     @default(0)
   isActive          Boolean   @default(true)
   lastTransactionAt DateTime?
   createdAt         DateTime  @default(now())
@@ -1502,7 +1516,24 @@ enum RefundType {
   DISPUTE
 }
 
-// ─── Refund Model ────────────────────────────────────────────────────────────
+// ─── Dispute Enums ───────────────────────────────────────────────────────────
+enum DisputeStatus {
+  PENDING_REVIEW
+  RESOLVED_REFUND
+  RESOLVED_RELEASE
+  CANCELLED
+}
+
+enum DisputeResolution {
+  REFUND
+  RELEASE
+}
+
+enum DisputeRaisedBy {
+  HIRER
+  WORKER
+}
+
 model Refund {
   id        String  @id @default(uuid())
   reference String  @unique
@@ -1529,6 +1560,10 @@ model Refund {
   processedAt          DateTime?
   meta                 Json?
 
+  // ── NEW: link back to dispute if this refund came from one ──────────────
+  disputeId String?  @unique
+  dispute   Dispute? @relation("RefundFromDispute", fields: [disputeId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1539,6 +1574,51 @@ model Refund {
   @@index([adminId])
   @@index([status])
   @@index([reference])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ─── Dispute Model ───────────────────────────────────────────────────────────
+model Dispute {
+  id        String  @id @default(uuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  raisedById   String
+  raisedBy     User            @relation("DisputesRaisedBy", fields: [raisedById], references: [id])
+  raisedByRole DisputeRaisedBy
+
+  // The other party at time of raising — for quick lookups without joins
+  againstId String
+  against   User   @relation("DisputesAgainst", fields: [againstId], references: [id])
+
+  reason      String
+  description String
+  evidence    String[] @default([])
+
+  status DisputeStatus @default(PENDING_REVIEW)
+
+  // Store the booking status BEFORE the dispute was raised, so cancel
+  // can restore exactly where things were.
+  previousBookingStatus BookingStatus?
+
+  // Filled in when admin resolves
+  resolution   DisputeResolution?
+  resolvedById String?
+  resolvedBy   User?              @relation("DisputesResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime?
+  adminNotes   String?
+
+  // Back-reference: the Refund row (if any) that was created from this dispute.
+  // The FK lives on Refund.disputeId. This side is read-only.
+  refund Refund? @relation("RefundFromDispute")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([raisedById])
+  @@index([againstId])
+  @@index([status])
   @@index([createdAt(sort: Desc)])
 }
 

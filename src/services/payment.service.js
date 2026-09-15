@@ -96,3 +96,96 @@ export async function getWorkerAvailableBalance(workerId) {
   const pendingPayout = pendingAgg._sum.amount ?? 0;
   return Math.max(0, totalEarned - pendingPayout);
 }
+
+// ─── Escrow release (canonical) ─────────────────────────────────────────────
+// Extracted from payment.controller.releasePayment so disputes can reuse it.
+//
+// Performs the full release flow:
+//   1. Marks payment RELEASED + escrowReleasedAt
+//   2. Marks booking COMPLETED + completedAt
+//   3. Increments worker's completedJobs counter
+//   4. Converts any pending referrals for the worker
+//   5. Sends a notification to the worker
+//
+// Auth and permission checks stay in the controller — this service assumes
+// the caller has already authorized the release.
+//
+// Returns: { payment, booking } on success.
+// Throws if the payment isn't in a releasable state.
+export async function releaseEscrow(paymentId, options = {}) {
+  const { triggeredBy = null, triggeredByRole = "SYSTEM" } = options;
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      booking: {
+        include: {
+          worker: { select: { id: true, firstName: true } },
+          hirer: { select: { id: true, firstName: true, lastName: true } },
+        },
+      },
+    },
+  });
+
+  if (!payment) {
+    throw new Error("Payment not found");
+  }
+
+  if (payment.status !== "HELD") {
+    throw new Error(
+      `Payment cannot be released — current status is ${payment.status}, expected HELD`,
+    );
+  }
+
+  const booking = payment.booking;
+  if (!booking) {
+    throw new Error("Payment has no associated booking");
+  }
+
+  // 1 + 2. Update payment and booking atomically
+  const [updatedPayment, updatedBooking] = await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: "RELEASED", escrowReleasedAt: new Date() },
+    }),
+    prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    }),
+  ]);
+
+  // 3. Increment worker's completedJobs counter (best-effort — profile may not exist)
+  await prisma.workerProfile
+    .update({
+      where: { userId: booking.workerId },
+      data: { completedJobs: { increment: 1 } },
+    })
+    .catch(() => {});
+
+  // 4. Convert referrals (fire and forget)
+  const { convertReferral } =
+    await import("../controllers/referral.controller.js");
+  await convertReferral(booking.workerId, payment.amount).catch((err) =>
+    console.error("convertReferral (releaseEscrow) error:", err.message),
+  );
+
+  // 5. Notify worker
+  const { createNotification } = await import("./notification.service.js");
+  await createNotification({
+    userId: booking.workerId,
+    title: "Payment Released 🎉",
+    body: `Payment for "${booking.title}" has been released to you.`,
+    type: "PAYMENT_RELEASED",
+    data: { bookingId: booking.id, paymentId: payment.id },
+    icon: "FaMoneyBillWave",
+  }).catch((err) =>
+    console.error("notify (releaseEscrow) error:", err.message),
+  );
+
+  // Audit-friendly log line
+  console.log(
+    `[releaseEscrow] Payment ${payment.id} released to worker ${booking.workerId} (triggered by ${triggeredByRole} ${triggeredBy ?? "system"})`,
+  );
+
+  return { payment: updatedPayment, booking: updatedBooking };
+}

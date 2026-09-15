@@ -193,17 +193,30 @@ export const processRefund = async (refundId) => {
       data: { status: "PROCESSING" },
     });
 
-    // 2. Credit Hirer's wallet
-    const hirerWallet = await prisma.hirerWallet.findUnique({
+    // 2. Credit Hirer's wallet (auto-create if missing)
+    // NOTE: HirerWallet has a compound unique on (hirerId, currency), so
+    // findUnique requires the compound key. Use findFirst to filter by hirerId.
+    let hirerWallet = await prisma.hirerWallet.findFirst({
       where: { hirerId: refund.hirerId },
     });
+
+    if (!hirerWallet) {
+      // Auto-create wallet so the credit lands — silent skip would lose money
+      hirerWallet = await prisma.hirerWallet.create({
+        data: {
+          hirerId: refund.hirerId,
+          currency: refund.currency || "NGN",
+          balance: 0,
+        },
+      });
+    }
 
     if (hirerWallet) {
       await prisma.hirerWallet.update({
         where: { id: hirerWallet.id },
         data: {
           balance: { increment: refund.amount },
-          refundsReceived: { increment: refund.amount },
+          totalRefunded: { increment: refund.amount },
         },
       });
 
@@ -330,7 +343,9 @@ export const reverseRefund = async (refundId, adminId) => {
 
   try {
     // 1. Debit Hirer's wallet (reverse the credit)
-    const hirerWallet = await prisma.hirerWallet.findUnique({
+    // NOTE: HirerWallet has a compound unique on (hirerId, currency), so
+    // findUnique requires the compound key. Use findFirst to filter by hirerId.
+    const hirerWallet = await prisma.hirerWallet.findFirst({
       where: { hirerId: refund.hirerId },
     });
 
@@ -339,7 +354,7 @@ export const reverseRefund = async (refundId, adminId) => {
         where: { id: hirerWallet.id },
         data: {
           balance: { decrement: refund.amount },
-          refundsReceived: { decrement: refund.amount },
+          totalRefunded: { decrement: refund.amount },
         },
       });
 
@@ -421,4 +436,126 @@ export const reverseRefund = async (refundId, adminId) => {
   } catch (error) {
     throw error;
   }
+};
+
+// ── Create a Refund from a resolved Dispute ───────────────────────────
+// Called by dispute.controller.resolveDispute when admin resolves as REFUND.
+// Creates the Refund record with status APPROVED (admin already decided)
+// and returns it. The caller is responsible for calling processRefund().
+//
+// Params:
+//   dispute   — the Dispute Prisma row (with booking populated)
+//   payment   — the Payment Prisma row for this booking
+//   adminId   — the admin user ID who resolved the dispute
+//   options   — { percentage?: number (1–100, default 100), adminNotes?: string }
+export const createRefundFromDispute = async (
+  dispute,
+  payment,
+  adminId,
+  options = {},
+) => {
+  const { percentage = 100, adminNotes = "" } = options;
+
+  if (!dispute || !payment) {
+    throw new Error(
+      "createRefundFromDispute: dispute and payment are required",
+    );
+  }
+
+  if (typeof percentage !== "number" || percentage < 1 || percentage > 100) {
+    throw new Error("createRefundFromDispute: percentage must be 1–100");
+  }
+
+  // Calculate prorated amounts using the existing helper
+  const calculated = calculateRefundAmounts(
+    payment,
+    percentage === 100 ? "FULL" : "PARTIAL",
+    percentage === 100 ? null : percentage,
+  );
+
+  const refund = await prisma.refund.create({
+    data: {
+      reference: generateRefundReference(),
+      bookingId: dispute.bookingId,
+      paymentId: payment.id,
+      hirerId: dispute.booking?.hirerId || payment.userId,
+      workerId: dispute.booking?.workerId || null,
+      adminId,
+      amount: calculated.refundAmount,
+      currency: calculated.currency,
+      platformFeeRefunded: calculated.platformFeeRefunded,
+      workerAmountDeducted: calculated.workerAmountDeducted,
+      refundType: "DISPUTE",
+      percentage: calculated.finalPercentage,
+      reason:
+        `Dispute resolved in favour of the hirer. Original reason: ${dispute.reason}` +
+        (adminNotes ? ` | Admin notes: ${adminNotes}` : ""),
+      adminNotes: adminNotes || "Created from dispute resolution",
+      status: "APPROVED", // admin already approved by resolving the dispute
+      disputeId: dispute.id,
+      meta: {
+        source: "DISPUTE",
+        disputeId: dispute.id,
+        disputeRaisedBy: dispute.raisedById,
+        disputeRaisedByRole: dispute.raisedByRole,
+        originalAmount: calculated.originalAmount,
+        platformFee: calculated.platformFee,
+        workerPayout: calculated.workerPayout,
+      },
+    },
+  });
+
+  return refund;
+};
+
+// ── Create a Refund from an admin-initiated refund (legacy payment route) ───
+// Used by payment.controller.refundPayment when someone hits
+// POST /api/payments/refund/:bookingId. Creates the Refund row and returns it.
+// The caller is responsible for calling processRefund().
+export const createRefundFromAdmin = async (
+  booking,
+  payment,
+  adminOrHirerId,
+  options = {},
+) => {
+  const { percentage = 100, reason = "Admin-initiated refund" } = options;
+
+  if (!booking || !payment) {
+    throw new Error("createRefundFromAdmin: booking and payment are required");
+  }
+
+  const calculated = calculateRefundAmounts(
+    payment,
+    percentage === 100 ? "FULL" : "PARTIAL",
+    percentage === 100 ? null : percentage,
+  );
+
+  const refund = await prisma.refund.create({
+    data: {
+      reference: generateRefundReference(),
+      bookingId: booking.id,
+      paymentId: payment.id,
+      hirerId: booking.hirerId,
+      workerId: booking.workerId || null,
+      adminId: adminOrHirerId,
+      amount: calculated.refundAmount,
+      currency: calculated.currency,
+      platformFeeRefunded: calculated.platformFeeRefunded,
+      workerAmountDeducted: calculated.workerAmountDeducted,
+      refundType: percentage === 100 ? "FULL" : "PARTIAL",
+      percentage: calculated.finalPercentage,
+      reason,
+      adminNotes: null,
+      status: "APPROVED",
+      meta: {
+        source: "ADMIN",
+        originalAmount: calculated.originalAmount,
+        platformFee: calculated.platformFee,
+        workerPayout: calculated.workerPayout,
+        initiatedBy: adminOrHirerId,
+      },
+    },
+  });
+
+  return refund;
 };

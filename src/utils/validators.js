@@ -1010,17 +1010,28 @@ export const validateCreateDispute = [
 ];
 
 export const validateResolveDispute = [
-  param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
+  param("id").isUUID(4).withMessage("Dispute ID must be a valid UUID"),
   body("resolution")
     .notEmpty()
     .withMessage("Resolution is required")
-    .isIn(["REFUND", "RELEASE", "SPLIT"])
-    .withMessage("Resolution must be REFUND, RELEASE, or SPLIT"),
-  body("notes")
+    .isIn(["REFUND", "RELEASE"])
+    .withMessage("Resolution must be REFUND or RELEASE"),
+  body("refundPercentage")
+    .optional({ nullable: true })
+    .isInt({ min: 1, max: 100 })
+    .withMessage("refundPercentage must be an integer between 1 and 100")
+    .toInt(),
+  body("adminNotes")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 500 })
-    .withMessage("Notes must not exceed 500 characters"),
+    .withMessage("adminNotes must not exceed 500 characters"),
+  validate,
+];
+
+// Validation for PATCH /api/disputes/:bookingId/cancel
+export const validateCancelDispute = [
+  param("bookingId").isUUID(4).withMessage("Booking ID must be a valid UUID"),
   validate,
 ];
 

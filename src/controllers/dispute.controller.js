@@ -1,21 +1,19 @@
+// src/controllers/dispute.controller.js
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { sendRealTimeNotification } from "./notification.controller.js";
+import { createNotification } from "../services/notification.service.js";
 import {
-  paginate,
-  paginationMeta,
-  fullName,
-  formatCurrency,
-  truncate,
-  slugify,
-  uniqueRef,
-  parseJSON,
-  extractIP,
-  timeAgo,
-  safeUser,
-} from "../utils/helpers.js";
+  createRefundFromDispute,
+  processRefund,
+} from "../services/refund.service.js";
+import { releaseEscrow } from "../services/payment.service.js";
+import { logAdminAction } from "../utils/auditLog.js";
+import { paginate } from "../utils/helpers.js";
 
-// POST /api/disputes - Raise a dispute on a booking
+// ─────────────────────────────────────────────────────────────────────────────
+// § 1  RAISE DISPUTE — POST /api/disputes/raise
+// Body: { bookingId, reason, description }  + optional multipart evidence
+// ─────────────────────────────────────────────────────────────────────────────
 export const raiseDispute = async (req, res) => {
   try {
     const { bookingId, reason, description } = req.body;
@@ -38,6 +36,10 @@ export const raiseDispute = async (req, res) => {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
         payments: { orderBy: { createdAt: "desc" }, take: 1 },
+        disputes: {
+          where: { status: "PENDING_REVIEW" },
+          select: { id: true },
+        },
       },
     });
 
@@ -47,70 +49,98 @@ export const raiseDispute = async (req, res) => {
     const isWorker = booking.workerId === req.user.id;
     if (!isHirer && !isWorker) return sendError(res, "Forbidden", 403);
 
-    const disputeable = ["IN_PROGRESS", "COMPLETED", "ACCEPTED"];
-    if (!disputeable.includes(booking.status)) {
+    // Can only dispute bookings in an active or completed state
+    const disputableStatuses = ["ACCEPTED", "IN_PROGRESS", "COMPLETED"];
+    if (!disputableStatuses.includes(booking.status)) {
       return sendError(
         res,
         `Cannot dispute a booking with status: ${booking.status}`,
         400,
       );
     }
-    if (booking.status === "DISPUTED") {
-      return sendError(res, "This booking is already under dispute", 409);
+
+    // No duplicate active dispute on the same booking
+    if (booking.disputes.length > 0) {
+      return sendError(
+        res,
+        "This booking already has an active dispute under review",
+        409,
+      );
     }
 
-    // ── Handle evidence uploads ──────────────────────────────────────────────
+    // ── Evidence uploads (Cloudinary URLs from multer) ─────────────────────
     const evidenceUrls = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
-        evidenceUrls.push(file.path); // Cloudinary URL
+        evidenceUrls.push(file.path);
       }
     }
 
-    // Update booking: status + dispute details + evidence
-    const updated = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        status: "DISPUTED",
-        disputeReason: reason,
-        disputeDescription: description,
-        disputeEvidence: evidenceUrls,
-      },
-    });
+    const raisedByRole = isHirer ? "HIRER" : "WORKER";
+    const againstId = isHirer ? booking.workerId : booking.hirerId;
 
-    // Freeze payment if exists
-    if (booking.payments?.[0] && booking.payments?.[0].status === "HELD") {
-      await prisma.payment.update({
-        where: { bookingId },
-        data: { status: "HELD" }, // keep held
-      });
-    }
+    // ── Create Dispute + update Booking status in a transaction ────────────
+    const [dispute] = await prisma.$transaction([
+      prisma.dispute.create({
+        data: {
+          bookingId: booking.id,
+          raisedById: req.user.id,
+          raisedByRole,
+          againstId,
+          reason,
+          description,
+          evidence: evidenceUrls,
+          status: "PENDING_REVIEW",
+          previousBookingStatus: booking.status,
+        },
+      }),
+      prisma.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: "DISPUTED",
+          // Mirror legacy fields on Booking for backwards compat with any
+          // existing dashboards that read from the booking row.
+          disputeReason: reason,
+          disputeDescription: description,
+          disputeEvidence: evidenceUrls,
+        },
+      }),
+    ]);
 
-    // Notify other party and admins (unchanged)
-    const otherPartyId = isHirer ? booking.workerId : booking.hirerId;
+    // ── Notify the other party ─────────────────────────────────────────────
     const raisedBy = isHirer ? booking.hirer : booking.worker;
-
-    await sendRealTimeNotification({
-      userId: otherPartyId,
-      title: "Dispute Raised ⚠️",
-      body: `${raisedBy.firstName} ${raisedBy.lastName} raised a dispute on "${booking.title}".`,
+    await createNotification({
+      userId: againstId,
+      title: "Dispute raised",
+      body: `${raisedBy.firstName} ${raisedBy.lastName} raised a dispute on "${booking.title}". Our team will review within 24–48 hours.`,
       type: "DISPUTE_RAISED",
-      data: { bookingId: booking.id, reason },
-    });
+      data: { disputeId: dispute.id, bookingId: booking.id, reason },
+      icon: "FaGavel",
+    }).catch(() => {});
 
+    // ── Notify all admins ──────────────────────────────────────────────────
     const admins = await prisma.user.findMany({
       where: { role: "ADMIN", isActive: true },
       select: { id: true },
     });
-    for (const admin of admins) {
-      await sendRealTimeNotification({
-        userId: admin.id,
-        title: "New Dispute Filed ⚠️",
-        body: `Dispute on "${booking.title}" — Reason: ${reason}`,
-        type: "DISPUTE_RAISED",
-        data: { bookingId: booking.id, raisedBy: req.user.id, reason },
-      });
-    }
+
+    await Promise.all(
+      admins.map((admin) =>
+        createNotification({
+          userId: admin.id,
+          title: "New dispute filed",
+          body: `Dispute on "${booking.title}" — Reason: ${reason}`,
+          type: "DISPUTE_RAISED",
+          data: {
+            disputeId: dispute.id,
+            bookingId: booking.id,
+            raisedById: req.user.id,
+            reason,
+          },
+          icon: "FaGavel",
+        }).catch(() => {}),
+      ),
+    );
 
     return sendResponse(res, {
       status: 201,
@@ -118,116 +148,249 @@ export const raiseDispute = async (req, res) => {
         "Dispute raised successfully. Our team will review within 24–48 hours.",
       data: {
         dispute: {
+          id: dispute.id,
           bookingId: booking.id,
           title: booking.title,
-          status: updated.status,
+          status: dispute.status,
           reason,
           description,
           evidence: evidenceUrls,
-          raisedBy: req.user.id,
-          raisedAt: new Date(),
+          raisedById: req.user.id,
+          raisedByRole,
+          againstId,
+          createdAt: dispute.createdAt,
         },
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("raiseDispute error:", err);
     return sendError(res, "Failed to raise dispute");
   }
 };
 
-// GET /api/disputes/my - Get disputes raised by or against current user
+// ─────────────────────────────────────────────────────────────────────────────
+// § 2  GET MY DISPUTES — GET /api/disputes/my
+// Returns all disputes raised by or against the current user
+// ─────────────────────────────────────────────────────────────────────────────
 export const getMyDisputes = async (req, res) => {
   try {
-    const disputes = await prisma.booking.findMany({
+    const disputes = await prisma.dispute.findMany({
       where: {
-        status: "DISPUTED",
-        OR: [{ hirerId: req.user.id }, { workerId: req.user.id }],
+        OR: [{ raisedById: req.user.id }, { againstId: req.user.id }],
       },
       include: {
-        hirer: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
+        booking: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            agreedRate: true,
+            currency: true,
+            address: true,
+            scheduledAt: true,
+            estimatedUnit: true,
+            estimatedValue: true,
+            jobType: true,
+            locationType: true,
+            category: { select: { id: true, name: true, icon: true } },
+          },
         },
-        worker: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
+        raisedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            role: true,
+          },
         },
-        category: true,
-        payments: { orderBy: { createdAt: "desc" }, take: 1 },
+        against: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            role: true,
+          },
+        },
+        resolvedBy: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        refund: {
+          select: {
+            id: true,
+            reference: true,
+            amount: true,
+            currency: true,
+            status: true,
+            refundType: true,
+          },
+        },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: { createdAt: "desc" },
     });
 
+    // Shape the response so the frontend can keep its existing display fields
+    // (id = bookingId for the old UI that used booking.id as the dispute id).
+    const shaped = disputes.map((d) => ({
+      id: d.booking.id, // legacy field for /disputes/:bookingId/cancel etc.
+      disputeId: d.id,
+      bookingId: d.booking.id,
+      title: d.booking.title,
+      status: mapDisputeStatusToLegacy(d.status),
+      rawStatus: d.status,
+      disputeReason: d.reason,
+      disputeDescription: d.description,
+      disputeEvidence: d.evidence,
+      resolution: d.resolution,
+      resolvedAt: d.resolvedAt,
+      adminNotes: d.adminNotes,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+      // Flattened booking fields the frontend expects
+      agreedRate: d.booking.agreedRate,
+      currency: d.booking.currency,
+      address: d.booking.address,
+      scheduledAt: d.booking.scheduledAt,
+      estimatedUnit: d.booking.estimatedUnit,
+      estimatedValue: d.booking.estimatedValue,
+      jobType: d.booking.jobType,
+      locationType: d.booking.locationType,
+      category: d.booking.category,
+      hirer: d.raisedByRole === "HIRER" ? d.raisedBy : d.against,
+      worker: d.raisedByRole === "WORKER" ? d.raisedBy : d.against,
+      raisedBy: d.raisedBy,
+      against: d.against,
+      raisedByRole: d.raisedByRole,
+      resolvedBy: d.resolvedBy,
+      refund: d.refund,
+    }));
+
     return sendResponse(res, {
-      data: { disputes, total: disputes.length },
+      data: { disputes: shaped, total: shaped.length },
     });
   } catch (err) {
+    console.error("getMyDisputes error:", err);
     return sendError(res, "Failed to fetch disputes");
   }
 };
 
-// GET /api/disputes/:bookingId - Get dispute detail for a booking
+// ─────────────────────────────────────────────────────────────────────────────
+// § 3  GET DISPUTE DETAIL — GET /api/disputes/:bookingId
+// Looks up by bookingId for backwards compat with the frontend
+// ─────────────────────────────────────────────────────────────────────────────
 export const getDisputeDetail = async (req, res) => {
   try {
-    const booking = await prisma.booking.findUnique({
-      where: { id: req.params.bookingId },
+    const { bookingId } = req.params;
+
+    const dispute = await prisma.dispute.findFirst({
+      where: { bookingId },
+      orderBy: { createdAt: "desc" },
       include: {
-        hirer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            email: true,
-            phone: true,
-          },
-        },
-        worker: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            email: true,
-            phone: true,
-          },
-        },
-        category: true,
-        payments: { orderBy: { createdAt: "desc" }, take: 1 },
-        review: true,
-        conversation: {
+        booking: {
           include: {
-            messages: {
-              orderBy: { createdAt: "asc" },
+            category: true,
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+            reviews: true,
+            conversation: {
               include: {
-                sender: {
-                  select: { id: true, firstName: true, lastName: true },
+                messages: {
+                  orderBy: { createdAt: "asc" },
+                  include: {
+                    sender: {
+                      select: { id: true, firstName: true, lastName: true },
+                    },
+                  },
                 },
               },
             },
           },
         },
+        raisedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            email: true,
+            phone: true,
+            role: true,
+          },
+        },
+        against: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            email: true,
+            phone: true,
+            role: true,
+          },
+        },
+        resolvedBy: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        refund: true,
       },
     });
 
-    if (!booking) return sendError(res, "Booking not found", 404);
+    if (!dispute) return sendError(res, "Dispute not found", 404);
 
-    // Must be involved or admin
     const isInvolved =
-      booking.hirerId === req.user.id ||
-      booking.workerId === req.user.id ||
+      dispute.raisedById === req.user.id ||
+      dispute.againstId === req.user.id ||
       req.user.role === "ADMIN";
 
     if (!isInvolved) return sendError(res, "Forbidden", 403);
 
-    return sendResponse(res, { data: { dispute: booking } });
+    // Flatten the shape: the frontend treats the response as the booking row
+    // with extra dispute fields. Keep both worlds happy.
+    const shaped = {
+      // Dispute canonical fields
+      disputeId: dispute.id,
+      disputeReason: dispute.reason,
+      disputeDescription: dispute.description,
+      disputeEvidence: dispute.evidence,
+      status: mapDisputeStatusToLegacy(dispute.status),
+      rawStatus: dispute.status,
+      resolution: dispute.resolution,
+      resolvedAt: dispute.resolvedAt,
+      adminNotes: dispute.adminNotes,
+      raisedByRole: dispute.raisedByRole,
+      // Flattened booking payload
+      ...dispute.booking,
+      // Legacy aliases
+      id: dispute.booking.id,
+      bookingId: dispute.booking.id,
+      hirer:
+        dispute.raisedByRole === "HIRER" ? dispute.raisedBy : dispute.against,
+      worker:
+        dispute.raisedByRole === "WORKER" ? dispute.raisedBy : dispute.against,
+      raisedBy: dispute.raisedBy,
+      against: dispute.against,
+      resolvedBy: dispute.resolvedBy,
+      refund: dispute.refund,
+    };
+
+    return sendResponse(res, { data: { dispute: shaped } });
   } catch (err) {
+    console.error("getDisputeDetail error:", err);
     return sendError(res, "Failed to fetch dispute");
   }
 };
 
-// PATCH /api/disputes/:bookingId/resolve - Admin resolves a dispute
+// ─────────────────────────────────────────────────────────────────────────────
+// § 4  RESOLVE DISPUTE — PATCH /api/disputes/admin/:id/resolve
+// Body: { resolution: "REFUND" | "RELEASE", refundPercentage?, adminNotes? }
+//
+// On REFUND  → creates a Refund row + calls processRefund (money moves)
+// On RELEASE → calls releaseEscrow (payment released to worker)
+// ─────────────────────────────────────────────────────────────────────────────
 export const resolveDispute = async (req, res) => {
   try {
-    const { resolution, refundHirer, releaseToWorker, adminNotes } = req.body;
+    const { id } = req.params;
+    const { resolution, refundPercentage = 100, adminNotes } = req.body;
 
     if (!resolution) {
       return sendError(res, "Resolution is required (REFUND or RELEASE)", 400);
@@ -237,41 +400,166 @@ export const resolveDispute = async (req, res) => {
       return sendError(res, "Resolution must be REFUND or RELEASE", 400);
     }
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: req.params.bookingId },
-      include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } },
-    });
-
-    if (!booking) return sendError(res, "Booking not found", 404);
-    if (booking.status !== "DISPUTED") {
-      return sendError(res, "Booking is not under dispute", 400);
+    if (
+      resolution === "REFUND" &&
+      (typeof refundPercentage !== "number" ||
+        refundPercentage < 1 ||
+        refundPercentage > 100)
+    ) {
+      return sendError(res, "refundPercentage must be a number 1–100", 400);
     }
 
-    const newBookingStatus =
-      resolution === "REFUND" ? "CANCELLED" : "COMPLETED";
-    const newPaymentStatus = resolution === "REFUND" ? "REFUNDED" : "RELEASED";
-
-    // Update booking
-    await prisma.booking.update({
-      where: { id: req.params.bookingId },
-      data: { status: newBookingStatus },
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: {
+        booking: {
+          include: {
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+        },
+      },
     });
 
-    // Update payment
-    if (booking.payments?.[0]) {
-      await prisma.payment.update({
-        where: { bookingId: req.params.bookingId },
-        data: {
-          status: newPaymentStatus,
-          ...(resolution === "REFUND" && { refundedAt: new Date() }),
-          ...(resolution === "RELEASE" && { escrowReleasedAt: new Date() }),
+    if (!dispute) return sendError(res, "Dispute not found", 404);
+    if (dispute.status !== "PENDING_REVIEW") {
+      return sendError(
+        res,
+        `Dispute is already ${dispute.status.toLowerCase()}`,
+        400,
+      );
+    }
+
+    const booking = dispute.booking;
+    const payment = booking.payments?.[0];
+
+    let refund = null;
+    let releaseResult = null;
+    let newBookingStatus = booking.status;
+
+    // ── REFUND resolution ──────────────────────────────────────────────────
+    if (resolution === "REFUND") {
+      if (!payment) {
+        return sendError(
+          res,
+          "No payment found on this booking — cannot refund",
+          400,
+        );
+      }
+
+      // Guard: don't double-refund
+      const existingRefund = await prisma.refund.findFirst({
+        where: {
+          paymentId: payment.id,
+          status: { notIn: ["REJECTED", "FAILED"] },
         },
       });
+      if (existingRefund) {
+        return sendError(res, "A refund already exists for this payment", 400);
+      }
+
+      try {
+        refund = await createRefundFromDispute(dispute, payment, req.user.id, {
+          percentage: refundPercentage,
+          adminNotes,
+        });
+      } catch (err) {
+        console.error("createRefundFromDispute error:", err.message);
+        return sendError(res, `Failed to create refund: ${err.message}`, 500);
+      }
+
+      // Process the refund — this actually moves the money
+      try {
+        await processRefund(refund.id);
+      } catch (err) {
+        console.error("processRefund error:", err.message);
+        // Refund row exists but processing failed — mark dispute as refunded
+        // anyway, admin can retry the refund from the admin panel.
+      }
+
+      // Update booking to CANCELLED (refund means hirer got money back)
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: { status: "CANCELLED" },
+      });
+      newBookingStatus = "CANCELLED";
     }
 
+    // ── RELEASE resolution ────────────────────────────────────────────────
+    if (resolution === "RELEASE") {
+      if (!payment) {
+        return sendError(
+          res,
+          "No payment found on this booking — cannot release",
+          400,
+        );
+      }
+
+      if (payment.status !== "HELD") {
+        return sendError(
+          res,
+          `Payment is ${payment.status}, cannot release (expected HELD)`,
+          400,
+        );
+      }
+
+      try {
+        releaseResult = await releaseEscrow(payment.id, {
+          triggeredBy: req.user.id,
+          triggeredByRole: "ADMIN",
+        });
+        newBookingStatus = "COMPLETED";
+      } catch (err) {
+        console.error("releaseEscrow error:", err.message);
+        return sendError(res, `Failed to release escrow: ${err.message}`, 500);
+      }
+    }
+
+    // ── Update the Dispute row ─────────────────────────────────────────────
+    // NOTE: Prisma doesn't accept the FK scalar (`resolvedById`, `refundId`)
+    // directly on `update` — the relation form must be used instead.
+    const updatedDispute = await prisma.dispute.update({
+      where: { id: dispute.id },
+      data: {
+        status:
+          resolution === "REFUND" ? "RESOLVED_REFUND" : "RESOLVED_RELEASE",
+        resolution,
+        resolvedBy: req.user.id ? { connect: { id: req.user.id } } : undefined,
+        resolvedAt: new Date(),
+        adminNotes: adminNotes || null,
+        refund: refund?.id ? { connect: { id: refund.id } } : undefined,
+      },
+    });
+
+    // ── Audit log ──────────────────────────────────────────────────────────
+    await logAdminAction({
+      req,
+      adminId: req.user.id,
+      action:
+        resolution === "REFUND"
+          ? "DISPUTE_RESOLVED_REFUND"
+          : "DISPUTE_RESOLVED_RELEASE",
+      targetType: "DISPUTE",
+      targetId: dispute.id,
+      description: `Resolved dispute on booking "${booking.title}" — ${resolution}${
+        resolution === "REFUND" ? ` (${refundPercentage}%)` : ""
+      }`,
+      meta: {
+        bookingId: booking.id,
+        resolution,
+        refundPercentage: resolution === "REFUND" ? refundPercentage : null,
+        refundId: refund?.id || null,
+        adminNotes,
+      },
+    }).catch((err) => console.error("logAdminAction error:", err.message));
+
+    // ── Notify both parties ────────────────────────────────────────────────
     const hirerMsg =
       resolution === "REFUND"
-        ? "The dispute has been resolved in your favour. A refund will be processed shortly."
+        ? `The dispute has been resolved in your favour. ${
+            refundPercentage === 100
+              ? "A full refund"
+              : `A ${refundPercentage}% refund`
+          } has been processed.`
         : "The dispute has been resolved. Payment has been released to the worker.";
 
     const workerMsg =
@@ -279,116 +567,195 @@ export const resolveDispute = async (req, res) => {
         ? "The dispute has been resolved in your favour. Payment has been released to you."
         : "The dispute has been resolved. The hirer has been refunded.";
 
-    // Notify both parties
-    await sendRealTimeNotification({
-      userId: booking.hirerId,
-      title: "Dispute Resolved ✅",
-      body: hirerMsg,
-      type: "DISPUTE_RESOLVED",
-      data: { bookingId: booking.id, resolution, adminNotes },
-    });
-
-    await sendRealTimeNotification({
-      userId: booking.workerId,
-      title: "Dispute Resolved ✅",
-      body: workerMsg,
-      type: "DISPUTE_RESOLVED",
-      data: { bookingId: booking.id, resolution, adminNotes },
-    });
+    await Promise.all([
+      createNotification({
+        userId: booking.hirerId,
+        title: "Dispute resolved",
+        body: hirerMsg,
+        type: "DISPUTE_RESOLVED",
+        data: {
+          disputeId: dispute.id,
+          bookingId: booking.id,
+          resolution,
+          refundId: refund?.id || null,
+        },
+        icon: "FaCheckCircle",
+      }).catch(() => {}),
+      createNotification({
+        userId: booking.workerId,
+        title: "Dispute resolved",
+        body: workerMsg,
+        type: "DISPUTE_RESOLVED",
+        data: {
+          disputeId: dispute.id,
+          bookingId: booking.id,
+          resolution,
+        },
+        icon: "FaCheckCircle",
+      }).catch(() => {}),
+    ]);
 
     return sendResponse(res, {
       message: `Dispute resolved — ${resolution}`,
       data: {
+        disputeId: updatedDispute.id,
         bookingId: booking.id,
         resolution,
         newBookingStatus,
-        newPaymentStatus,
+        refund: refund
+          ? {
+              id: refund.id,
+              reference: refund.reference,
+              amount: refund.amount,
+              currency: refund.currency,
+              status: refund.status,
+            }
+          : null,
+        payment: releaseResult?.payment || null,
         adminNotes,
-        resolvedAt: new Date(),
+        resolvedAt: updatedDispute.resolvedAt,
         resolvedBy: req.user.id,
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("resolveDispute error:", err);
     return sendError(res, "Failed to resolve dispute");
   }
 };
 
-// PATCH /api/disputes/:bookingId/cancel - User cancels their own dispute (if no admin action yet)
+// ─────────────────────────────────────────────────────────────────────────────
+// § 5  CANCEL DISPUTE — PATCH /api/disputes/:bookingId/cancel
+// Only the raiser can cancel. Booking reverts to previousBookingStatus.
+// ─────────────────────────────────────────────────────────────────────────────
 export const cancelDispute = async (req, res) => {
   try {
-    const booking = await prisma.booking.findUnique({
-      where: { id: req.params.bookingId },
+    const { bookingId } = req.params;
+
+    const dispute = await prisma.dispute.findFirst({
+      where: { bookingId, status: "PENDING_REVIEW" },
+      orderBy: { createdAt: "desc" },
     });
 
-    if (!booking) return sendError(res, "Booking not found", 404);
-    if (booking.status !== "DISPUTED")
-      return sendError(res, "No active dispute on this booking", 400);
+    if (!dispute) {
+      return sendError(res, "No active dispute on this booking", 404);
+    }
 
-    const isInvolved =
-      booking.hirerId === req.user.id || booking.workerId === req.user.id;
-    if (!isInvolved) return sendError(res, "Forbidden", 403);
+    // Only the raiser can cancel their own dispute
+    if (dispute.raisedById !== req.user.id) {
+      return sendError(
+        res,
+        "Only the user who raised the dispute can cancel it",
+        403,
+      );
+    }
 
-    // Revert to COMPLETED (assume job was done if dispute cancelled)
-    await prisma.booking.update({
-      where: { id: req.params.bookingId },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    });
+    const previousStatus = dispute.previousBookingStatus || "COMPLETED";
 
-    const otherPartyId =
-      booking.hirerId === req.user.id ? booking.workerId : booking.hirerId;
-    await sendRealTimeNotification({
-      userId: otherPartyId,
-      title: "Dispute Cancelled",
+    // Restore the booking status + clear legacy dispute fields
+    await prisma.$transaction([
+      prisma.dispute.update({
+        where: { id: dispute.id },
+        data: { status: "CANCELLED" },
+      }),
+      prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: previousStatus,
+          disputeReason: null,
+          disputeDescription: null,
+          disputeEvidence: [],
+        },
+      }),
+    ]);
+
+    // Notify the other party
+    await createNotification({
+      userId: dispute.againstId,
+      title: "Dispute cancelled",
       body: "The dispute on your booking has been cancelled by the other party.",
       type: "DISPUTE_CANCELLED",
-      data: { bookingId: booking.id },
-    });
+      data: { disputeId: dispute.id, bookingId },
+      icon: "FaCheckCircle",
+    }).catch(() => {});
 
     return sendResponse(res, {
-      message: "Dispute cancelled. Booking marked as completed.",
+      message: `Dispute cancelled. Booking restored to ${previousStatus.toLowerCase()}.`,
+      data: {
+        disputeId: dispute.id,
+        bookingId,
+        bookingStatus: previousStatus,
+        cancelledAt: new Date(),
+      },
     });
   } catch (err) {
+    console.error("cancelDispute error:", err);
     return sendError(res, "Failed to cancel dispute");
   }
 };
 
-// GET /api/disputes (Admin) — all disputes with filters
+// ─────────────────────────────────────────────────────────────────────────────
+// § 6  GET ALL DISPUTES (Admin) — GET /api/disputes/admin/all
+// ─────────────────────────────────────────────────────────────────────────────
 export const getAllDisputes = async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, status } = req.query;
     const { skip, take } = paginate(page, limit);
 
+    const where = {};
+    if (status && status !== "ALL") where.status = status;
+
     const [disputes, total] = await Promise.all([
-      prisma.booking.findMany({
-        where: { status: "DISPUTED" },
+      prisma.dispute.findMany({
+        where,
         skip,
         take,
         include: {
-          hirer: {
+          booking: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              agreedRate: true,
+              currency: true,
+              category: { select: { id: true, name: true, icon: true } },
+            },
+          },
+          raisedBy: {
             select: {
               id: true,
               firstName: true,
               lastName: true,
               email: true,
               avatar: true,
+              role: true,
             },
           },
-          worker: {
+          against: {
             select: {
               id: true,
               firstName: true,
               lastName: true,
               email: true,
               avatar: true,
+              role: true,
             },
           },
-          category: true,
-          payments: { orderBy: { createdAt: "desc" }, take: 1 },
+          resolvedBy: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+          refund: {
+            select: {
+              id: true,
+              reference: true,
+              amount: true,
+              currency: true,
+              status: true,
+            },
+          },
         },
-        orderBy: { updatedAt: "desc" },
+        orderBy: { createdAt: "desc" },
       }),
-      prisma.booking.count({ where: { status: "DISPUTED" } }),
+      prisma.dispute.count({ where }),
     ]);
 
     return sendResponse(res, {
@@ -400,6 +767,30 @@ export const getAllDisputes = async (req, res) => {
       },
     });
   } catch (err) {
+    console.error("getAllDisputes error:", err);
     return sendError(res, "Failed to fetch disputes");
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The old frontend used booking.status = "DISPUTED" for open disputes and
+// "COMPLETED"/"CANCELLED" for resolved ones. Since we now have a proper
+// Dispute model, we map the new statuses back to the legacy strings so the
+// existing UI keeps working without changes.
+function mapDisputeStatusToLegacy(disputeStatus) {
+  switch (disputeStatus) {
+    case "PENDING_REVIEW":
+      return "DISPUTED";
+    case "RESOLVED_REFUND":
+      return "CANCELLED";
+    case "RESOLVED_RELEASE":
+      return "COMPLETED";
+    case "CANCELLED":
+      return "COMPLETED";
+    default:
+      return "DISPUTED";
+  }
+}

@@ -1,3 +1,4 @@
+// src/routes/dispute.routes.js
 import { Router } from "express";
 import { protect } from "../middleware/auth.middleware.js";
 import { requireAdmin } from "../middleware/role.middleware.js";
@@ -5,6 +6,7 @@ import * as disputeController from "../controllers/dispute.controller.js";
 import {
   validateCreateDispute,
   validateResolveDispute,
+  validateCancelDispute,
   validateUUIDParam,
   validatePagination,
 } from "../utils/validators.js";
@@ -18,11 +20,22 @@ router.post(
   ...validateCreateDispute,
   disputeController.raiseDispute,
 );
+
 router.get("/my", protect, validatePagination, disputeController.getMyDisputes);
-router.get(
-  "/:id",
+
+// Cancel a dispute the caller raised (by bookingId for legacy compat)
+router.patch(
+  "/:bookingId/cancel",
   protect,
-  ...validateUUIDParam("id"),
+  ...validateCancelDispute,
+  disputeController.cancelDispute,
+);
+
+// Get dispute detail for a booking
+router.get(
+  "/:bookingId",
+  protect,
+  ...validateUUIDParam("bookingId"),
   disputeController.getDisputeDetail,
 );
 
@@ -34,7 +47,8 @@ router.get(
   validatePagination,
   disputeController.getAllDisputes,
 );
-router.put(
+
+router.patch(
   "/admin/:id/resolve",
   protect,
   requireAdmin,

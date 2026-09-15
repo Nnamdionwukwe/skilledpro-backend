@@ -60,15 +60,29 @@ export const getAllRefunds = async (req, res) => {
               lastName: true,
             },
           },
+          dispute: {
+            select: {
+              id: true,
+              reason: true,
+              raisedByRole: true,
+              raisedById: true,
+              resolvedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),
       prisma.refund.count({ where }),
     ]);
 
+    const shaped = refunds.map((r) => ({
+      ...r,
+      source: r.disputeId ? "DISPUTE" : r.adminId ? "ADMIN" : "USER",
+    }));
+
     return sendResponse(res, {
       data: {
-        refunds,
+        refunds: shaped,
         total,
         page: parseInt(page),
         pages: Math.ceil(total / take),
@@ -113,12 +127,41 @@ export const getRefundDetails = async (req, res) => {
             lastName: true,
           },
         },
+        dispute: {
+          select: {
+            id: true,
+            reason: true,
+            description: true,
+            raisedByRole: true,
+            raisedById: true,
+            againstId: true,
+            resolvedAt: true,
+            adminNotes: true,
+            raisedBy: {
+              select: { id: true, firstName: true, lastName: true, role: true },
+            },
+            against: {
+              select: { id: true, firstName: true, lastName: true, role: true },
+            },
+          },
+        },
       },
     });
 
     if (!refund) return sendError(res, "Refund not found", 404);
 
-    return sendResponse(res, { data: { refund } });
+    return sendResponse(res, {
+      data: {
+        refund: {
+          ...refund,
+          source: refund.disputeId
+            ? "DISPUTE"
+            : refund.adminId
+              ? "ADMIN"
+              : "USER",
+        },
+      },
+    });
   } catch (err) {
     console.error("getRefundDetails error:", err);
     return sendError(res, "Failed to fetch refund details");
