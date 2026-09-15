@@ -2981,12 +2981,12 @@ const SUPPORTED_LANGUAGES = [
   "ig", // Igbo
   "fr", // French
   "ar", // Arabic
-  "sw", // Swahili  ← ADD THIS
+  "sw", // Swahili
   "pt", // Portuguese
   "hi", // Hindi
   "es", // Spanish
   "zh", // Chinese
-  "bn", // Bengali  ← ADD THIS
+  "bn", // Bengali
 ];
 
 export const validateTranslateRequest = [
@@ -3008,23 +3008,18 @@ export const validateTranslateRequest = [
     ),
 
   body("sourceLang")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .trim()
-    .isIn(SUPPORTED_LANGUAGES)
+    .custom((value) => {
+      // "auto" tells the backend to auto-detect. Any other value must be
+      // one of the supported language codes.
+      if (value === "auto") return true;
+      return SUPPORTED_LANGUAGES.includes(value);
+    })
     .withMessage(
       (value) =>
-        `"${value}" is not a supported language. Supported: ${SUPPORTED_LANGUAGES.join(", ")}`,
+        `"${value}" is not a supported language. Supported: auto, ${SUPPORTED_LANGUAGES.join(", ")}`,
     ),
-
-  // Add custom validator to log and debug
-  body().custom((value, { req }) => {
-    console.log("Translation request validated:", {
-      text: req.body.text?.substring(0, 50) + "...",
-      targetLang: req.body.targetLang,
-      sourceLang: req.body.sourceLang || "auto",
-    });
-    return true;
-  }),
 
   validate,
 ];
