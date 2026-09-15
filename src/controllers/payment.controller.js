@@ -1237,6 +1237,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     },
   });
 });
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 12  ADMIN — APPROVE WITHDRAWAL (auto-triggers real payout)
 // PATCH /api/admin/withdrawals/:withdrawalId/approve
@@ -1258,7 +1259,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Withdrawal is not pending" });
 
-  const meta = _parseMeta(withdrawal.notes);
+  const meta = _parseMeta(withdrawal.details);
   const method = withdrawal.method;
   const currency = withdrawal.currency;
   const provider = getWithdrawalProvider(meta.country ?? "NG", method);
@@ -1394,14 +1395,14 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
       data: {
         status: method === "crypto" ? "PROCESSING" : "PROCESSING",
         processedAt: new Date(),
-        notes: JSON.stringify({
+        details: {
           ...meta,
           ...providerData,
           approvedAt: new Date().toISOString(),
           adminNotes: notes,
           withdrawalFee,
           netPayout: amount,
-        }),
+        },
       },
     });
 
@@ -1431,11 +1432,11 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
     await prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
-        notes: JSON.stringify({
+        details: {
           ...meta,
           error: err.message,
           failedAt: new Date().toISOString(),
-        }),
+        },
       },
     });
     return res
@@ -1498,10 +1499,10 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
   // minus any outstanding debt (since debt will be deducted on next withdrawal).
   const available = Math.max(0, totalEarned - pendingPayout - outstandingDebt);
 
-  // Parse notes back for display
+  // Parse the `details` JSON column back for display
   const parsed = withdrawals.map((w) => ({
     ...w,
-    meta: _parseMeta(w.notes),
+    meta: _parseMeta(w.details),
   }));
 
   return res.status(200).json({
@@ -1512,9 +1513,9 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
         totalEarned, // lifetime released earnings
         inEscrow, // held but not yet released
         pendingPayout, // withdrawals currently queued
-        debtBalance: outstandingDebt, // ← NEW: outstanding debt
-        debtCreatedAt: workerProfile?.debtCreatedAt ?? null, // ← NEW
-        debtReason: workerProfile?.debtReason ?? null, // ← NEW
+        debtBalance: outstandingDebt, // ← outstanding debt
+        debtCreatedAt: workerProfile?.debtCreatedAt ?? null,
+        debtReason: workerProfile?.debtReason ?? null,
         // Fee config — frontend renders dynamically from these, never hardcodes
         withdrawalFeeRate: FEE_CONFIG.WITHDRAWAL_FEE_RATE,
         withdrawalFeeCap: FEE_CONFIG.WITHDRAWAL_FEE_CAP,
@@ -2430,9 +2431,11 @@ export const getWithdrawalPinStatus = asyncHandler(async (req, res) => {
   });
 });
 
-function _parseMeta(notes) {
+function _parseMeta(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
   try {
-    return notes ? JSON.parse(notes) : {};
+    return JSON.parse(value);
   } catch {
     return {};
   }
