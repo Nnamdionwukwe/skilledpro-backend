@@ -18,38 +18,77 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
-// ── POST /api/jobs ─────────────────────────────────────────────────────────────
-// Hirer creates a public job post
+
 export const createJobPost = async (req, res) => {
   try {
     const {
+      // ── Core ─────────────────────────────────────────────────────────────
       categoryId,
       title,
       description,
-      // location
+
+      // ── Location ─────────────────────────────────────────────────────────
       locationType = "REMOTE",
       address,
       latitude,
       longitude,
-      // job meta
+
+      // ── Job meta ─────────────────────────────────────────────────────────
       jobType = "FULL_TIME",
-      scheduledAt, // legacy field name
-      startDate, // app sends this
+      scheduledAt,
+      startDate,
       estimatedHours,
       estimatedUnit,
       estimatedValue,
-      // payment / duration
+
+      // ── Payment / duration ───────────────────────────────────────────────
       budgetType = "FIXED",
       budget,
       currency,
       durationType = "HOURS",
       durationValue,
-      // extras
+
+      // ── Extras (already supported) ───────────────────────────────────────
       skills = [],
       notes,
+
+      // ── NEW: External-style display fields ───────────────────────────────
+      companyName,
+      salaryText,
+
+      // ── NEW: Application channels ────────────────────────────────────────
+      applicationUrl,
+      applicationEmail,
+      applicationWhatsApp,
+      applicationPhone,
+
+      // ── NEW: Requirements / responsibilities ─────────────────────────────
+      minQualification,
+      experienceLevel,
+      experienceLength,
+      languageRequirement,
+      workingHours,
+      applicantLocation,
+      responsibilities,
+      requirements,
+
+      // ── NEW: Salary range ────────────────────────────────────────────────
+      salaryAmount,
+      salaryMin,
+      salaryMax,
+      salaryCurrency,
+      salaryPeriod,
+
+      // ── NEW: Misc ────────────────────────────────────────────────────────
+      educationLevel,
+      sourcePlatform,
+      expiryDate,
+
+      // ── NEW: Multi-category (optional, prefer over `categoryId` if present) ──
+      categoryIds,
     } = req.body;
 
-    // Resolve date — app sends startDate, legacy sends scheduledAt
+    // Resolve date — supports both scheduledAt and startDate
     const resolvedDate = scheduledAt || startDate;
 
     // ── Validation ────────────────────────────────────────────────────────────
@@ -58,10 +97,30 @@ export const createJobPost = async (req, res) => {
     if (!title) missing.push("title");
     if (!description) missing.push("description");
     if (!resolvedDate) missing.push("startDate");
-    if (!budget) missing.push("budget");
+
+    // Budget: prefer explicit budget; if salary range is provided, budget becomes optional
+    const hasExplicitBudget =
+      budget !== undefined && budget !== null && budget !== "";
+    const hasSalaryRange =
+      (salaryAmount !== undefined &&
+        salaryAmount !== null &&
+        salaryAmount !== "") ||
+      (salaryMin !== undefined && salaryMin !== null && salaryMin !== "") ||
+      (salaryMax !== undefined && salaryMax !== null && salaryMax !== "");
+
+    if (!hasExplicitBudget && !hasSalaryRange) {
+      missing.push("budget (or salaryAmount / salaryMin / salaryMax)");
+    } else if (hasExplicitBudget && isNaN(parseFloat(budget))) {
+      missing.push("budget (must be a number)");
+    }
+
     if (locationType !== "REMOTE" && !address) missing.push("address");
 
     if (missing.length) {
+      console.error("createJobPost validation failed:", {
+        missing,
+        body: req.body,
+      });
       return sendError(
         res,
         `Missing required fields: ${missing.join(", ")}`,
@@ -69,12 +128,37 @@ export const createJobPost = async (req, res) => {
       );
     }
 
-    // Validate the date is actually parseable — prevents new Date("Bsbdbd")
+    // Validate date is parseable
     const parsedDate = new Date(resolvedDate);
     if (isNaN(parsedDate.getTime())) {
+      console.error("createJobPost invalid date:", { resolvedDate });
       return sendError(
         res,
         "Invalid start date. Please use YYYY-MM-DD format (e.g. 2025-09-01)",
+        400,
+      );
+    }
+
+    // Validate at least one application method for external-style jobs
+    // (only enforced when isExternal-style fields are supplied)
+    const isExternalStyle = !!(
+      applicationUrl ||
+      applicationEmail ||
+      applicationWhatsApp ||
+      applicationPhone ||
+      companyName ||
+      salaryText
+    );
+    if (
+      isExternalStyle &&
+      !applicationUrl &&
+      !applicationEmail &&
+      !applicationWhatsApp &&
+      !applicationPhone
+    ) {
+      return sendError(
+        res,
+        "At least one application method (URL, Email, WhatsApp, or Phone) is required for external-style jobs",
         400,
       );
     }
@@ -84,34 +168,138 @@ export const createJobPost = async (req, res) => {
     });
     if (!category) return sendError(res, "Category not found", 404);
 
+    // Resolve the budget value: explicit budget takes precedence
+    const resolvedBudget = hasExplicitBudget
+      ? parseFloat(budget)
+      : parseFloat(salaryAmount ?? salaryMin ?? salaryMax ?? 0);
+
+    // Resolve currency (budget currency OR salary currency OR default)
+    const resolvedCurrency = currency || salaryCurrency || "NGN";
+
     const jobPost = await prisma.jobPost.create({
       data: {
+        // ── Core ──────────────────────────────────────────────────────────
         hirerId: req.user.id,
         categoryId,
         title,
         description,
+
+        // ── Location ──────────────────────────────────────────────────────
         locationType,
         address: locationType !== "REMOTE" ? address : null,
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
+
+        // ── Job meta ──────────────────────────────────────────────────────
         jobType,
-        scheduledAt: parsedDate, // ← use validated Date object
-        estimatedHours: estimatedHours ? parseFloat(estimatedHours) : null,
+        scheduledAt: parsedDate,
+        estimatedHours:
+          estimatedHours !== undefined &&
+          estimatedHours !== null &&
+          estimatedHours !== ""
+            ? parseFloat(estimatedHours)
+            : null,
         estimatedUnit: estimatedUnit || "hours",
-        estimatedValue: estimatedValue ? String(estimatedValue) : null,
+        estimatedValue:
+          estimatedValue !== undefined &&
+          estimatedValue !== null &&
+          estimatedValue !== ""
+            ? String(estimatedValue)
+            : null,
+
+        // ── Payment / duration ────────────────────────────────────────────
         budgetType,
-        budget: parseFloat(budget),
-        currency: currency || "NGN",
+        budget: resolvedBudget,
+        currency: resolvedCurrency,
         durationType,
-        durationValue: durationValue ? String(durationValue) : null,
+        durationValue:
+          durationValue !== undefined &&
+          durationValue !== null &&
+          durationValue !== ""
+            ? String(durationValue)
+            : null,
+
+        // ── Extras ────────────────────────────────────────────────────────
         skills: Array.isArray(skills) ? skills : [],
         notes: notes || null,
+
+        // ── NEW: External-style display fields ────────────────────────────
+        companyName: companyName || null,
+        salaryText: salaryText || null,
+        sourcePlatform: sourcePlatform || null,
+
+        // ── NEW: Application channels ─────────────────────────────────────
+        applicationUrl: applicationUrl || null,
+        applicationEmail: applicationEmail || null,
+        applicationWhatsApp: applicationWhatsApp || null,
+        applicationPhone: applicationPhone || null,
+
+        // ── NEW: Requirements / responsibilities ──────────────────────────
+        minQualification: minQualification || null,
+        experienceLevel: experienceLevel || null,
+        experienceLength: experienceLength || null,
+        languageRequirement: languageRequirement || "English",
+        workingHours: workingHours || null,
+        applicantLocation: applicantLocation || null,
+        responsibilities: responsibilities || null,
+        requirements: requirements || null,
+
+        // ── NEW: Salary range ─────────────────────────────────────────────
+        salaryAmount:
+          salaryAmount !== undefined &&
+          salaryAmount !== null &&
+          salaryAmount !== ""
+            ? parseFloat(salaryAmount)
+            : null,
+        salaryMin:
+          salaryMin !== undefined && salaryMin !== null && salaryMin !== ""
+            ? parseFloat(salaryMin)
+            : null,
+        salaryMax:
+          salaryMax !== undefined && salaryMax !== null && salaryMax !== ""
+            ? parseFloat(salaryMax)
+            : null,
+        salaryCurrency: salaryCurrency || null,
+        salaryPeriod: salaryPeriod || null,
+
+        // ── NEW: Misc ─────────────────────────────────────────────────────
+        educationLevel: educationLevel || null,
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
       },
       include: {
         hirer: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
         category: true,
+        categories: { include: { category: true } },
+        _count: { select: { applications: true } },
+      },
+    });
+
+    // ── NEW: Link additional categories (many-to-many) ────────────────────────
+    if (Array.isArray(categoryIds) && categoryIds.length > 0) {
+      // Filter out categoryId itself to avoid duplicate unique constraint
+      const extraIds = categoryIds.filter((id) => id !== categoryId);
+      if (extraIds.length > 0) {
+        await prisma.jobCategory.createMany({
+          data: extraIds.map((cid) => ({
+            jobId: jobPost.id,
+            categoryId: cid,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    // Re-fetch with categories populated
+    const fullJobPost = await prisma.jobPost.findUnique({
+      where: { id: jobPost.id },
+      include: {
+        hirer: {
+          select: { id: true, firstName: true, lastName: true, avatar: true },
+        },
+        category: true,
+        categories: { include: { category: true } },
         _count: { select: { applications: true } },
       },
     });
@@ -142,20 +330,20 @@ export const createJobPost = async (req, res) => {
           if (!u || u.id === req.user.id) return;
           notifyNewJobMatch(
             u.id,
-            jobPost.title,
-            jobPost.id,
+            fullJobPost.title,
+            fullJobPost.id,
             category.name,
           ).catch(() => {});
           if (u.notifBookings) {
             sendNewJobMatchEmail({
               to: u.email,
               workerName: u.firstName,
-              jobTitle: jobPost.title,
-              jobId: jobPost.id,
+              jobTitle: fullJobPost.title,
+              jobId: fullJobPost.id,
               categoryName: category.name,
-              budget: jobPost.budget,
-              currency: jobPost.currency,
-              address: jobPost.address,
+              budget: fullJobPost.budget,
+              currency: fullJobPost.currency,
+              address: fullJobPost.address,
             }).catch(() => {});
           }
         });
@@ -165,7 +353,7 @@ export const createJobPost = async (req, res) => {
     return sendResponse(res, {
       status: 201,
       message: "Job posted successfully",
-      data: { jobPost },
+      data: { jobPost: fullJobPost },
     });
   } catch (err) {
     console.error("createJobPost error:", err);
@@ -188,6 +376,9 @@ export const getJobPosts = async (req, res) => {
       jobType,
       locationType,
       budgetType,
+      experienceLevel,
+      educationLevel,
+      salaryPeriod,
       page = 1,
       limit = 20,
     } = req.query;
@@ -200,7 +391,8 @@ export const getJobPosts = async (req, res) => {
         OR: [
           { title: { contains: q, mode: "insensitive" } },
           { description: { contains: q, mode: "insensitive" } },
-          { companyName: { contains: q, mode: "insensitive" } }, // allow search by company
+          { companyName: { contains: q, mode: "insensitive" } },
+          { salaryText: { contains: q, mode: "insensitive" } },
         ],
       }),
       ...(category && { category: { slug: category } }),
@@ -210,10 +402,13 @@ export const getJobPosts = async (req, res) => {
       ...(jobType && { jobType }),
       ...(locationType && { locationType }),
       ...(budgetType && { budgetType }),
+      ...(experienceLevel && { experienceLevel }),
+      ...(educationLevel && { educationLevel }),
+      ...(salaryPeriod && { salaryPeriod }),
       ...(city && {
         OR: [
           { hirer: { city: { contains: city, mode: "insensitive" } } },
-          { address: { contains: city, mode: "insensitive" } }, // external jobs store location in address
+          { address: { contains: city, mode: "insensitive" } },
         ],
       }),
       ...(country && {
@@ -230,26 +425,67 @@ export const getJobPosts = async (req, res) => {
         skip,
         take,
         select: {
+          // ── Core ───────────────────────────────────────────────────────
           id: true,
           title: true,
           description: true,
-          companyName: true, // ← new
-          salaryText: true, // ← new
-          address: true, // location
-          jobType: true,
-          budget: true,
-          currency: true,
-          applicationUrl: true, // ← new
-          sourcePlatform: true, // ← new
-          minQualification: true, // ← new
-          experienceLevel: true, // ← new
-          experienceLength: true, // ← new
-          workingHours: true, // ← new
-          applicantLocation: true, // ← new
+          address: true,
+          latitude: true,
+          longitude: true,
+          scheduledAt: true,
+          estimatedHours: true,
+          estimatedUnit: true,
+          estimatedValue: true,
           createdAt: true,
           status: true,
           isExternal: true,
-          // Include hirer only if it exists (external jobs may not have one)
+
+          // ── Categorization & types ─────────────────────────────────────
+          jobType: true,
+          locationType: true,
+          budgetType: true,
+          durationType: true,
+          durationValue: true,
+
+          // ── Payment ────────────────────────────────────────────────────
+          budget: true,
+          currency: true,
+
+          // ── Extras ─────────────────────────────────────────────────────
+          skills: true,
+          notes: true,
+
+          // ── External-style display fields ──────────────────────────────
+          companyName: true,
+          salaryText: true,
+          sourcePlatform: true,
+
+          // ── Application channels ───────────────────────────────────────
+          applicationUrl: true,
+          applicationEmail: true,
+          applicationWhatsApp: true,
+          applicationPhone: true,
+
+          // ── Requirements ───────────────────────────────────────────────
+          minQualification: true,
+          experienceLevel: true,
+          experienceLength: true,
+          languageRequirement: true,
+          workingHours: true,
+          applicantLocation: true,
+          responsibilities: true,
+          requirements: true,
+
+          // ── Salary range ───────────────────────────────────────────────
+          salaryAmount: true,
+          salaryMin: true,
+          salaryMax: true,
+          salaryCurrency: true,
+          salaryPeriod: true,
+          educationLevel: true,
+          expiryDate: true,
+
+          // ── Relations ──────────────────────────────────────────────────
           hirer: {
             select: {
               id: true,
@@ -267,7 +503,6 @@ export const getJobPosts = async (req, res) => {
               },
             },
           },
-          // Include the admin who posted it (for external jobs)
           postedByAdmin: {
             select: {
               id: true,
@@ -276,17 +511,9 @@ export const getJobPosts = async (req, res) => {
               avatar: true,
             },
           },
-          // Single category (legacy)
           category: true,
-          // Many‑to‑many categories
-          categories: {
-            include: {
-              category: true,
-            },
-          },
-          _count: {
-            select: { applications: true },
-          },
+          categories: { include: { category: true } },
+          _count: { select: { applications: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -344,9 +571,7 @@ export const getJobPost = async (req, res) => {
           },
         },
         category: true,
-        categories: {
-          include: { category: true },
-        },
+        categories: { include: { category: true } },
         _count: { select: { applications: true } },
       },
     });
@@ -380,7 +605,7 @@ export const getJobPost = async (req, res) => {
       data: {
         jobPost: {
           ...jobPost,
-          // Ensure companyName is available from either hirer profile or the job's own field
+          // Company name falls back to hirer profile if not directly set
           companyName:
             jobPost.companyName ||
             jobPost.hirer?.hirerProfile?.companyName ||
@@ -416,6 +641,7 @@ export const getMyJobPosts = async (req, res) => {
         take,
         include: {
           category: true,
+          categories: { include: { category: true } },
           _count: { select: { applications: true } },
           applications: {
             take: 3,
@@ -633,12 +859,13 @@ export const getJobApplications = async (req, res) => {
   }
 };
 
-// ── PATCH /api/jobs/:id/applications/:applicationId ───────────────────────────
+// ── PATCH /api/jobs/:id/applications/:appId/status ───────────────────────────
 // Protected (HIRER) — accept or reject an application
 export const updateApplicationStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const { id: jobPostId, applicationId } = req.params;
+    // ── FIX: route param is `appId`, not `applicationId` ──
+    const { id: jobPostId, appId: applicationId } = req.params;
 
     if (!["ACCEPTED", "REJECTED"].includes(status)) {
       return sendError(res, "Status must be ACCEPTED or REJECTED", 400);
@@ -650,6 +877,15 @@ export const updateApplicationStatus = async (req, res) => {
     if (!jobPost) return sendError(res, "Job post not found", 404);
     if (jobPost.hirerId !== req.user.id)
       return sendError(res, "Forbidden", 403);
+
+    // ── Guard: ensure the application exists and belongs to this job ──
+    const existing = await prisma.jobApplication.findUnique({
+      where: { id: applicationId },
+      select: { id: true, jobPostId: true },
+    });
+    if (!existing) return sendError(res, "Application not found", 404);
+    if (existing.jobPostId !== jobPostId)
+      return sendError(res, "Application does not belong to this job", 400);
 
     const application = await prisma.jobApplication.update({
       where: { id: applicationId },
@@ -692,7 +928,7 @@ export const updateApplicationStatus = async (req, res) => {
       data: { application },
     });
   } catch (err) {
-    console.error(err);
+    console.error("updateApplicationStatus error:", err);
     return sendError(res, "Failed to update application");
   }
 };

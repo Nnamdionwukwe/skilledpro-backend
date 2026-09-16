@@ -467,24 +467,30 @@ export const validateBookingStatus = [
 // § 5  JOB POSTS
 // ─────────────────────────────────────────────────────────────────────────────
 const JOB_TYPES = [
-  "ONE_TIME",
-  "PART_TIME",
   "FULL_TIME",
+  "PART_TIME",
   "CONTRACT",
+  "TEMPORARY",
+  "ONE_TIME",
   "INTERNSHIP",
 ];
-// const LOCATION_TYPES = ["ONSITE", "REMOTE", "HYBRID"];
+
 const BUDGET_TYPES = [
   "FIXED",
   "HOURLY",
   "DAILY",
   "WEEKLY",
   "MONTHLY",
+  "CUSTOM",
   "NEGOTIABLE",
 ];
+
 const DURATION_TYPES = ["HOURS", "DAYS", "WEEKS", "MONTHS", "CUSTOM"];
 
+const EXPERIENCE_LEVELS = ["Entry level", "Mid level", "Senior level"];
+
 export const validateCreateJob = [
+  // ── Core ──────────────────────────────────────────────────────────────────
   body("title")
     .trim()
     .notEmpty()
@@ -503,47 +509,165 @@ export const validateCreateJob = [
     .withMessage("Category is required")
     .isUUID(4)
     .withMessage("Category ID must be a valid UUID"),
+
+  // ── Budget: budget OR salaryAmount/Min/Max must be provided ─────────────
   body("budget")
-    .notEmpty()
-    .withMessage("Budget is required")
-    .isFloat({ min: 1 })
-    .withMessage("Budget must be a positive number"),
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Budget must be a non-negative number"),
+  body("salaryAmount")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary amount must be a non-negative number"),
+  body("salaryMin")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary minimum must be a non-negative number"),
+  body("salaryMax")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary maximum must be a non-negative number"),
+  body("salaryMax")
+    .optional({ nullable: true, checkFalsy: true })
+    .custom((value, { req }) => {
+      const min = req.body.salaryMin;
+      if (
+        value !== undefined &&
+        min !== undefined &&
+        min !== "" &&
+        parseFloat(value) < parseFloat(min)
+      ) {
+        throw new Error(
+          "Salary maximum must be greater than or equal to salary minimum",
+        );
+      }
+      return true;
+    }),
+  body().custom((_, { req }) => {
+    const hasBudget =
+      req.body.budget !== undefined &&
+      req.body.budget !== null &&
+      req.body.budget !== "";
+    const hasSalary =
+      (req.body.salaryAmount !== undefined &&
+        req.body.salaryAmount !== null &&
+        req.body.salaryAmount !== "") ||
+      (req.body.salaryMin !== undefined &&
+        req.body.salaryMin !== null &&
+        req.body.salaryMin !== "") ||
+      (req.body.salaryMax !== undefined &&
+        req.body.salaryMax !== null &&
+        req.body.salaryMax !== "");
+    if (!hasBudget && !hasSalary) {
+      throw new Error(
+        "Either budget or salary range (salaryAmount / salaryMin / salaryMax) is required",
+      );
+    }
+    return true;
+  }),
+
   body("currency")
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .trim()
     .isLength({ min: 3, max: 4 })
     .withMessage("Currency must be a valid 3–4 character code"),
+  body("salaryCurrency")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ min: 3, max: 4 })
+    .withMessage("Salary currency must be a valid 3–4 character code"),
+
+  // ── Dates: scheduledAt OR startDate ──────────────────────────────────────
   body("scheduledAt")
-    .notEmpty()
-    .withMessage("Scheduled date is required")
+    .optional({ nullable: true, checkFalsy: true })
     .isISO8601()
     .withMessage("Scheduled date must be a valid ISO 8601 date"),
+  body("startDate")
+    .optional({ nullable: true, checkFalsy: true })
+    .isISO8601()
+    .withMessage("Start date must be a valid ISO 8601 date"),
+  body().custom((_, { req }) => {
+    if (!req.body?.scheduledAt && !req.body?.startDate) {
+      throw new Error("Either scheduledAt or startDate is required");
+    }
+    return true;
+  }),
+  body("expiryDate")
+    .optional({ nullable: true, checkFalsy: true })
+    .isISO8601()
+    .withMessage("Expiry date must be a valid ISO 8601 date"),
+
+  // ── Job enums ────────────────────────────────────────────────────────────
   body("jobType")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .isIn(JOB_TYPES)
     .withMessage(`Job type must be one of: ${JOB_TYPES.join(", ")}`),
   body("locationType")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .isIn(LOCATION_TYPES)
     .withMessage(`Location type must be one of: ${LOCATION_TYPES.join(", ")}`),
   body("budgetType")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .isIn(BUDGET_TYPES)
     .withMessage(`Budget type must be one of: ${BUDGET_TYPES.join(", ")}`),
   body("durationType")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .isIn(DURATION_TYPES)
     .withMessage(`Duration type must be one of: ${DURATION_TYPES.join(", ")}`),
+  body("salaryPeriod")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(SALARY_PERIODS)
+    .withMessage(`Salary period must be one of: ${SALARY_PERIODS.join(", ")}`),
+  body("educationLevel")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(EDUCATION_LEVELS)
+    .withMessage(
+      `Education level must be one of: ${EDUCATION_LEVELS.join(", ")}`,
+    ),
+  body("experienceLevel")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(EXPERIENCE_LEVELS)
+    .withMessage(
+      `Experience level must be one of: ${EXPERIENCE_LEVELS.join(", ")}`,
+    ),
+
+  // ── Duration value / estimated ───────────────────────────────────────────
   body("durationValue")
-    .optional({ nullable: true })
+    .optional({ nullable: true, checkFalsy: true })
     .trim()
     .isLength({ max: 100 })
     .withMessage("Duration value must not exceed 100 characters"),
+  body("estimatedHours")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Estimated hours must be a non-negative number"),
+  body("estimatedUnit")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage("Estimated unit must not exceed 30 characters"),
+  body("estimatedValue")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Estimated value must not exceed 100 characters"),
+
+  // ── Location ─────────────────────────────────────────────────────────────
   body("address")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 300 })
     .withMessage("Address must not exceed 300 characters"),
+  body("latitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage("Latitude must be between -90 and 90"),
+  body("longitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage("Longitude must be between -180 and 180"),
+
+  // ── Skills & notes ───────────────────────────────────────────────────────
   body("skills")
     .optional({ nullable: true })
     .isArray({ max: 20 })
@@ -558,6 +682,108 @@ export const validateCreateJob = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage("Notes must not exceed 1000 characters"),
+
+  // ── External-style display fields ────────────────────────────────────────
+  body("companyName")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 150 })
+    .withMessage("Company name must not exceed 150 characters"),
+  body("salaryText")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Salary text must not exceed 100 characters"),
+  body("sourcePlatform")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Source platform must not exceed 100 characters"),
+
+  // ── Application channels ─────────────────────────────────────────────────
+  body("applicationUrl")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("Application URL must be a valid URL"),
+  body("applicationEmail")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Application email must be a valid email address"),
+  body("applicationWhatsApp")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .custom((value) => {
+      const cleaned = value.replace(/[^0-9+]/g, "");
+      if (!/^\+?[0-9]{7,15}$/.test(cleaned)) {
+        throw new Error(
+          "WhatsApp number must be a valid phone number (e.g., +1234567890 or 08012345678)",
+        );
+      }
+      return true;
+    }),
+  body("applicationPhone")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .custom((value) => {
+      const cleaned = value.replace(/[^0-9+]/g, "");
+      if (!/^\+?[0-9]{7,15}$/.test(cleaned)) {
+        throw new Error(
+          "Phone number must be a valid phone number (e.g., +1234567890 or 08012345678)",
+        );
+      }
+      return true;
+    }),
+
+  // ── Requirements / qualifications ────────────────────────────────────────
+  body("minQualification")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage("Minimum qualification must not exceed 255 characters"),
+  body("experienceLength")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("Experience length must not exceed 50 characters"),
+  body("languageRequirement")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("Language requirement must not exceed 50 characters"),
+  body("workingHours")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Working hours must not exceed 100 characters"),
+  body("applicantLocation")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage("Applicant location must not exceed 255 characters"),
+  body("responsibilities")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("Responsibilities must not exceed 5000 characters"),
+  body("requirements")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("Requirements must not exceed 5000 characters"),
+
+  // ── Multi-category support ──────────────────────────────────────────────
+  body("categoryIds")
+    .optional({ nullable: true })
+    .isArray({ max: 10 })
+    .withMessage("categoryIds must be an array with at most 10 items"),
+  body("categoryIds.*")
+    .optional()
+    .trim()
+    .isUUID(4)
+    .withMessage("Each category ID must be a valid UUID"),
+
   validate,
 ];
 
@@ -578,6 +804,11 @@ export const validateJobApplication = [
     .trim()
     .isLength({ max: 2000 })
     .withMessage("Cover letter must not exceed 2000 characters"),
+  body("message")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage("Message must not exceed 2000 characters"),
   body("proposedRate")
     .optional({ nullable: true })
     .isFloat({ min: 1 })

@@ -83,10 +83,12 @@ router.get(
   getJobApplications,
 );
 
+// ── FIX: validate `appId` UUID too — prevents 500 on bad param ──────────────
 router.patch(
   "/:id/applications/:appId/status",
   requireRole("HIRER"),
   ...validateUUIDParam("id"),
+  ...validateUUIDParam("appId"), // ← ADDED
   updateApplicationStatus,
 );
 
