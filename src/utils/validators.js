@@ -3363,3 +3363,62 @@ export const validateGoogleSignIn = [
   }),
   validate,
 ]; // §35 GOOGLE SIGN-IN (updated: accepts idToken OR accessToken)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/bookings/from-job/:jobPostId
+// ─────────────────────────────────────────────────────────────────────────────
+const VALID_RATE_OPTIONS = [
+  "budget",
+  "salaryAmount",
+  "salaryMin",
+  "salaryMax",
+  "salaryText",
+];
+
+export const validateCreateBookingFromJobPost = [
+  body("workerId")
+    .trim()
+    .notEmpty()
+    .withMessage("workerId is required")
+    .isUUID(4)
+    .withMessage("workerId must be a valid UUID"),
+
+  body("selectedRateOption")
+    .trim()
+    .notEmpty()
+    .withMessage("selectedRateOption is required")
+    .isIn(VALID_RATE_OPTIONS)
+    .withMessage(
+      `selectedRateOption must be one of: ${VALID_RATE_OPTIONS.join(", ")}`,
+    ),
+
+  body("negotiatedRate")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0.01 })
+    .withMessage("negotiatedRate must be a positive number"),
+
+  body("negotiationNote")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("negotiationNote must not exceed 500 characters"),
+
+  body("notes")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage("Notes must not exceed 1000 characters"),
+
+  body("quantity")
+    .optional({ nullable: true })
+    .isInt({ min: 1, max: 1000 })
+    .withMessage("quantity must be an integer between 1 and 1000"),
+
+  body("customLabel")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("customLabel must not exceed 100 characters"),
+
+  validate,
+];

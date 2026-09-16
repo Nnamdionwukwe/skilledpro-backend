@@ -25,6 +25,11 @@ enum BookingStatus {
   DISPUTED
 }
 
+enum BookingSource {
+  DIRECT
+  JOB_POST
+}
+
 enum PaymentStatus {
   PENDING
   HELD
@@ -766,7 +771,7 @@ model Booking {
   category       Category      @relation(fields: [categoryId], references: [id])
   title          String
   description    String
-  address        String
+    address        String?
   latitude       Float?
   longitude      Float?
   scheduledAt    DateTime
@@ -823,6 +828,15 @@ model Booking {
   // ── Relations ────────────────────────────────────────────────────────────
   refunds  Refund[]
   disputes Dispute[]
+
+    // ── Source & linkage ─────────────────────────────────────────────────────
+  source        BookingSource @default(DIRECT)
+  jobPostId     String?
+  jobPost       JobPost?      @relation("JobPostBookings", fields: [jobPostId], references: [id], onDelete: SetNull)
+
+  // Snapshot of what the hirer selected from the job's price options
+  selectedRateOption String?   // "budget" | "salaryAmount" | "salaryMin" | "salaryMax" | "salaryText"
+  jobRateSnapshot    Json?     // optional: snapshot the job's price fields at booking time
 }
 
 model Payment {
@@ -1027,6 +1041,7 @@ model JobPost {
   // experienceLevel already exists (String) – could later change to enum
 
   externalJobClicks ExternalJobClick[]
+    bookings Booking[] @relation("JobPostBookings")
 }
 
 model ExternalJobClick {

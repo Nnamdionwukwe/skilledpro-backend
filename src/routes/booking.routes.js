@@ -3,6 +3,8 @@ import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
   createBooking,
+  createBookingFromJobPost, // ← add
+  getJobPostBookingDraft,
   getMyBookings, // was: getBookings       ← FIXED
   getBooking, // was: getBookingById     ← FIXED
   updateBookingStatus,
@@ -16,10 +18,27 @@ import {
   validateCreateBooking,
   validateBookingStatus,
   validateUUIDParam,
+  validateCreateBookingFromJobPost,
 } from "../utils/validators.js";
 
 const router = Router();
 router.use(protect);
+
+// ── Job-post-driven booking (must precede the /:id routes) ─────────────────
+router.get(
+  "/from-job/:jobPostId/draft",
+  requireRole("HIRER"),
+  ...validateUUIDParam("jobPostId"),
+  getJobPostBookingDraft,
+);
+
+router.post(
+  "/from-job/:jobPostId",
+  requireRole("HIRER"),
+  ...validateUUIDParam("jobPostId"),
+  validateCreateBookingFromJobPost,
+  createBookingFromJobPost,
+);
 
 router.post("/", requireRole("HIRER"), validateCreateBooking, createBooking);
 router.get("/", getMyBookings);
