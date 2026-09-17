@@ -12,6 +12,7 @@ import {
   getHirerBookings,
   getHirerDashboard,
   getSavedWorkers,
+  isWorkerSaved,
   saveWorker,
   unsaveWorker,
   getHiredWorkers,
@@ -46,6 +47,14 @@ router.get(
   requireRole("HIRER"),
   validatePagination,
   getSavedWorkers,
+);
+// ✅ Must come BEFORE /me/saved-workers/:workerId to avoid :workerId swallowing "exists"
+router.get(
+  "/me/saved-workers/:workerId/exists",
+  protect,
+  requireRole("HIRER"),
+  ...validateUUIDParam("workerId"),
+  isWorkerSaved,
 );
 router.post(
   "/me/saved-workers/:workerId",

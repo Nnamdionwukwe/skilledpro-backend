@@ -2,7 +2,19 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { notifyProfileViewed } from "../services/notification.service.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ─── Worker select shape (reused across queries) ──────────────────────────────
 const WORKER_SELECT = {
   id: true,
@@ -463,5 +475,22 @@ export const markNotificationsRead = async (req, res) => {
     return sendResponse(res, { message: "Notifications marked as read" });
   } catch (err) {
     return sendError(res, "Failed to update notifications");
+  }
+};
+
+// GET /api/hirers/me/saved-workers/:workerId/exists
+// Returns { saved: boolean } — lightweight existence check
+export const isWorkerSaved = async (req, res) => {
+  try {
+    const hirerId = req.user.id;
+    const workerId = req.params.workerId;
+
+    const count = await prisma.savedWorker.count({
+      where: { hirerId, workerId },
+    });
+
+    return sendResponse(res, { data: { saved: count > 0 } });
+  } catch (err) {
+    return sendError(res, "Failed to check saved status");
   }
 };
