@@ -1050,33 +1050,39 @@ export const validateCreateReport = [
   body("targetType")
     .notEmpty()
     .withMessage("Target type is required")
-    .isIn(REPORT_TYPES)
+    .isIn(REPORT_TYPES) // ← 400 if not exactly USER|JOB_POST|POST|REVIEW|BOOKING|MESSAGE
     .withMessage(`Target type must be one of: ${REPORT_TYPES.join(", ")}`),
+
   body("targetId")
     .trim()
     .notEmpty()
-    .withMessage("Target ID is required")
+    .withMessage("Target ID is required") // ← 400 if missing/empty
     .isLength({ min: 1, max: 150 })
     .withMessage("Target ID is invalid"),
+
   body("reason")
     .notEmpty()
     .withMessage("Report reason is required")
-    .isIn(REPORT_REASONS)
+    .isIn(REPORT_REASONS) // ← 400 if not exactly one of the 11 uppercase enums
     .withMessage(`Reason must be one of: ${REPORT_REASONS.join(", ")}`),
+
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 1000 })
-    .withMessage("Description must not exceed 1000 characters"),
+    .withMessage("Description must not exceed 1000 characters"), // ← 400 if >1000 chars
+
   body("evidence")
     .optional({ nullable: true })
     .isArray({ max: 5 })
-    .withMessage("Evidence must be an array of up to 5 URLs"),
+    .withMessage("Evidence must be an array of up to 5 URLs"), // ← 400 if not array / >5 items
+
   body("evidence.*")
     .optional()
     .trim()
     .isURL()
-    .withMessage("Each evidence item must be a valid URL"),
+    .withMessage("Each evidence item must be a valid URL"), // ← 400 if any item isn't a URL
+
   validate,
 ];
 
