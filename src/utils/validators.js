@@ -1459,39 +1459,35 @@ export const validateUUIDParam = (paramName = "id") => [
 
 export const validatePagination = [r.page, r.limit, validate];
 
-// ═════════════════════════════════════════════════════════════════════════════
-//  NEW VALIDATORS BELOW — sections 17–22 added in this update
-// ═════════════════════════════════════════════════════════════════════════════
-
 // ─────────────────────────────────────────────────────────────────────────────
 // § 17  SUBSCRIPTIONS
 // ─────────────────────────────────────────────────────────────────────────────
-// ⚠️  IMPORTANT: open prisma/schema.prisma, find the SubscriptionTier enum,
-//     and update SUBSCRIPTION_TIERS below to match your exact values.
-//     e.g. if your enum is  BASIC | PRO | ELITE  →  ["BASIC","PRO","ELITE"]
-
-const SUBSCRIPTION_TIERS = ["BASIC", "PRO", "ELITE"]; // ← update to match your enum
-const SUBSCRIPTION_BILLING = ["MONTHLY", "ANNUALLY"];
+// The checkout flow accepts a `planId` string — the same identifier the
+// frontend renders from GET /api/subscriptions/plans (for example
+// "worker_pro_monthly", "hirer_enterprise_yearly").
+//
+// The controller validates the planId against the correct role's plan list
+// (WORKER_PLANS or HIRER_PLANS) so there's no whitelist needed here. The
+// role comes from req.user, so a client cannot claim a higher tier than
+// they paid for.
+//
+// `tier` is NOT accepted — the plan is derived server-side from planId.
 
 // POST /api/subscriptions/checkout
-// Body: { tier, billingPeriod?, callbackUrl? }
+// Body: { planId, promoCode? }
 export const validateSubscriptionCheckout = [
-  body("tier")
-    .notEmpty()
-    .withMessage("Subscription tier is required")
-    .isIn(SUBSCRIPTION_TIERS)
-    .withMessage(`tier must be one of: ${SUBSCRIPTION_TIERS.join(", ")}`),
-
-  body("billingPeriod")
-    .optional({ nullable: true })
-    .isIn(SUBSCRIPTION_BILLING)
-    .withMessage(`billingPeriod must be ${SUBSCRIPTION_BILLING.join(" or ")}`),
-
-  body("callbackUrl")
-    .optional({ nullable: true })
+  body("planId")
     .trim()
-    .isURL()
-    .withMessage("callbackUrl must be a valid URL"),
+    .notEmpty()
+    .withMessage("Plan ID is required")
+    .isLength({ min: 3, max: 100 })
+    .withMessage("Plan ID must be 3–100 characters"),
+
+  body("promoCode")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 40 })
+    .withMessage("Promo code must be 2–40 characters"),
 
   validate,
 ];

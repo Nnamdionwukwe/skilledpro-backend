@@ -34,7 +34,7 @@ router.post("/webhook", paystackWebhook);
 // ── Protected from here down ──────────────────────────────────────────────────
 router.use(protect);
 
-// ── Existing subscription routes (unchanged) ──────────────────────────────────
+// ── Subscription routes ───────────────────────────────────────────────────────
 router.get("/plans", getPlans);
 router.get("/my", getMySubscription);
 router.post("/checkout", validateSubscriptionCheckout, createCheckout);
