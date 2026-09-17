@@ -12,13 +12,18 @@ import {
   validateUUIDParam,
   validatePagination,
 } from "../utils/validators.js";
+import { uploadSingle } from "../middleware/upload.middleware.js";
 
 const router = Router();
 router.use(protect);
 
 // ── Named routes FIRST ──
 router.get("/conversations", validatePagination, getConversations);
-router.post("/", validateSendMessage, sendMessage);
+
+// POST /api/messages
+// `uploadSingle` is `upload.any()` — accepts multipart with any field name
+// (the frontend sends "file"), and passes through JSON requests untouched.
+router.post("/", uploadSingle, validateSendMessage, sendMessage);
 
 // ── Param routes after ──
 router.patch(
