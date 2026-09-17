@@ -210,3 +210,20 @@ export const notificationRequestLimiter = rateLimit({
   handler: handler("Too many notification requests. Please wait 1 hour."),
   keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req), // ← fixed
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY SUGGEST LIMITER — public route, per IP
+// Public visitors and authenticated users can both submit. Since the route is
+// public, we key on IP only. 10 per hour is enough for any legitimate user
+// while stopping scripted spam.
+// ─────────────────────────────────────────────────────────────────────────────
+export const categorySuggestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: handler(
+    "Too many category suggestions. Please wait an hour before trying again.",
+  ),
+  skip: () => process.env.NODE_ENV === "test",
+});

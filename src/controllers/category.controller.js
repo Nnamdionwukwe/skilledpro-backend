@@ -13,13 +13,25 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+
+// GET /api/categories?page=1&limit=100&search=foo
+// Paginated list of categories. User-submitted categories sort first
+// so any newly added ones are always on page 1.
 export const getCategories = async (req, res) => {
   try {
-    const { search, limit = 1500 } = req.query; // ← default 500, not 200
+    const { search } = req.query;
+
+    // Clamp: default 100 per page, hard cap 200. Small enough to be
+    // fast on the DB and the client, large enough that a user browsing
+    // a category list feels instant.
+    const take = Math.min(
+      Math.max(parseInt(req.query.limit, 10) || 100, 1),
+      200,
+    );
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const skip = (page - 1) * take;
 
     const where = {
-      // ← REMOVED parentId: null — this was silently hiding user-submitted
-      //   categories if they somehow got a parentId, and artificially capping results
       ...(search && {
         OR: [
           { name: { contains: search, mode: "insensitive" } },
@@ -28,18 +40,33 @@ export const getCategories = async (req, res) => {
       }),
     };
 
-    const categories = await prisma.category.findMany({
-      where,
-      include: {
-        children: true,
-        _count: { select: { workers: true, bookings: true } },
-      },
-      orderBy: [{ isUserSubmitted: "asc" }, { name: "asc" }],
-      take: Math.min(parseInt(limit), 1000), // hard cap at 1000
-    });
+    const [categories, total] = await Promise.all([
+      prisma.category.findMany({
+        where,
+        include: {
+          children: true,
+          _count: { select: { workers: true, bookings: true } },
+        },
+        // desc = user-submitted (true) before seeded (false),
+        // then alphabetical within each group
+        orderBy: [{ isUserSubmitted: "desc" }, { name: "asc" }],
+        skip,
+        take,
+      }),
+      prisma.category.count({ where }),
+    ]);
 
-    return sendResponse(res, { data: { categories } });
+    return sendResponse(res, {
+      data: {
+        categories,
+        total,
+        page,
+        pages: Math.max(1, Math.ceil(total / take)),
+        limit: take,
+      },
+    });
   } catch (err) {
+    console.error("getCategories error:", err);
     return sendError(res, "Failed to fetch categories");
   }
 };
@@ -57,6 +84,99 @@ export const getCategory = async (req, res) => {
     return sendResponse(res, { data: { category } });
   } catch (err) {
     return sendError(res, "Failed to fetch category");
+  }
+};
+
+// GET /api/categories/:slug/workers
+// Lists all workers linked to a category.
+// Relation chain: WorkerCategory → WorkerProfile → User
+export const getCategoryWorkers = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { page = 1, limit = 40 } = req.query;
+
+    const category = await prisma.category.findUnique({
+      where: { slug },
+      select: { id: true, name: true, slug: true, icon: true },
+    });
+    if (!category) return sendError(res, "Category not found", 404);
+
+    const take = Math.min(parseInt(limit, 10) || 40, 100);
+    const skip = ((parseInt(page, 10) || 1) - 1) * take;
+
+    const where = {
+      categoryId: category.id,
+      workerProfile: {
+        user: {
+          role: "WORKER",
+          isActive: true,
+          isBanned: false,
+        },
+      },
+    };
+
+    const [links, total] = await Promise.all([
+      prisma.workerCategory.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ isPrimary: "desc" }, { id: "desc" }],
+        include: {
+          workerProfile: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  city: true,
+                  country: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.workerCategory.count({ where }),
+    ]);
+
+    const workers = links.map((link) => {
+      const wp = link.workerProfile;
+      const u = wp.user;
+      return {
+        id: u.id,
+        user: {
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          avatar: u.avatar,
+          city: u.city,
+          country: u.country,
+        },
+        title: wp.title,
+        hourlyRate: wp.hourlyRate,
+        currency: wp.currency,
+        avgRating: wp.avgRating,
+        totalReviews: wp.totalReviews,
+        completedJobs: wp.completedJobs,
+        isAvailable: wp.isAvailable,
+        verificationStatus: wp.verificationStatus,
+      };
+    });
+
+    return sendResponse(res, {
+      data: {
+        category,
+        workers,
+        total,
+        page: parseInt(page, 10) || 1,
+        pages: Math.max(1, Math.ceil(total / take)),
+      },
+    });
+  } catch (err) {
+    console.error("getCategoryWorkers error:", err);
+    return sendError(res, "Failed to fetch workers for this category");
   }
 };
 

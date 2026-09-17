@@ -70,6 +70,8 @@ import "./services/expiry.service.js"; // starts the cron job
 
 const app = express();
 
+// src/app.js (or server.js — wherever express() is initialised)
+app.set("trust proxy", 1);
 startDebtCron();
 
 app.set("trust proxy", 1);
