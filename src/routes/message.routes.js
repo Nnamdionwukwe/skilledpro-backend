@@ -1,3 +1,4 @@
+// src/routes/message.routes.js
 import { Router } from "express";
 import { protect } from "../middleware/auth.middleware.js";
 import {
@@ -15,11 +16,11 @@ import {
 const router = Router();
 router.use(protect);
 
-// Named routes FIRST — before /:conversationId or Express swallows them
-router.get("/conversations", getConversations);
+// ── Named routes FIRST ──
+router.get("/conversations", validatePagination, getConversations);
 router.post("/", validateSendMessage, sendMessage);
 
-// Param routes after
+// ── Param routes after ──
 router.patch(
   "/:conversationId/read",
   ...validateUUIDParam("conversationId"),

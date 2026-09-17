@@ -1188,22 +1188,35 @@ export const validateSendMessage = [
     .trim()
     .isUUID(4)
     .withMessage("Receiver ID must be a valid UUID"),
+
   body("conversationId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Conversation ID must be a valid UUID"),
+
+  // Content is optional at the validator level because a message can be
+  // file-only. The controller enforces "content OR file" after multer runs.
   body("content")
+    .optional({ nullable: true })
     .trim()
-    .notEmpty()
-    .withMessage("Message content is required")
     .isLength({ min: 1, max: 5000 })
     .withMessage("Message must be 1–5000 characters"),
+
   body("bookingId")
     .optional({ nullable: true })
     .trim()
     .isUUID(4)
     .withMessage("Booking ID must be a valid UUID"),
+
+  // At least one of receiverId or conversationId must be present
+  body().custom((_, { req }) => {
+    if (!req.body?.receiverId && !req.body?.conversationId) {
+      throw new Error("Either receiverId or conversationId is required");
+    }
+    return true;
+  }),
+
   validate,
 ];
 
