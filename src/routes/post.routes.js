@@ -16,6 +16,7 @@ import {
   getComments,
   deleteComment,
 } from "../controllers/post.controller.js";
+import { uploadMultiple } from "../middleware/upload.middleware.js";
 import {
   validateCreatePost,
   validateUpdatePost,
@@ -26,28 +27,47 @@ import {
 } from "../utils/validators.js";
 
 const router = Router();
-router.use(protect);
 
-// ── Feed & browsing ───────────────────────────────────────────────────────────
-router.get("/feed", validatePagination, getFeed);
-router.get("/my", validatePagination, getMyPosts);
+// ═════════════════════════════════════════════════════════════════════════════
+// ROUTE ORDERING IS CRITICAL
+// ─────────────────────────────────────────────────────────────────────────────
+// Express matches routes in source order. `/my` MUST come before `/:id`,
+// otherwise `/my` is parsed as `id = "my"` and the UUID validator rejects it.
+//
+// Public routes use `optionalProtect` (populates req.user if token present,
+// otherwise continues as guest). Authenticated routes use `protect`.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Public routes (optional auth) ─────────────────────────────────────────────
+router.get("/feed", optionalProtect, validatePagination, getFeed);
+
 router.get(
   "/user/:userId",
+  optionalProtect,
   ...validateUUIDParam("userId"),
   validatePagination,
   getUserPosts,
 );
-router.get("/:id", ...validateUUIDParam("id"), getPost);
 
-// ── Post CRUD ─────────────────────────────────────────────────────────────────
-router.post("/", validateCreatePost, createPost);
+// ── Authenticated routes — MUST go BEFORE /:id ────────────────────────────────
+router.get("/my", protect, validatePagination, getMyPosts);
+
+// ── Public single-post route (optional auth) — MUST be LAST ───────────────────
+// This is a catch-all for any single-segment path. Everything above this line
+// wins if it matches first.
+router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getPost);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AUTHENTICATED ROUTES (protect from here down)
+// ═════════════════════════════════════════════════════════════════════════════
+router.use(protect);
+
+router.post("/", uploadMultiple, validateCreatePost, createPost);
 router.put("/:id", ...validateUUIDParam("id"), validateUpdatePost, updatePost);
 router.delete("/:id", ...validateUUIDParam("id"), deletePost);
 
-// ── Repost ────────────────────────────────────────────────────────────────────
 router.post("/:id/repost", ...validateUUIDParam("id"), repost);
 
-// ── Reactions ─────────────────────────────────────────────────────────────────
 router.post(
   "/:id/react",
   ...validateUUIDParam("id"),
@@ -61,7 +81,6 @@ router.get(
   getReactions,
 );
 
-// ── Comments ──────────────────────────────────────────────────────────────────
 router.post(
   "/:id/comments",
   ...validateUUIDParam("id"),

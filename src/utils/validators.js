@@ -1551,9 +1551,15 @@ export const validateFeaturedVerify = [
 // ⚠️  Update POST_TYPES to match your PostType enum in schema.prisma.
 //     Check with:  grep 'PostType' prisma/schema.prisma
 
-const POST_TYPES = ["POST", "JOB_TIP", "SHOWCASE", "QUESTION", "ANNOUNCEMENT"];
-const REACTION_TYPES = ["LIKE", "LOVE", "INSIGHTFUL", "FUNNY", "SUPPORT"];
-
+const POST_TYPES = [
+  "GENERAL",
+  "JOB_UPDATE",
+  "ACHIEVEMENT",
+  "PORTFOLIO",
+  "ANNOUNCEMENT",
+  "HIRING",
+];
+const REACTION_TYPES = ["LIKE", "LOVE", "INSIGHTFUL", "CELEBRATE", "SUPPORT"];
 // POST /api/posts
 // Body: { content, type, media?: string[], jobId? }
 export const validateCreatePost = [
@@ -1569,6 +1575,13 @@ export const validateCreatePost = [
     .withMessage("Post type is required")
     .isIn(POST_TYPES)
     .withMessage(`type must be one of: ${POST_TYPES.join(", ")}`),
+
+  // ── NEW: sanitise isPublic from multipart string to boolean ──────────────
+  body("isPublic")
+    .optional({ nullable: true })
+    .customSanitizer((v) => v === "true" || v === true)
+    .isBoolean()
+    .withMessage("isPublic must be a boolean"),
 
   body("media")
     .optional({ nullable: true })
