@@ -87,24 +87,45 @@ export const getPlans = async (req, res) => {
 // GET /api/subscriptions/my
 export const getMySubscription = async (req, res) => {
   try {
-    const sub = await prisma.subscription.findFirst({
+    const subs = await prisma.subscription.findMany({
       where: { userId: req.user.id, status: "ACTIVE" },
       orderBy: { createdAt: "desc" },
     });
 
+    // Defensive: if multiple ACTIVE rows exist (from earlier bugs),
+    // keep only the newest active and cancel the rest locally.
+    const sub = subs[0] || null;
+    if (subs.length > 1) {
+      await prisma.subscription.updateMany({
+        where: {
+          id: { in: subs.slice(1).map((s) => s.id) },
+          status: "ACTIVE",
+        },
+        data: { status: "CANCELLED" },
+      });
+    }
+
     const plans = req.user.role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
+
+    // Resolve the exact plan the user is on by matching Paystack plan code.
+    // Falls back to tier match for legacy rows that have no paystackPlanCode.
     const currentPlan =
-      plans.find((p) => p.tier === (sub?.tier || "FREE")) || plans[0];
+      (sub?.paystackPlanCode &&
+        plans.find((p) => getPlanCode(p.id) === sub.paystackPlanCode)) ||
+      plans.find((p) => p.tier === (sub?.tier || "FREE")) ||
+      plans[0];
 
     return sendResponse(res, {
       data: {
         subscription: sub || { tier: "FREE", status: "ACTIVE", price: 0 },
         plan: currentPlan,
+        planId: currentPlan?.id || null, // ← drives the UI "Current Plan" badge
         isActive: !sub || sub.status === "ACTIVE",
         expiresAt: sub?.expiresAt || null,
       },
     });
   } catch (err) {
+    console.error("getMySubscription error:", err.message);
     return sendError(res, "Failed to fetch subscription");
   }
 };
@@ -207,18 +228,46 @@ export const verifyCheckout = async (req, res) => {
     if (tx.status !== "success")
       return sendError(res, "Payment not successful", 400);
 
+    // Paystack sometimes returns metadata as a JSON string; parse defensively.
+    let meta = tx.metadata;
+    if (typeof meta === "string") {
+      try {
+        meta = JSON.parse(meta);
+      } catch {
+        meta = {};
+      }
+    }
     const {
       userId,
       planId,
       tier,
       role,
-      promoCodeId,
-      promoDiscount,
-      originalPrice, // ← NEW
-    } = tx.metadata;
+      promoCodeId = null,
+      promoDiscount = 0,
+      originalPrice,
+    } = meta || {};
 
+    if (!userId || !planId || !tier || !role) {
+      console.error("verifyCheckout: incomplete metadata", {
+        reference,
+        meta,
+      });
+      return sendError(
+        res,
+        "Transaction metadata incomplete. Please start a fresh checkout.",
+        400,
+      );
+    }
+
+    // Confirm the user still exists
+    const userExists = await prisma.user.findUnique({ where: { id: userId } });
+    if (!userExists) {
+      return sendError(res, "User no longer exists for this transaction", 400);
+    }
+
+    // ── Look up Paystack subscription record (best-effort) ────────────────────
     let paystackSub = null;
-    let customerCode = tx.customer?.customer_code || null;
+    const customerCode = tx.customer?.customer_code || null;
     try {
       const planCode = getPlanCode(planId);
       const subs = await paystackRequest(
@@ -227,35 +276,71 @@ export const verifyCheckout = async (req, res) => {
       paystackSub = Array.isArray(subs)
         ? subs.find((s) => s.status === "active") || subs[0]
         : null;
-    } catch {
-      /* non-fatal */
+    } catch (err) {
+      // Non-fatal: we can create the local row without this metadata.
+      // Rate-limited here just means the extra metadata is missing — the
+      // subscription itself is still created below.
+      console.warn("Paystack sub lookup skipped:", err.message);
     }
 
+    // ── Determine the plan + expiry ───────────────────────────────────────────
     const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
     const plan = plans.find((p) => p.id === planId);
+    if (!plan) {
+      return sendError(res, "Plan not found for this transaction", 400);
+    }
+
     const isYearly = planId.endsWith("_yearly");
     const expiresAt = new Date();
     if (isYearly) expiresAt.setFullYear(expiresAt.getFullYear() + 1);
     else expiresAt.setMonth(expiresAt.getMonth() + 1);
 
+    // ── Cancel any existing ACTIVE subscriptions ──────────────────────────────
+    // If the user is switching plans, the OLD subscription must be disabled on
+    // Paystack too — otherwise they get double-billed. If that disable fails
+    // (e.g. rate limit), surface a 429 and don't create the new row.
     const existingSub = await prisma.subscription.findFirst({
       where: { userId, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
     });
-    if (existingSub?.paystackSubscriptionCode) {
+
+    if (
+      existingSub?.paystackSubscriptionCode &&
+      existingSub?.paystackEmailToken
+    ) {
       try {
         await paystackRequest("/subscription/disable", "POST", {
           code: existingSub.paystackSubscriptionCode,
           token: existingSub.paystackEmailToken,
         });
-      } catch {
-        /* non-fatal */
+        console.log(
+          `✅ Disabled old Paystack sub ${existingSub.paystackSubscriptionCode}`,
+        );
+      } catch (err) {
+        console.error(
+          "Failed to disable old Paystack sub:",
+          err.code || "",
+          err.message,
+        );
+        if (err.code === "RATE_LIMIT") {
+          return sendError(
+            res,
+            "Paystack is busy. Please wait a few seconds and try again.",
+            429,
+          );
+        }
+        // Non-rate-limit failures: log and continue. The local cleanup
+        // below still flips the old row to CANCELLED so the UI is correct.
       }
     }
+
+    // Mark all previous ACTIVE rows as CANCELLED before inserting the new one.
     await prisma.subscription.updateMany({
       where: { userId, status: "ACTIVE" },
       data: { status: "CANCELLED" },
     });
 
+    // ── Create the new subscription ───────────────────────────────────────────
     const sub = await prisma.subscription.create({
       data: {
         userId,
@@ -279,9 +364,9 @@ export const verifyCheckout = async (req, res) => {
       },
     });
 
-    // ── Record promo usage AFTER subscription created ─────────────────────────
+    // ── Record promo usage after subscription created ─────────────────────────
     if (promoCodeId) {
-      const finalAmt = (tx.amount ?? 0) / 100; // convert from kobo
+      const finalAmt = (tx.amount ?? 0) / 100;
       await recordPromoUsage(
         promoCodeId,
         userId,
@@ -313,12 +398,20 @@ export const verifyCheckout = async (req, res) => {
       data: {
         subscription: sub,
         plan,
+        planId: plan.id, // ← expose so the frontend can mark the right card
         promoApplied: promoCodeId !== null,
         promoDiscount: promoDiscount || 0,
       },
     });
   } catch (err) {
-    console.error("Paystack verify error:", err.message);
+    console.error("Paystack verify error:", err.code || "", err.message);
+    if (err.code === "RATE_LIMIT") {
+      return sendError(
+        res,
+        "Paystack is busy. Please wait a few seconds and try again.",
+        429,
+      );
+    }
     return sendError(res, err.message || "Failed to verify payment");
   }
 };
