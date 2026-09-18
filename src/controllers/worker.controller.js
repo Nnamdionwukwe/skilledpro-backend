@@ -422,13 +422,35 @@ export const removeCategory = async (req, res) => {
   try {
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
+      select: { id: true },
     });
     if (!worker) return sendError(res, "Worker profile not found", 404);
-    await prisma.workerCategory.deleteMany({
-      where: { workerProfileId: worker.id, categoryId: req.params.categoryId },
+
+    // Route param is named `:id` (see worker.routes.js), so read req.params.id.
+    // IMPORTANT: never pass `undefined` to a Prisma `where` clause — Prisma
+    // silently drops the field from the filter, which would wipe every row
+    // belonging to this worker. Guard the value explicitly.
+    const linkId = req.params.id;
+    if (!linkId) {
+      return sendError(res, "Category link ID is required", 400);
+    }
+
+    // Delete ONLY the caller's link row. Scoping by workerProfileId prevents
+    // a worker from unlinking another worker's category by guessing the id.
+    const deleted = await prisma.workerCategory.deleteMany({
+      where: {
+        id: linkId,
+        workerProfileId: worker.id,
+      },
     });
+
+    if (deleted.count === 0) {
+      return sendError(res, "Category is not in your list", 404);
+    }
+
     return sendResponse(res, { message: "Category removed" });
   } catch (err) {
+    console.error("removeCategory error:", err);
     return sendError(res, "Failed to remove category");
   }
 };
