@@ -1229,6 +1229,17 @@ export const validateSendMessage = [
 // ─────────────────────────────────────────────────────────────────────────────
 // § 11  DISPUTES
 // ─────────────────────────────────────────────────────────────────────────────
+const DISPUTE_REASONS = [
+  "PAYMENT_NOT_RELEASED",
+  "WORK_NOT_COMPLETED",
+  "POOR_QUALITY_WORK",
+  "NO_SHOW",
+  "OVERCHARGING",
+  "HARASSMENT",
+  "DAMAGE_TO_PROPERTY",
+  "OTHER",
+];
+
 export const validateCreateDispute = [
   body("bookingId")
     .trim()
@@ -1236,17 +1247,20 @@ export const validateCreateDispute = [
     .withMessage("Booking ID is required")
     .isUUID(4)
     .withMessage("Booking ID must be a valid UUID"),
+
   body("reason")
     .trim()
     .notEmpty()
     .withMessage("Dispute reason is required")
-    .isLength({ min: 10, max: 500 })
-    .withMessage("Reason must be 10–500 characters"),
+    .isIn(DISPUTE_REASONS)
+    .withMessage(`Reason must be one of: ${DISPUTE_REASONS.join(", ")}`),
+
   body("description")
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 3000 })
     .withMessage("Description must not exceed 3000 characters"),
+
   body("evidence")
     .optional({ nullable: true })
     .isArray({ max: 10 })
@@ -1256,6 +1270,7 @@ export const validateCreateDispute = [
     .trim()
     .isURL()
     .withMessage("Each evidence item must be a valid URL"),
+
   validate,
 ];
 

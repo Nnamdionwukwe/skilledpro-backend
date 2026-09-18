@@ -10,6 +10,7 @@ import {
   validateUUIDParam,
   validatePagination,
 } from "../utils/validators.js";
+import { uploadMultiple } from "../middleware/upload.middleware.js";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ const router = Router();
 router.post(
   "/raise",
   protect,
+  uploadMultiple, // ← pre-built middleware — pass by reference
   ...validateCreateDispute,
   disputeController.raiseDispute,
 );
