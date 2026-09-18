@@ -172,7 +172,7 @@ export const createCheckout = async (req, res) => {
         originalPrice: plan.price, // ← NEW: for audit/invoice
         cancel_action: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
       },
-      callback_url: `${process.env.CLIENT_URL}/subscription/verify?plan=${planId}`,
+      callback_url: `${process.env.CLIENT_URL}/subscription/verify`,
     });
 
     return sendResponse(res, {
