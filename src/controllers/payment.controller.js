@@ -1451,55 +1451,120 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 //
 // Returns the worker's balance summary (including debtBalance so the
 // frontend can show a warning card) and paginated withdrawal history.
+//
+// balancesByCurrency only includes currencies the worker has RELEASED
+// earnings or HELD escrow in. Currencies with only PENDING / FAILED /
+// REFUNDED payments are intentionally excluded — a wallet card for a
+// currency with £0 available and £0 escrow is misleading.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const { page = 1, limit = 15 } = req.query;
   const { skip, take } = paginate(page, limit);
 
-  const [earnedAgg, escrowAgg, pendingAgg, withdrawals, total, workerProfile] =
-    await Promise.all([
-      prisma.payment.aggregate({
-        where: { booking: { workerId }, status: "RELEASED" },
-        _sum: { workerPayout: true },
-      }),
-      prisma.payment.aggregate({
-        where: { booking: { workerId }, status: "HELD" },
-        _sum: { workerPayout: true },
-      }),
-      prisma.withdrawal.aggregate({
-        where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
-        _sum: { amount: true },
-      }),
-      prisma.withdrawal.findMany({
-        where: { workerId },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take,
-      }),
-      prisma.withdrawal.count({ where: { workerId } }),
-      // Read the debt fields
-      prisma.workerProfile.findUnique({
-        where: { userId: workerId },
-        select: {
-          debtBalance: true,
-          debtCreatedAt: true,
-          debtForgivenAt: true,
-          debtReason: true,
-        },
-      }),
-    ]);
+  const [
+    earnedAgg,
+    escrowAgg,
+    pendingAgg,
+    withdrawals,
+    total,
+    workerProfile,
+    perCurrencyReleased,
+    perCurrencyHeld,
+    perCurrencyPending,
+    currencyList,
+  ] = await Promise.all([
+    prisma.payment.aggregate({
+      where: { booking: { workerId }, status: "RELEASED" },
+      _sum: { workerPayout: true },
+    }),
+    prisma.payment.aggregate({
+      where: { booking: { workerId }, status: "HELD" },
+      _sum: { workerPayout: true },
+    }),
+    prisma.withdrawal.aggregate({
+      where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
+      _sum: { amount: true },
+    }),
+    prisma.withdrawal.findMany({
+      where: { workerId },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+    }),
+    prisma.withdrawal.count({ where: { workerId } }),
+    prisma.workerProfile.findUnique({
+      where: { userId: workerId },
+      select: {
+        debtBalance: true,
+        debtCreatedAt: true,
+        debtForgivenAt: true,
+        debtReason: true,
+      },
+    }),
+
+    // ── released earnings grouped by currency
+    prisma.payment.groupBy({
+      by: ["currency"],
+      where: { booking: { workerId }, status: "RELEASED" },
+      _sum: { workerPayout: true },
+    }),
+    // ── escrow (HELD) grouped by currency
+    prisma.payment.groupBy({
+      by: ["currency"],
+      where: { booking: { workerId }, status: "HELD" },
+      _sum: { workerPayout: true },
+    }),
+    // ── pending withdrawals grouped by currency
+    prisma.withdrawal.groupBy({
+      by: ["currency"],
+      where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
+      _sum: { amount: true },
+    }),
+    // ── Currencies with real money: RELEASED (already earned) or HELD
+    //    (in escrow, awaiting release). PENDING, FAILED and REFUNDED
+    //    payments are excluded so the wallet does not render empty
+    //    currency cards with nothing to show.
+    prisma.payment.findMany({
+      where: {
+        booking: { workerId },
+        status: { in: ["RELEASED", "HELD"] },
+      },
+      select: { currency: true },
+      distinct: ["currency"],
+    }),
+  ]);
 
   const totalEarned = earnedAgg._sum.workerPayout ?? 0;
   const inEscrow = escrowAgg._sum.workerPayout ?? 0;
   const pendingPayout = pendingAgg._sum.amount ?? 0;
   const outstandingDebt = workerProfile?.debtBalance ?? 0;
 
-  // The "available" balance reflects earnings minus pending payouts AND
-  // minus any outstanding debt (since debt will be deducted on next withdrawal).
   const available = Math.max(0, totalEarned - pendingPayout - outstandingDebt);
 
-  // Parse the `details` JSON column back for display
+  // ── Per-currency breakdown ───────────────────────────────────────────────
+  // Only currencies that have a released balance or held escrow appear.
+  const balancesByCurrency = {};
+  const allCurrencies = new Set(currencyList.map((c) => c.currency));
+
+  for (const cur of allCurrencies) {
+    const released =
+      perCurrencyReleased.find((r) => r.currency === cur)?._sum.workerPayout ??
+      0;
+    const held =
+      perCurrencyHeld.find((r) => r.currency === cur)?._sum.workerPayout ?? 0;
+    const pending =
+      perCurrencyPending.find((r) => r.currency === cur)?._sum.amount ?? 0;
+
+    balancesByCurrency[cur] = {
+      currency: cur,
+      available: Math.max(0, released - pending),
+      totalEarned: released,
+      inEscrow: held,
+      pendingPayout: pending,
+    };
+  }
+
   const parsed = withdrawals.map((w) => ({
     ...w,
     meta: _parseMeta(w.details),
@@ -1509,20 +1574,20 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
     success: true,
     data: {
       balance: {
-        available, // spendable right now (post-debt)
-        totalEarned, // lifetime released earnings
-        inEscrow, // held but not yet released
-        pendingPayout, // withdrawals currently queued
-        debtBalance: outstandingDebt, // ← outstanding debt
+        available,
+        totalEarned,
+        inEscrow,
+        pendingPayout,
+        debtBalance: outstandingDebt,
         debtCreatedAt: workerProfile?.debtCreatedAt ?? null,
         debtReason: workerProfile?.debtReason ?? null,
-        // Fee config — frontend renders dynamically from these, never hardcodes
         withdrawalFeeRate: FEE_CONFIG.WITHDRAWAL_FEE_RATE,
         withdrawalFeeCap: FEE_CONFIG.WITHDRAWAL_FEE_CAP,
         workerFeeRate: FEE_CONFIG.WORKER_FEE_RATE,
         hirerFeeRate: FEE_CONFIG.HIRER_FEE_RATE,
         feePhase: FEE_CONFIG.phase,
       },
+      balancesByCurrency,
       withdrawals: parsed,
       total,
       page: Number(page),
@@ -1534,6 +1599,11 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 14  WORKER — EARNINGS
 // GET /api/payments/earnings
+//
+// availableCurrencies reflects every currency the worker has RELEASED
+// earnings or HELD escrow in. Currencies with only PENDING, FAILED or
+// REFUNDED payments are excluded — they represent no money the worker
+// can act on today.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWorkerEarnings = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1581,8 +1651,18 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
       where,
       _sum: { workerPayout: true, amount: true, platformFee: true },
     }),
+    // ── Discover every currency the worker has RELEASED earnings in.
+    //    This drives the currency tabs on the Earnings page, which shows
+    //    released payments only. HELD (escrow) is deliberately excluded
+    //    here — escrow belongs on the wallet cards in /withdrawals, not
+    //    on the earnings view. PENDING (payment not confirmed yet),
+    //    FAILED and REFUNDED are excluded for the same reason: none of
+    //    them represent money the worker has actually earned.
     prisma.payment.findMany({
-      where: { booking: { workerId }, status: "RELEASED" },
+      where: {
+        booking: { workerId },
+        status: "RELEASED",
+      },
       select: { currency: true },
       distinct: ["currency"],
     }),
