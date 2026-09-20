@@ -42,9 +42,12 @@ import adminLogsRoutes from "./routes/adminLogs.routes.js";
 import refundRoutes from "./routes/refund.routes.js";
 import healthRouter from "./routes/health.routes.js";
 import adminDebtRoutes from "./routes/admin.debt.routes.js";
-import "./services/expiry.service.js"; // starts the cron job
-import { startDebtCron } from "./services/debtCron.service.js";
 import workerRefundRoutes from "./routes/worker.refund.routes.js";
+
+// ── Cron service imports ─────────────────────────────────────────────────────
+import "./services/expiry.service.js"; // auto-starts on import
+import { startDebtCron } from "./services/debtCron.service.js";
+import { startDeletionCron } from "./services/deletionCron.service.js";
 
 // ── Config & middleware ──────────────────────────────────────────────────────
 import { helmetConfig } from "./config/helmet.config.js";
@@ -66,15 +69,14 @@ import {
   surveyLimiter,
 } from "./middleware/security.middleware.js";
 
-import "./services/expiry.service.js"; // starts the cron job
-
 const app = express();
 
-// src/app.js (or server.js — wherever express() is initialised)
+// ─── Trust proxy ────────────────────────────────────────────────────────────
 app.set("trust proxy", 1);
-startDebtCron();
 
-app.set("trust proxy", 1);
+// ─── Start cron jobs (once per process) ─────────────────────────────────────
+startDebtCron();
+startDeletionCron();
 
 // ─── Request Logging ────────────────────────────────────────────────────────
 app.use(requestLogger);

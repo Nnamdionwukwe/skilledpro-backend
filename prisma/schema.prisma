@@ -382,6 +382,14 @@ model User {
   authProvider String  @default("LOCAL") // "LOCAL" | "GOOGLE"
   avatarCustom Boolean @default(false) // true once user sets their own avatar
   nameCustom   Boolean @default(false) // true once user sets their own name
+
+    // ── Account lifecycle ────────────────────────────────────────
+  isPaused              Boolean   @default(false)  // "Take a break" state
+  pausedAt              DateTime?
+  deletionScheduledAt   DateTime?                  // set when user requests permanent delete
+  deletionReason        String?
+  deletionRequestedAt   DateTime?
+
 }
 
 model Referral {

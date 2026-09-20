@@ -494,39 +494,401 @@ export const getSecurityInfo = async (req, res) => {
   }
 };
 
-// DELETE /api/settings/account
-export const deleteAccount = async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Gather blockers for a user (shared between pause + delete)
+// ─────────────────────────────────────────────────────────────────────────────
+async function gatherBlockers(userId, role) {
+  const blockers = [];
+
+  if (role === "WORKER") {
+    const [activeBookings, pendingWithdrawals, heldPayments, openDisputes] =
+      await Promise.all([
+        prisma.booking.count({
+          where: {
+            workerId: userId,
+            status: {
+              in: ["PENDING", "ACCEPTED", "IN_PROGRESS", "DISPUTED"],
+            },
+          },
+        }),
+        prisma.withdrawal.count({
+          where: {
+            workerId: userId,
+            status: { in: ["PENDING", "PROCESSING"] },
+          },
+        }),
+        prisma.payment.count({
+          where: { booking: { workerId: userId }, status: "HELD" },
+        }),
+        prisma.dispute.count({
+          where: { againstId: userId, status: "PENDING_REVIEW" },
+        }),
+      ]);
+
+    if (activeBookings > 0)
+      blockers.push({
+        code: "ACTIVE_BOOKINGS_WORKER",
+        count: activeBookings,
+        label: `${activeBookings} active booking${activeBookings === 1 ? "" : "s"} as a worker`,
+        hint: "Complete or cancel your active bookings before proceeding.",
+        route: "/bookings",
+      });
+    if (pendingWithdrawals > 0)
+      blockers.push({
+        code: "PENDING_WITHDRAWALS",
+        count: pendingWithdrawals,
+        label: `${pendingWithdrawals} pending withdrawal${pendingWithdrawals === 1 ? "" : "s"}`,
+        hint: "Wait for your withdrawals to be processed or contact support.",
+        route: "/dashboard/worker/withdrawals",
+      });
+    if (heldPayments > 0)
+      blockers.push({
+        code: "HELD_PAYMENTS",
+        count: heldPayments,
+        label: `${heldPayments} payment${heldPayments === 1 ? "" : "s"} held in escrow`,
+        hint: "Complete the related jobs to release your funds.",
+        route: "/bookings",
+      });
+    if (openDisputes > 0)
+      blockers.push({
+        code: "OPEN_DISPUTES",
+        count: openDisputes,
+        label: `${openDisputes} unresolved dispute${openDisputes === 1 ? "" : "s"}`,
+        hint: "Wait for disputes to be resolved before proceeding.",
+        route: "/disputes",
+      });
+
+    const workerProfile = await prisma.workerProfile.findUnique({
+      where: { userId },
+      select: { debtBalance: true },
+    });
+    if (workerProfile?.debtBalance > 0)
+      blockers.push({
+        code: "OUTSTANDING_DEBT",
+        count: 1,
+        label: `Outstanding balance: ${workerProfile.debtBalance}`,
+        hint: "Settle your outstanding balance or contact support to arrange payment.",
+        route: "/dashboard/worker/earnings",
+      });
+  }
+
+  if (role === "HIRER") {
+    const [activeBookings, wallet, pendingWithdrawals, openDisputes, openJobs] =
+      await Promise.all([
+        prisma.booking.count({
+          where: {
+            hirerId: userId,
+            status: {
+              in: ["PENDING", "ACCEPTED", "IN_PROGRESS", "DISPUTED"],
+            },
+          },
+        }),
+        prisma.hirerWallet.findFirst({
+          where: { hirerId: userId, isActive: true },
+          select: { balance: true, currency: true },
+        }),
+        prisma.hirerWithdrawal.count({
+          where: {
+            hirerId: userId,
+            status: { in: ["PENDING", "PROCESSING"] },
+          },
+        }),
+        prisma.dispute.count({
+          where: { raisedById: userId, status: "PENDING_REVIEW" },
+        }),
+        prisma.jobPost.count({
+          where: { hirerId: userId, status: "OPEN" },
+        }),
+      ]);
+
+    if (activeBookings > 0)
+      blockers.push({
+        code: "ACTIVE_BOOKINGS_HIRER",
+        count: activeBookings,
+        label: `${activeBookings} active booking${activeBookings === 1 ? "" : "s"}`,
+        hint: "Complete or cancel your active bookings before proceeding.",
+        route: "/bookings",
+      });
+    if (wallet?.balance > 0)
+      blockers.push({
+        code: "WALLET_BALANCE",
+        count: 1,
+        label: `Wallet balance: ${wallet.currency} ${wallet.balance.toLocaleString()}`,
+        hint: "Withdraw or spend your wallet balance before proceeding.",
+        route: "/dashboard/hirer/wallet",
+      });
+    if (pendingWithdrawals > 0)
+      blockers.push({
+        code: "PENDING_WALLET_WITHDRAWALS",
+        count: pendingWithdrawals,
+        label: `${pendingWithdrawals} pending withdrawal${pendingWithdrawals === 1 ? "" : "s"}`,
+        hint: "Wait for your withdrawals to complete.",
+        route: "/dashboard/hirer/wallet",
+      });
+    if (openDisputes > 0)
+      blockers.push({
+        code: "OPEN_DISPUTES",
+        count: openDisputes,
+        label: `${openDisputes} unresolved dispute${openDisputes === 1 ? "" : "s"}`,
+        hint: "Wait for disputes to be resolved before proceeding.",
+        route: "/disputes",
+      });
+    if (openJobs > 0)
+      blockers.push({
+        code: "OPEN_JOB_POSTS",
+        count: openJobs,
+        label: `${openJobs} open job post${openJobs === 1 ? "" : "s"}`,
+        hint: "Close or fill your open job posts before proceeding.",
+        route: "/dashboard/hirer/jobs-management",
+      });
+  }
+
+  const activeSub = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      status: "ACTIVE",
+      tier: { not: "FREE" },
+    },
+    select: { tier: true, expiresAt: true },
+  });
+  if (activeSub)
+    blockers.push({
+      code: "ACTIVE_SUBSCRIPTION",
+      count: 1,
+      label: `${activeSub.tier} subscription is still active`,
+      hint: activeSub.expiresAt
+        ? `Your plan runs until ${new Date(activeSub.expiresAt).toLocaleDateString("en-GB")}. Cancel it or wait for expiry.`
+        : "Cancel your subscription before proceeding.",
+      route: "/settings",
+    });
+
+  return blockers;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/settings/deactivation-check
+// ─────────────────────────────────────────────────────────────────────────────
+export const checkDeactivationEligibility = async (req, res) => {
   try {
-    const { password, reason } = req.body;
+    const blockers = await gatherBlockers(req.user.id, req.user.role);
+
+    // Return BOTH flow statuses so the UI can show the right options
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        isPaused: true,
+        pausedAt: true,
+        deletionScheduledAt: true,
+      },
+    });
+
+    return sendResponse(res, {
+      data: {
+        canPause: blockers.length === 0,
+        canDelete: blockers.length === 0,
+        blockers,
+        currentState: {
+          isPaused: user?.isPaused ?? false,
+          pausedAt: user?.pausedAt ?? null,
+          deletionScheduledAt: user?.deletionScheduledAt ?? null,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("checkDeactivationEligibility error:", err);
+    return sendError(res, "Failed to check deactivation eligibility");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings/pause
+// ─────────────────────────────────────────────────────────────────────────────
+// OPTION A — Take a Break
+// Hides profile, pauses new bookings. Data fully preserved. Reversible by login.
+export const pauseAccount = async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    const userId = req.user?.id;
+
+    if (!userId) return sendError(res, "Not authenticated", 401);
     if (!password) return sendError(res, "Password confirmation required", 400);
 
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return sendError(res, "User not found", 404);
+    if (user.isPaused)
+      return sendError(res, "Your account is already paused", 400);
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return sendError(res, "Incorrect password", 400);
+
+    // Same blockers apply — can't pause mid-job
+    const blockers = await gatherBlockers(userId, user.role);
+    if (blockers.length > 0) {
+      return sendError(
+        res,
+        `You can't pause your account yet: ${blockers.map((b) => b.label).join(", ")}`,
+        409,
+      );
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isPaused: true,
+        pausedAt: new Date(),
+        profileVisible: false,
+        refreshToken: null, // force logout everywhere
+      },
+    });
+
+    return sendResponse(res, {
+      message:
+        "Your account is paused. Log back in any time to reactivate your profile.",
+    });
+  } catch (err) {
+    console.error("pauseAccount error:", err.message);
+    return sendError(res, "Failed to pause account");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings/resume
+// ─────────────────────────────────────────────────────────────────────────────
+export const resumeAccount = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return sendError(res, "Not authenticated", 401);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isPaused: false,
+        pausedAt: null,
+        profileVisible: true,
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Welcome back! Your account has been reactivated.",
+    });
+  } catch (err) {
+    console.error("resumeAccount error:", err.message);
+    return sendError(res, "Failed to resume account");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/settings/account
+// ─────────────────────────────────────────────────────────────────────────────
+// OPTION B — Permanent Delete (with 30-day grace period)
+// Schedules the account for deletion. A cron job wipes it after 30 days.
+// Within the window, logging in cancels the deletion.
+export const deleteAccount = async (req, res) => {
+  try {
+    const { password, reason, confirmDelete } = req.body || {};
+    const userId = req.user?.id;
+
+    if (!userId) return sendError(res, "Not authenticated", 401);
+    if (!password) return sendError(res, "Password confirmation required", 400);
+    if (confirmDelete !== true && confirmDelete !== "DELETE")
+      return sendError(
+        res,
+        'You must type "DELETE" to confirm permanent account deletion',
+        400,
+      );
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return sendError(res, "User not found", 404);
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return sendError(res, "Incorrect password", 400);
 
-    // ── Soft delete with FULL anonymization ─────────────────────────────────
-    // We rename the email, null out the googleId, and mark the account
-    // inactive. Renaming the email frees it for future registration, and
-    // nulling googleId frees it for future Google signups — otherwise a
-    // re-registration with the same Google account would hit a unique
-    // constraint violation on googleId.
+    if (user.deletionScheduledAt) {
+      return sendError(
+        res,
+        `Your account is already scheduled for deletion on ${new Date(user.deletionScheduledAt).toLocaleDateString("en-GB")}`,
+        400,
+      );
+    }
+
+    // Same blockers, but stricter: permanent deletion requires a clean slate
+    const blockers = await gatherBlockers(userId, user.role);
+    if (blockers.length > 0) {
+      return sendError(
+        res,
+        `You can't delete your account yet: ${blockers.map((b) => b.label).join(", ")}`,
+        409,
+      );
+    }
+
+    // 30-day grace period
+    const deletionDate = new Date();
+    deletionDate.setDate(deletionDate.getDate() + 30);
+
+    // Hide immediately, mark as deletion-pending
     await prisma.user.update({
-      where: { id: req.user.id },
+      where: { id: userId },
       data: {
-        isActive: false,
-        email: `deleted_${Date.now()}_${user.email}`,
-        googleId: null,
-        refreshToken: null,
-        bio: reason ? `Deleted: ${reason}` : "Account deleted",
+        profileVisible: false,
+        isPaused: true,
+        pausedAt: new Date(),
+        deletionScheduledAt: deletionDate,
+        deletionReason: reason?.trim() || null,
+        deletionRequestedAt: new Date(),
+        refreshToken: null, // force logout everywhere
       },
     });
 
-    return sendResponse(res, { message: "Account deleted" });
+    // Optional: send confirmation email here
+
+    return sendResponse(res, {
+      message: `Your account is scheduled for permanent deletion on ${deletionDate.toLocaleDateString("en-GB")}. Log in within 30 days to cancel this.`,
+      data: {
+        deletionScheduledAt: deletionDate,
+        gracePeriodDays: 30,
+      },
+    });
   } catch (err) {
     console.error("deleteAccount error:", err.message);
-    return sendError(res, "Failed to delete account");
+    return sendError(res, "Failed to schedule account deletion");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings/cancel-deletion
+// ─────────────────────────────────────────────────────────────────────────────
+export const cancelDeletion = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return sendError(res, "Not authenticated", 401);
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { deletionScheduledAt: true },
+    });
+
+    if (!user?.deletionScheduledAt) {
+      return sendError(res, "No deletion scheduled", 400);
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        deletionScheduledAt: null,
+        deletionReason: null,
+        deletionRequestedAt: null,
+        isPaused: false,
+        pausedAt: null,
+        profileVisible: true,
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Deletion cancelled. Your account is active again.",
+    });
+  } catch (err) {
+    console.error("cancelDeletion error:", err.message);
+    return sendError(res, "Failed to cancel deletion");
   }
 };
 

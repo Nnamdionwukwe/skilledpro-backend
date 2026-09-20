@@ -369,6 +369,26 @@ export const login = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Invalid credentials" });
   }
 
+  // ── Auto-cancel a pending account deletion on login ──────────────────────
+  // If the user scheduled their account for permanent deletion and logs
+  // back in within the 30-day grace period, we treat this as a change of
+  // mind: cancel the deletion and reactivate the profile.
+  let reactivated = false;
+  if (user.deletionScheduledAt || user.isPaused) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        deletionScheduledAt: null,
+        deletionReason: null,
+        deletionRequestedAt: null,
+        isPaused: false,
+        pausedAt: null,
+        profileVisible: true,
+      },
+    });
+    reactivated = true;
+  }
+
   const { accessToken, refreshToken } = generateTokens(user.id);
   await prisma.user.update({
     where: { id: user.id },
@@ -378,10 +398,13 @@ export const login = asyncHandler(async (req, res) => {
   // ── FIXED: send response first, then fire-and-forget side effects ────────
   res.status(200).json({
     success: true,
-    message: "Login successful",
+    message: reactivated
+      ? "Welcome back! Your account has been reactivated."
+      : "Login successful",
     data: {
       accessToken,
       refreshToken,
+      reactivated,
       user: {
         id: user.id,
         firstName: user.firstName,
@@ -422,6 +445,355 @@ export const login = asyncHandler(async (req, res) => {
     time: new Date().toLocaleString(),
   }).catch(() => {});
   notifyNewDevice(user.id, ip, device).catch(() => {});
+
+  // If the account was reactivated, send a welcome-back notification
+  if (reactivated) {
+    prisma.notification
+      .create({
+        data: {
+          userId: user.id,
+          title: "🎉 Welcome back!",
+          body: "Your account deletion was cancelled and your profile is live again. You can manage your account in Settings → Security.",
+          type: "ACCOUNT_REACTIVATED",
+        },
+      })
+      .catch(() => {});
+  }
+});
+
+// ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
+// POST /api/auth/google
+// Body: { idToken } OR { accessToken, role? }
+//
+// Handles three cases:
+//   1. Existing user with this googleId → sign in
+//   2. Existing user with this email (no googleId yet) → link + sign in
+//   3. No user → create new (with the requested role)
+//
+// Tombstone rows (email starts with "deleted_") are treated as if the
+// user doesn't exist, so re-registration through Google works after a
+// soft delete.
+//
+// Banned / deactivated users are blocked BEFORE any token is issued.
+// Pending-deletion users are reactivated on successful sign-in.
+export const googleSignIn = asyncHandler(async (req, res) => {
+  const { idToken, accessToken, role } = req.body;
+
+  const requestedRole = ["HIRER", "WORKER"].includes(role) ? role : "HIRER";
+
+  if (!idToken && !accessToken) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing Google token" });
+  }
+
+  // ── 1. Verify token with Google ────────────────────────────────────────────
+  let googleUser;
+  try {
+    googleUser = idToken
+      ? await verifyGoogleIdToken(idToken)
+      : await getGoogleUserFromAccessToken(accessToken);
+  } catch (err) {
+    console.error("Google token verification failed:", err.message);
+    return res.status(401).json({
+      success: false,
+      code: "INVALID_GOOGLE_TOKEN",
+      message:
+        "Could not verify your Google account. Please try signing in again.",
+    });
+  }
+
+  if (!googleUser.email) {
+    return res.status(400).json({
+      success: false,
+      message: "Google account has no email",
+    });
+  }
+
+  // ── 2. Find existing user ──────────────────────────────────────────────────
+  // 2a. Look up by googleId first, EXCLUDING tombstones.
+  let user = await prisma.user.findFirst({
+    where: {
+      googleId: googleUser.googleId,
+      NOT: { email: { startsWith: "deleted_" } },
+    },
+  });
+
+  // 2b. If not found, look up by email (excluding tombstones).
+  if (!user) {
+    user = await prisma.user.findFirst({
+      where: {
+        email: googleUser.email,
+        NOT: { email: { startsWith: "deleted_" } },
+      },
+    });
+
+    // ── Collision guard: if this row already has a DIFFERENT googleId,
+    //     the email and Google identity are mismatched. Reject rather than
+    //     clobber.
+    if (user && user.googleId && user.googleId !== googleUser.googleId) {
+      return res.status(409).json({
+        success: false,
+        code: "GOOGLE_ACCOUNT_MISMATCH",
+        message:
+          "This email is already linked to a different Google account. Contact support if this is a mistake.",
+      });
+    }
+
+    // ── Collision guard: if another non-tombstone row already claims this
+    //     googleId, we must not steal it. (Extremely rare, but defensive.)
+    if (user && !user.googleId) {
+      const otherOwner = await prisma.user.findFirst({
+        where: {
+          googleId: googleUser.googleId,
+          NOT: { email: { startsWith: "deleted_" } },
+        },
+        select: { id: true },
+      });
+      if (otherOwner && otherOwner.id !== user.id) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account instead.",
+        });
+      }
+    }
+  }
+
+  let isNewUser = false;
+
+  if (user) {
+    // ── 3a. Ban / deactivation gates ────────────────────────────────────────
+    if (user.isBanned === true) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BANNED",
+        message:
+          "This account has been suspended. Contact support if you believe this is a mistake.",
+      });
+    }
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_DELETED",
+        message:
+          "This account has been deactivated. Contact support to restore access.",
+      });
+    }
+
+    // ── 3b. Auto-cancel a pending deletion on Google sign-in ────────────────
+    // Same logic as the login flow: logging back in within the grace period
+    // cancels the scheduled deletion.
+    let reactivated = false;
+    if (user.deletionScheduledAt || user.isPaused) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          deletionScheduledAt: null,
+          deletionReason: null,
+          deletionRequestedAt: null,
+          isPaused: false,
+          pausedAt: null,
+          profileVisible: true,
+        },
+      });
+      reactivated = true;
+    }
+
+    // ── 3c. Existing user — update smartly ──────────────────────────────────
+    const nameCustom = user.nameCustom === true;
+    const avatarCustom = user.avatarCustom === true;
+
+    console.log("[google-auth:signin] existing user", {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      nameCustom,
+      avatarCustom,
+      before: {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+      },
+      fromGoogle: {
+        firstName: googleUser.firstName,
+        lastName: googleUser.lastName,
+        avatar: googleUser.avatar,
+      },
+    });
+
+    const updates = { lastSeen: new Date() };
+
+    if (!user.googleId) {
+      updates.googleId = googleUser.googleId;
+    }
+
+    if (googleUser.emailVerified && !user.isEmailVerified) {
+      updates.isEmailVerified = true;
+      updates.emailVerifyToken = null;
+    }
+
+    if (nameCustom === false && googleUser.firstName) {
+      updates.firstName = googleUser.firstName;
+    }
+    if (nameCustom === false && googleUser.lastName) {
+      updates.lastName = googleUser.lastName;
+    }
+    if (avatarCustom === false && googleUser.avatar) {
+      updates.avatar = googleUser.avatar;
+    }
+
+    console.log("[google-auth:signin] willApply", updates);
+
+    try {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: updates,
+      });
+    } catch (err) {
+      // Race condition: another request just claimed this googleId.
+      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account.",
+        });
+      }
+      throw err;
+    }
+
+    // ── 3d. Send welcome-back notification if reactivated ───────────────────
+    if (reactivated) {
+      prisma.notification
+        .create({
+          data: {
+            userId: user.id,
+            title: "🎉 Welcome back!",
+            body: "Your account deletion was cancelled and your profile is live again. You can manage your account in Settings → Security.",
+            type: "ACCOUNT_REACTIVATED",
+          },
+        })
+        .catch(() => {});
+    }
+
+    // ── 3e. Fire-and-forget login alert email ───────────────────────────────
+    const ip =
+      req.headers["x-real-ip"] ||
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress;
+    const device = req.headers["user-agent"]?.slice(0, 80) || "Unknown device";
+
+    sendLoginAlertEmail({
+      to: user.email,
+      name: user.firstName,
+      ip,
+      device,
+      time: new Date().toLocaleString(),
+    }).catch(() => {});
+    notifyNewDevice(user.id, ip, device).catch(() => {});
+  } else {
+    // ── 4. New user — create account ────────────────────────────────────────
+    // Note: tombstones were excluded from the search, so re-registration
+    // through Google works after a soft delete. If a tombstone owned this
+    // email, we still own it now because the tombstone's email is prefixed.
+    isNewUser = true;
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    const hashedPassword = await bcrypt.hash(randomPassword, 12);
+
+    try {
+      user = await prisma.user.create({
+        data: {
+          firstName: googleUser.firstName || "User",
+          lastName: googleUser.lastName || "",
+          email: googleUser.email,
+          password: hashedPassword,
+          role: requestedRole,
+          avatar: googleUser.avatar,
+          isEmailVerified: googleUser.emailVerified || false,
+          googleId: googleUser.googleId,
+          authProvider: "GOOGLE",
+          avatarCustom: false,
+          nameCustom: false,
+        },
+      });
+    } catch (err) {
+      // Race conditions: someone just created this email or Google ID.
+      if (err.code === "P2002" && err.meta?.target?.includes("email")) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "An account with this email already exists. Please sign in with your existing method.",
+        });
+      }
+      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
+        return res.status(409).json({
+          success: false,
+          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+          message:
+            "This Google account is already linked to another user. Please sign in with that account.",
+        });
+      }
+      throw err;
+    }
+
+    if (requestedRole === "WORKER") {
+      await prisma.workerProfile
+        .create({
+          data: {
+            userId: user.id,
+            title:
+              `${googleUser.firstName || "User"} ${googleUser.lastName || ""}`.trim() ||
+              "Skilled Worker",
+            hourlyRate: 0,
+            currency: "USD",
+          },
+        })
+        .catch((err) => {
+          console.error(
+            "Failed to create worker profile for Google user:",
+            err.message,
+          );
+        });
+    } else {
+      await prisma.hirerProfile
+        .create({ data: { userId: user.id } })
+        .catch(() => {});
+    }
+
+    sendWelcomeEmail({
+      to: user.email,
+      firstName: user.firstName,
+      role: user.role,
+    }).catch(() => {});
+  }
+
+  // ── 5. Issue tokens ────────────────────────────────────────────────────────
+  const { accessToken: ourAccessToken, refreshToken } = generateTokens(user.id);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { refreshToken, lastSeen: new Date() },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: isNewUser ? "Account created" : "Login successful",
+    data: {
+      accessToken: ourAccessToken,
+      refreshToken,
+      isNewUser,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        isEmailVerified: user.isEmailVerified,
+      },
+    },
+  });
 });
 
 // ─── Refresh token ─────────────────────────────────────────────────────────────
@@ -832,289 +1204,4 @@ export const googleCallback = asyncHandler(async (req, res) => {
   });
 
   return res.redirect(`${frontendUrl}/auth/google/callback?${params}`);
-});
-
-// ─── Google Sign-In (mobile/SPA — verifies ID token OR access token) ─────────
-// POST /api/auth/google
-// Body: { idToken } OR { accessToken, role? }
-//
-// Handles three cases:
-//   1. Existing user with this googleId → sign in
-//   2. Existing user with this email (no googleId yet) → link + sign in
-//   3. No user → create new (with the requested role)
-//
-// Tombstone rows (email starts with "deleted_") are treated as if the
-// user doesn't exist, so re-registration through Google works after a
-// soft delete.
-//
-// Banned / deactivated users are blocked BEFORE any token is issued.
-export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken, accessToken, role } = req.body;
-
-  const requestedRole = ["HIRER", "WORKER"].includes(role) ? role : "HIRER";
-
-  if (!idToken && !accessToken) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Missing Google token" });
-  }
-
-  // ── 1. Verify token with Google ────────────────────────────────────────────
-  let googleUser;
-  try {
-    googleUser = idToken
-      ? await verifyGoogleIdToken(idToken)
-      : await getGoogleUserFromAccessToken(accessToken);
-  } catch (err) {
-    console.error("Google token verification failed:", err.message);
-    return res.status(401).json({
-      success: false,
-      code: "INVALID_GOOGLE_TOKEN",
-      message:
-        "Could not verify your Google account. Please try signing in again.",
-    });
-  }
-
-  if (!googleUser.email) {
-    return res.status(400).json({
-      success: false,
-      message: "Google account has no email",
-    });
-  }
-
-  // ── 2. Find existing user ──────────────────────────────────────────────────
-  // 2a. Look up by googleId first, EXCLUDING tombstones.
-  let user = await prisma.user.findFirst({
-    where: {
-      googleId: googleUser.googleId,
-      NOT: { email: { startsWith: "deleted_" } },
-    },
-  });
-
-  // 2b. If not found, look up by email (excluding tombstones).
-  if (!user) {
-    user = await prisma.user.findFirst({
-      where: {
-        email: googleUser.email,
-        NOT: { email: { startsWith: "deleted_" } },
-      },
-    });
-
-    // ── Collision guard: if this row already has a DIFFERENT googleId,
-    //     the email and Google identity are mismatched. Reject rather than
-    //     clobber.
-    if (user && user.googleId && user.googleId !== googleUser.googleId) {
-      return res.status(409).json({
-        success: false,
-        code: "GOOGLE_ACCOUNT_MISMATCH",
-        message:
-          "This email is already linked to a different Google account. Contact support if this is a mistake.",
-      });
-    }
-
-    // ── Collision guard: if another non-tombstone row already claims this
-    //     googleId, we must not steal it. (Extremely rare, but defensive.)
-    if (user && !user.googleId) {
-      const otherOwner = await prisma.user.findFirst({
-        where: {
-          googleId: googleUser.googleId,
-          NOT: { email: { startsWith: "deleted_" } },
-        },
-        select: { id: true },
-      });
-      if (otherOwner && otherOwner.id !== user.id) {
-        return res.status(409).json({
-          success: false,
-          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
-          message:
-            "This Google account is already linked to another user. Please sign in with that account instead.",
-        });
-      }
-    }
-  }
-
-  let isNewUser = false;
-
-  if (user) {
-    // ── 3a. Ban / deactivation gates ────────────────────────────────────────
-    if (user.isBanned === true) {
-      return res.status(403).json({
-        success: false,
-        code: "ACCOUNT_BANNED",
-        message:
-          "This account has been suspended. Contact support if you believe this is a mistake.",
-      });
-    }
-    if (user.isActive === false) {
-      return res.status(403).json({
-        success: false,
-        code: "ACCOUNT_DELETED",
-        message:
-          "This account has been deactivated. Contact support to restore access.",
-      });
-    }
-
-    // ── 3b. Existing user — update smartly ──────────────────────────────────
-    const nameCustom = user.nameCustom === true;
-    const avatarCustom = user.avatarCustom === true;
-
-    console.log("[google-auth:signin] existing user", {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      nameCustom,
-      avatarCustom,
-      before: {
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-      },
-      fromGoogle: {
-        firstName: googleUser.firstName,
-        lastName: googleUser.lastName,
-        avatar: googleUser.avatar,
-      },
-    });
-
-    const updates = { lastSeen: new Date() };
-
-    if (!user.googleId) {
-      updates.googleId = googleUser.googleId;
-    }
-
-    if (googleUser.emailVerified && !user.isEmailVerified) {
-      updates.isEmailVerified = true;
-      updates.emailVerifyToken = null;
-    }
-
-    if (nameCustom === false && googleUser.firstName) {
-      updates.firstName = googleUser.firstName;
-    }
-    if (nameCustom === false && googleUser.lastName) {
-      updates.lastName = googleUser.lastName;
-    }
-    if (avatarCustom === false && googleUser.avatar) {
-      updates.avatar = googleUser.avatar;
-    }
-
-    console.log("[google-auth:signin] willApply", updates);
-
-    try {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: updates,
-      });
-    } catch (err) {
-      // Race condition: another request just claimed this googleId.
-      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
-        return res.status(409).json({
-          success: false,
-          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
-          message:
-            "This Google account is already linked to another user. Please sign in with that account.",
-        });
-      }
-      throw err;
-    }
-  } else {
-    // ── 4. New user — create account ────────────────────────────────────────
-    // Note: tombstones were excluded from the search, so re-registration
-    // through Google works after a soft delete. If a tombstone owned this
-    // email, we still own it now because the tombstone's email is prefixed.
-    isNewUser = true;
-    const randomPassword = crypto.randomBytes(32).toString("hex");
-    const hashedPassword = await bcrypt.hash(randomPassword, 12);
-
-    try {
-      user = await prisma.user.create({
-        data: {
-          firstName: googleUser.firstName || "User",
-          lastName: googleUser.lastName || "",
-          email: googleUser.email,
-          password: hashedPassword,
-          role: requestedRole,
-          avatar: googleUser.avatar,
-          isEmailVerified: googleUser.emailVerified || false,
-          googleId: googleUser.googleId,
-          authProvider: "GOOGLE",
-          avatarCustom: false,
-          nameCustom: false,
-        },
-      });
-    } catch (err) {
-      // Race conditions: someone just created this email or Google ID.
-      if (err.code === "P2002" && err.meta?.target?.includes("email")) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "An account with this email already exists. Please sign in with your existing method.",
-        });
-      }
-      if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
-        return res.status(409).json({
-          success: false,
-          code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
-          message:
-            "This Google account is already linked to another user. Please sign in with that account.",
-        });
-      }
-      throw err;
-    }
-
-    if (requestedRole === "WORKER") {
-      await prisma.workerProfile
-        .create({
-          data: {
-            userId: user.id,
-            title:
-              `${googleUser.firstName || "User"} ${googleUser.lastName || ""}`.trim() ||
-              "Skilled Worker",
-            hourlyRate: 0,
-            currency: "USD",
-          },
-        })
-        .catch((err) => {
-          console.error(
-            "Failed to create worker profile for Google user:",
-            err.message,
-          );
-        });
-    } else {
-      await prisma.hirerProfile
-        .create({ data: { userId: user.id } })
-        .catch(() => {});
-    }
-
-    sendWelcomeEmail({
-      to: user.email,
-      firstName: user.firstName,
-      role: user.role,
-    }).catch(() => {});
-  }
-
-  // ── 5. Issue tokens ────────────────────────────────────────────────────────
-  const { accessToken: ourAccessToken, refreshToken } = generateTokens(user.id);
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken, lastSeen: new Date() },
-  });
-
-  return res.status(200).json({
-    success: true,
-    message: isNewUser ? "Account created" : "Login successful",
-    data: {
-      accessToken: ourAccessToken,
-      refreshToken,
-      isNewUser,
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        isEmailVerified: user.isEmailVerified,
-      },
-    },
-  });
 });
