@@ -705,10 +705,25 @@ export const checkDeactivationEligibility = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // OPTION A — Take a Break
 // Hides profile, pauses new bookings. Data fully preserved. Reversible by login.
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/settings/pause
+// ─────────────────────────────────────────────────────────────────────────────
 export const pauseAccount = async (req, res) => {
   try {
     const { password } = req.body || {};
     const userId = req.user?.id;
+
+    // ── DEBUG BLOCK (remove after diagnosis) ────────────────────────────────
+    console.log("=== [pauseAccount] called ===");
+    console.log("[pauseAccount] userId:", userId);
+    console.log("[pauseAccount] password type:", typeof password);
+    console.log("[pauseAccount] password length:", password?.length);
+    console.log("[pauseAccount] password JSON:", JSON.stringify(password));
+    console.log(
+      "[pauseAccount] has leading/trailing whitespace:",
+      password !== password?.trim(),
+    );
+    // ────────────────────────────────────────────────────────────────────────
 
     if (!userId) return sendError(res, "Not authenticated", 401);
     if (!password) return sendError(res, "Password confirmation required", 400);
@@ -718,10 +733,32 @@ export const pauseAccount = async (req, res) => {
     if (user.isPaused)
       return sendError(res, "Your account is already paused", 400);
 
+    // ── DEBUG: hash details ─────────────────────────────────────────────────
+    console.log("[pauseAccount] googleId present:", !!user.googleId);
+    console.log(
+      "[pauseAccount] stored hash prefix:",
+      user.password ? user.password.slice(0, 7) : "NULL",
+    );
+    console.log("[pauseAccount] stored hash length:", user.password?.length);
+    // ────────────────────────────────────────────────────────────────────────
+
+    if (!user.password) {
+      console.log("[pauseAccount] ❌ user.password is NULL");
+      return sendError(
+        res,
+        "This account has no password set. Use Google sign-in or set a password first.",
+        400,
+      );
+    }
+
     const valid = await bcrypt.compare(password, user.password);
+
+    // ── DEBUG: comparison result ────────────────────────────────────────────
+    console.log("[pauseAccount] bcrypt.compare result:", valid);
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!valid) return sendError(res, "Incorrect password", 400);
 
-    // Same blockers apply — can't pause mid-job
     const blockers = await gatherBlockers(userId, user.role);
     if (blockers.length > 0) {
       return sendError(
@@ -737,7 +774,7 @@ export const pauseAccount = async (req, res) => {
         isPaused: true,
         pausedAt: new Date(),
         profileVisible: false,
-        refreshToken: null, // force logout everywhere
+        refreshToken: null,
       },
     });
 
@@ -746,7 +783,7 @@ export const pauseAccount = async (req, res) => {
         "Your account is paused. Log back in any time to reactivate your profile.",
     });
   } catch (err) {
-    console.error("pauseAccount error:", err.message);
+    console.error("pauseAccount error:", err);
     return sendError(res, "Failed to pause account");
   }
 };
