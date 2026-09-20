@@ -34,7 +34,6 @@ import {
   getWorkerNotifications,
   markAllNotificationsRead,
   getCompletedJobs,
-  deleteCertification,
 } from "../controllers/worker.controller.js";
 import {
   uploadVideo, // ⬅️ NEW: single "file" field, 100MB limit
@@ -90,14 +89,6 @@ router.delete(
 
 // Certifications — document upload (field name: "document", max 10MB)
 router.post("/certifications", ...W, uploadCertification, addCertification);
-
-// NEW: Delete a certification (must be the caller's own)
-router.delete(
-  "/certifications/:id",
-  ...W,
-  ...validateUUIDParam("id"),
-  deleteCertification,
-);
 
 // Availability
 router.put(

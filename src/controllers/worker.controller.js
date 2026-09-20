@@ -300,27 +300,97 @@ export const deletePortfolio = async (req, res) => {
 export const addPortfolio = async (req, res) => {
   try {
     const { title, description } = req.body;
+
+    // ── DIAGNOSTIC (remove after fixing) ─────────────────────────────────
+    console.log(
+      "[PORTFOLIO-DEBUG]",
+      JSON.stringify({
+        hasFile: !!req.file,
+        hasFiles: !!req.files,
+        filesLength: req.files?.length,
+        filePath: req.file?.path,
+        fileName: req.file?.originalname,
+        fileFieldname: req.file?.fieldname,
+        fileMimetype: req.file?.mimetype,
+        fileSize: req.file?.size,
+        bodyKeys: Object.keys(req.body || {}),
+        bodyTitle: req.body?.title,
+        contentType: req.headers["content-type"],
+        contentLength: req.headers["content-length"],
+      }),
+    );
+    // ─────────────────────────────────────────────────────────────────────
+
     const file = req.files?.[0] || req.file;
-    if (!file) return sendError(res, "Image required", 400);
+
+    if (!file) {
+      console.error("[PORTFOLIO-DEBUG] ❌ No file found", {
+        userId: req.user?.id,
+        title,
+        description,
+      });
+      return sendError(res, "Image required", 400);
+    }
+
+    // ── Verify the file object has what we need ─────────────────────────
+    if (!file.path) {
+      console.error("[PORTFOLIO-DEBUG] ❌ file.path is undefined", {
+        fileKeys: Object.keys(file),
+        file,
+      });
+      return sendError(res, "File upload failed — no path returned", 400);
+    }
+
     const worker = await prisma.workerProfile.findUnique({
       where: { userId: req.user.id },
     });
-    if (!worker) return sendError(res, "Worker profile not found", 404);
+
+    if (!worker) {
+      console.error("[PORTFOLIO-DEBUG] ❌ Worker profile not found", {
+        userId: req.user.id,
+      });
+      return sendError(res, "Worker profile not found", 404);
+    }
+
     const item = await prisma.portfolio.create({
       data: {
         workerProfileId: worker.id,
-        title,
-        description,
+        title: title?.trim() || "Untitled",
+        description: description?.trim() || null,
         imageUrl: file.path,
       },
     });
+
+    console.log("[PORTFOLIO-DEBUG] ✅ Created item", {
+      itemId: item.id,
+      imageUrl: item.imageUrl,
+    });
+
     return sendResponse(res, {
       status: 201,
       message: "Portfolio item added",
       data: { item },
     });
   } catch (err) {
-    console.error(err);
+    console.error("[PORTFOLIO-DEBUG] ❌ EXCEPTION", {
+      name: err.name,
+      message: err.message,
+      code: err.code,
+      meta: err.meta,
+      stack: err.stack?.split("\n").slice(0, 6),
+    });
+
+    // Prisma-specific errors get better messages
+    if (err.code === "P2002") {
+      return sendError(res, "This item already exists", 409);
+    }
+    if (err.code === "P2003") {
+      return sendError(res, "Related record not found", 400);
+    }
+    if (err.code?.startsWith("P20")) {
+      return sendError(res, `Database error: ${err.code}`, 400);
+    }
+
     return sendError(res, "Failed to add portfolio");
   }
 };
@@ -392,6 +462,44 @@ export const updateAvailability = async (req, res) => {
   } catch (err) {
     console.error(err);
     return sendError(res, "Update failed");
+  }
+};
+
+export const deleteCertification = async (req, res) => {
+  try {
+    // ── Validate the certification id ────────────────────────────────────
+    const certId = req.params.id;
+    if (!certId) {
+      return sendError(res, "Certification ID is required", 400);
+    }
+
+    // ── Find the worker's own profile ─────────────────────────────────────
+    const worker = await prisma.workerProfile.findUnique({
+      where: { userId: req.user.id },
+      select: { id: true },
+    });
+    if (!worker) {
+      return sendError(res, "Worker profile not found", 404);
+    }
+
+    // ── Delete only if it belongs to this worker ─────────────────────────
+    // Using deleteMany + explicit workerProfileId scope prevents one worker
+    // from deleting another worker's certification by guessing the id.
+    const deleted = await prisma.certification.deleteMany({
+      where: {
+        id: certId,
+        workerProfileId: worker.id,
+      },
+    });
+
+    if (deleted.count === 0) {
+      return sendError(res, "Certification not found", 404);
+    }
+
+    return sendResponse(res, { message: "Certification deleted" });
+  } catch (err) {
+    console.error("deleteCertification error:", err);
+    return sendError(res, "Failed to delete certification");
   }
 };
 
