@@ -1021,3 +1021,58 @@ export const getCompletedJobs = async (req, res) => {
     return sendError(res, "Failed to fetch completed jobs");
   }
 };
+
+/**
+ * GET /api/workers/dashboard/reviews/given
+ * Reviews the authenticated worker has written about hirers.
+ * Query: { page, limit }
+ */
+export const getMyGivenReviews = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const { skip, take } = paginate(page, limit);
+
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where: { giverId: req.user.id },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+        include: {
+          receiver: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true,
+              country: true,
+              city: true,
+            },
+          },
+          booking: {
+            select: {
+              id: true,
+              title: true,
+              scheduledAt: true,
+              category: { select: { name: true, icon: true } },
+            },
+          },
+        },
+      }),
+      prisma.review.count({ where: { giverId: req.user.id } }),
+    ]);
+
+    return sendResponse(res, {
+      data: {
+        reviews,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / take),
+      },
+    });
+  } catch (err) {
+    console.error("getMyGivenReviews error:", err);
+    return sendError(res, "Failed to fetch given reviews");
+  }
+};

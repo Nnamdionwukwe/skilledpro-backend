@@ -35,6 +35,7 @@ import {
   markAllNotificationsRead,
   getCompletedJobs,
   deleteCertification,
+  getMyGivenReviews,
 } from "../controllers/worker.controller.js";
 import {
   uploadVideo, // ⬅️ NEW: single "file" field, 100MB limit
@@ -65,7 +66,15 @@ router.get("/search", optionalProtect, validatePagination, searchWorkers);
 
 // Dashboard
 router.get("/dashboard", ...W, getWorkerDashboard);
+
+// ── Reviews (received + given) ──
 router.get("/dashboard/reviews", ...W, validatePagination, getMyReviews);
+router.get(
+  "/dashboard/reviews/given",
+  ...W,
+  validatePagination,
+  getMyGivenReviews,
+);
 
 // Profile
 router.put("/profile", ...W, validateUpdateWorkerProfile, updateWorkerProfile);
