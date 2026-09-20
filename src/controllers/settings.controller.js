@@ -713,18 +713,6 @@ export const pauseAccount = async (req, res) => {
     const { password } = req.body || {};
     const userId = req.user?.id;
 
-    // ── DEBUG BLOCK (remove after diagnosis) ────────────────────────────────
-    console.log("=== [pauseAccount] called ===");
-    console.log("[pauseAccount] userId:", userId);
-    console.log("[pauseAccount] password type:", typeof password);
-    console.log("[pauseAccount] password length:", password?.length);
-    console.log("[pauseAccount] password JSON:", JSON.stringify(password));
-    console.log(
-      "[pauseAccount] has leading/trailing whitespace:",
-      password !== password?.trim(),
-    );
-    // ────────────────────────────────────────────────────────────────────────
-
     if (!userId) return sendError(res, "Not authenticated", 401);
     if (!password) return sendError(res, "Password confirmation required", 400);
 
@@ -733,31 +721,25 @@ export const pauseAccount = async (req, res) => {
     if (user.isPaused)
       return sendError(res, "Your account is already paused", 400);
 
-    // ── DEBUG: hash details ─────────────────────────────────────────────────
-    console.log("[pauseAccount] googleId present:", !!user.googleId);
-    console.log(
-      "[pauseAccount] stored hash prefix:",
-      user.password ? user.password.slice(0, 7) : "NULL",
-    );
-    console.log("[pauseAccount] stored hash length:", user.password?.length);
-    // ────────────────────────────────────────────────────────────────────────
-
-    if (!user.password) {
-      console.log("[pauseAccount] ❌ user.password is NULL");
-      return sendError(
-        res,
-        "This account has no password set. Use Google sign-in or set a password first.",
-        400,
+    // ── Password check: skip for Google-linked accounts ──────────────────
+    const isGoogleUser = !!user.googleId;
+    if (!isGoogleUser) {
+      if (!user.password) {
+        return sendError(
+          res,
+          "This account has no password set. Use Google sign-in or set a password first.",
+          400,
+        );
+      }
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) return sendError(res, "Incorrect password", 400);
+    } else {
+      // For Google users, still require *some* password field so the UI flow
+      // is consistent, but don't bcrypt-compare against the placeholder hash.
+      console.log(
+        "[pauseAccount] Google-linked user — skipping bcrypt compare",
       );
     }
-
-    const valid = await bcrypt.compare(password, user.password);
-
-    // ── DEBUG: comparison result ────────────────────────────────────────────
-    console.log("[pauseAccount] bcrypt.compare result:", valid);
-    // ────────────────────────────────────────────────────────────────────────
-
-    if (!valid) return sendError(res, "Incorrect password", 400);
 
     const blockers = await gatherBlockers(userId, user.role);
     if (blockers.length > 0) {
@@ -837,8 +819,23 @@ export const deleteAccount = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return sendError(res, "User not found", 404);
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return sendError(res, "Incorrect password", 400);
+    // ── Password check: skip for Google-linked accounts ──────────────────
+    const isGoogleUser = !!user.googleId;
+    if (!isGoogleUser) {
+      if (!user.password) {
+        return sendError(
+          res,
+          "This account has no password set. Use Google sign-in or set a password first.",
+          400,
+        );
+      }
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) return sendError(res, "Incorrect password", 400);
+    } else {
+      console.log(
+        "[deleteAccount] Google-linked user — skipping bcrypt compare",
+      );
+    }
 
     if (user.deletionScheduledAt) {
       return sendError(
@@ -848,7 +845,6 @@ export const deleteAccount = async (req, res) => {
       );
     }
 
-    // Same blockers, but stricter: permanent deletion requires a clean slate
     const blockers = await gatherBlockers(userId, user.role);
     if (blockers.length > 0) {
       return sendError(
@@ -858,11 +854,9 @@ export const deleteAccount = async (req, res) => {
       );
     }
 
-    // 30-day grace period
     const deletionDate = new Date();
     deletionDate.setDate(deletionDate.getDate() + 30);
 
-    // Hide immediately, mark as deletion-pending
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -872,11 +866,9 @@ export const deleteAccount = async (req, res) => {
         deletionScheduledAt: deletionDate,
         deletionReason: reason?.trim() || null,
         deletionRequestedAt: new Date(),
-        refreshToken: null, // force logout everywhere
+        refreshToken: null,
       },
     });
-
-    // Optional: send confirmation email here
 
     return sendResponse(res, {
       message: `Your account is scheduled for permanent deletion on ${deletionDate.toLocaleDateString("en-GB")}. Log in within 30 days to cancel this.`,
@@ -886,7 +878,7 @@ export const deleteAccount = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("deleteAccount error:", err.message);
+    console.error("deleteAccount error:", err);
     return sendError(res, "Failed to schedule account deletion");
   }
 };
