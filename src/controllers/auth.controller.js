@@ -465,21 +465,14 @@ export const login = asyncHandler(async (req, res) => {
 // POST /api/auth/google
 // Body: { idToken } OR { accessToken, role? }
 //
-// Handles three cases:
-//   1. Existing user with this googleId → sign in
-//   2. Existing user with this email (no googleId yet) → link + sign in
-//   3. No user → create new (with the requested role)
-//
-// Tombstone rows (email starts with "deleted_") are treated as if the
-// user doesn't exist, so re-registration through Google works after a
-// soft delete.
-//
-// Banned / deactivated users are blocked BEFORE any token is issued.
-// Pending-deletion users are reactivated on successful sign-in.
+// Two-phase signup:
+//   Phase 1 (no role): existing user → sign in. New user → return profile,
+//                       don't create an account.
+//   Phase 2 (role):    new user picks HIRER or WORKER → account is created.
 export const googleSignIn = asyncHandler(async (req, res) => {
   const { idToken, accessToken, role } = req.body;
 
-  const requestedRole = ["HIRER", "WORKER"].includes(role) ? role : "HIRER";
+  const hasRole = ["HIRER", "WORKER"].includes(role);
 
   if (!idToken && !accessToken) {
     return res
@@ -504,14 +497,12 @@ export const googleSignIn = asyncHandler(async (req, res) => {
   }
 
   if (!googleUser.email) {
-    return res.status(400).json({
-      success: false,
-      message: "Google account has no email",
-    });
+    return res
+      .status(400)
+      .json({ success: false, message: "Google account has no email" });
   }
 
-  // ── 2. Find existing user ──────────────────────────────────────────────────
-  // 2a. Look up by googleId first, EXCLUDING tombstones.
+  // ── 2. Find existing user (by googleId, then email; exclude tombstones) ────
   let user = await prisma.user.findFirst({
     where: {
       googleId: googleUser.googleId,
@@ -519,7 +510,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     },
   });
 
-  // 2b. If not found, look up by email (excluding tombstones).
   if (!user) {
     user = await prisma.user.findFirst({
       where: {
@@ -528,9 +518,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       },
     });
 
-    // ── Collision guard: if this row already has a DIFFERENT googleId,
-    //     the email and Google identity are mismatched. Reject rather than
-    //     clobber.
     if (user && user.googleId && user.googleId !== googleUser.googleId) {
       return res.status(409).json({
         success: false,
@@ -540,8 +527,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       });
     }
 
-    // ── Collision guard: if another non-tombstone row already claims this
-    //     googleId, we must not steal it. (Extremely rare, but defensive.)
     if (user && !user.googleId) {
       const otherOwner = await prisma.user.findFirst({
         where: {
@@ -582,9 +567,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       });
     }
 
-    // ── 3b. Auto-cancel a pending deletion on Google sign-in ────────────────
-    // Same logic as the login flow: logging back in within the grace period
-    // cancels the scheduled deletion.
+    // ── 3b. Auto-cancel pending deletion ────────────────────────────────────
     let reactivated = false;
     if (user.deletionScheduledAt || user.isPaused) {
       await prisma.user.update({
@@ -605,46 +588,20 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     const nameCustom = user.nameCustom === true;
     const avatarCustom = user.avatarCustom === true;
 
-    console.log("[google-auth:signin] existing user", {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      nameCustom,
-      avatarCustom,
-      before: {
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-      },
-      fromGoogle: {
-        firstName: googleUser.firstName,
-        lastName: googleUser.lastName,
-        avatar: googleUser.avatar,
-      },
-    });
-
     const updates = { lastSeen: new Date() };
-
-    if (!user.googleId) {
-      updates.googleId = googleUser.googleId;
-    }
+    if (!user.googleId) updates.googleId = googleUser.googleId;
 
     if (googleUser.emailVerified && !user.isEmailVerified) {
       updates.isEmailVerified = true;
       updates.emailVerifyToken = null;
     }
 
-    if (nameCustom === false && googleUser.firstName) {
+    if (nameCustom === false && googleUser.firstName)
       updates.firstName = googleUser.firstName;
-    }
-    if (nameCustom === false && googleUser.lastName) {
+    if (nameCustom === false && googleUser.lastName)
       updates.lastName = googleUser.lastName;
-    }
-    if (avatarCustom === false && googleUser.avatar) {
+    if (avatarCustom === false && googleUser.avatar)
       updates.avatar = googleUser.avatar;
-    }
-
-    console.log("[google-auth:signin] willApply", updates);
 
     try {
       user = await prisma.user.update({
@@ -652,7 +609,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
         data: updates,
       });
     } catch (err) {
-      // Race condition: another request just claimed this googleId.
       if (err.code === "P2002" && err.meta?.target?.includes("googleId")) {
         return res.status(409).json({
           success: false,
@@ -664,7 +620,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       throw err;
     }
 
-    // ── 3d. Send welcome-back notification if reactivated ───────────────────
     if (reactivated) {
       prisma.notification
         .create({
@@ -678,7 +633,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
         .catch(() => {});
     }
 
-    // ── 3e. Fire-and-forget login alert email ───────────────────────────────
+    // Fire-and-forget login alert
     const ip =
       req.headers["x-real-ip"] ||
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
@@ -694,10 +649,29 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     }).catch(() => {});
     notifyNewDevice(user.id, ip, device).catch(() => {});
   } else {
-    // ── 4. New user — create account ────────────────────────────────────────
-    // Note: tombstones were excluded from the search, so re-registration
-    // through Google works after a soft delete. If a tombstone owned this
-    // email, we still own it now because the tombstone's email is prefixed.
+    // ── 4. New user ─────────────────────────────────────────────────────────
+    // No role given → DON'T create. Return the profile so the frontend can
+    // route to the role picker.
+    if (!hasRole) {
+      console.log("[google-auth:signin] new user — awaiting role selection", {
+        email: googleUser.email,
+      });
+      return res.status(200).json({
+        success: true,
+        data: {
+          isNewUser: true,
+          needsRole: true,
+          googleProfile: {
+            email: googleUser.email,
+            firstName: googleUser.firstName || "",
+            lastName: googleUser.lastName || "",
+            avatar: googleUser.avatar || null,
+          },
+        },
+      });
+    }
+
+    // Role given → create the account.
     isNewUser = true;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);
@@ -709,7 +683,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
           lastName: googleUser.lastName || "",
           email: googleUser.email,
           password: hashedPassword,
-          role: requestedRole,
+          role,
           avatar: googleUser.avatar,
           isEmailVerified: googleUser.emailVerified || false,
           googleId: googleUser.googleId,
@@ -719,7 +693,6 @@ export const googleSignIn = asyncHandler(async (req, res) => {
         },
       });
     } catch (err) {
-      // Race conditions: someone just created this email or Google ID.
       if (err.code === "P2002" && err.meta?.target?.includes("email")) {
         return res.status(409).json({
           success: false,
@@ -738,7 +711,7 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       throw err;
     }
 
-    if (requestedRole === "WORKER") {
+    if (role === "WORKER") {
       await prisma.workerProfile
         .create({
           data: {
@@ -1046,10 +1019,14 @@ export const googleCallback = asyncHandler(async (req, res) => {
   }
 
   let redirectTo = "/";
+  let requestedRole = null;
   if (state) {
     try {
       const parsed = JSON.parse(Buffer.from(state, "base64").toString());
       redirectTo = parsed.redirectTo || "/";
+      requestedRole = ["HIRER", "WORKER"].includes(parsed.role)
+        ? parsed.role
+        : null;
     } catch {}
   }
 
@@ -1061,7 +1038,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
     googleUser = await getGoogleUserFromCode(code);
   } catch (err) {
     console.error("Google code exchange failed:", err.message);
-    // Redirect with error rather than JSON, since this is a browser flow
     return res.redirect(
       `${frontendUrl}/login?code=GOOGLE_AUTH_FAILED&reason=${encodeURIComponent(
         "Google authentication failed",
@@ -1085,8 +1061,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
   });
 
   // ── 3. Ban / deactivation gates (BEFORE issuing tokens) ───────────────────
-  // Redirect the user to login with the right code so the frontend shows
-  // the correct banner.
   if (user) {
     if (user.isBanned === true) {
       const params = new URLSearchParams({
@@ -1107,58 +1081,46 @@ export const googleCallback = asyncHandler(async (req, res) => {
   let isNewUser = false;
 
   if (user) {
-    // ── Existing user ────────────────────────────────────────────────────────
+    // ── Existing user — update smartly ───────────────────────────────────────
     const nameCustom = user.nameCustom === true;
     const avatarCustom = user.avatarCustom === true;
 
-    console.log("[google-auth:callback] existing user", {
-      id: user.id,
-      email: user.email,
-      nameCustom,
-      avatarCustom,
-      before: {
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-      },
-      fromGoogle: {
-        firstName: googleUser.firstName,
-        lastName: googleUser.lastName,
-        avatar: googleUser.avatar,
-      },
-    });
-
     const updates = { lastSeen: new Date() };
 
-    if (!user.googleId) {
-      updates.googleId = googleUser.googleId;
-    }
+    if (!user.googleId) updates.googleId = googleUser.googleId;
 
     if (googleUser.emailVerified && !user.isEmailVerified) {
       updates.isEmailVerified = true;
       updates.emailVerifyToken = null;
     }
 
-    if (nameCustom === false && googleUser.firstName) {
+    if (nameCustom === false && googleUser.firstName)
       updates.firstName = googleUser.firstName;
-    }
-    if (nameCustom === false && googleUser.lastName) {
+    if (nameCustom === false && googleUser.lastName)
       updates.lastName = googleUser.lastName;
-    }
-    if (avatarCustom === false && googleUser.avatar) {
+    if (avatarCustom === false && googleUser.avatar)
       updates.avatar = googleUser.avatar;
-    }
-
-    console.log("[google-auth:callback] willApply", updates);
 
     user = await prisma.user.update({
       where: { id: user.id },
       data: updates,
     });
   } else {
-    // ── New user — create account ────────────────────────────────────────────
-    isNewUser = true;
+    // ── New user ─────────────────────────────────────────────────────────────
+    // NEW: if no role was provided in the state, redirect to the frontend
+    // role picker instead of creating a HIRER account.
+    if (!requestedRole) {
+      const params = new URLSearchParams({
+        code: "GOOGLE_NEEDS_ROLE",
+        email: googleUser.email,
+        firstName: googleUser.firstName || "",
+        lastName: googleUser.lastName || "",
+        avatar: googleUser.avatar || "",
+      });
+      return res.redirect(`${frontendUrl}/register?${params}`);
+    }
 
+    isNewUser = true;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 12);
 
@@ -1168,7 +1130,7 @@ export const googleCallback = asyncHandler(async (req, res) => {
         lastName: googleUser.lastName || "",
         email: googleUser.email,
         password: hashedPassword,
-        role: "HIRER",
+        role: requestedRole,
         avatar: googleUser.avatar,
         isEmailVerified: googleUser.emailVerified || false,
         googleId: googleUser.googleId,
@@ -1178,9 +1140,24 @@ export const googleCallback = asyncHandler(async (req, res) => {
       },
     });
 
-    await prisma.hirerProfile
-      .create({ data: { userId: user.id } })
-      .catch(() => {});
+    if (requestedRole === "WORKER") {
+      await prisma.workerProfile
+        .create({
+          data: {
+            userId: user.id,
+            title:
+              `${googleUser.firstName || "User"} ${googleUser.lastName || ""}`.trim() ||
+              "Skilled Worker",
+            hourlyRate: 0,
+            currency: "USD",
+          },
+        })
+        .catch(() => {});
+    } else {
+      await prisma.hirerProfile
+        .create({ data: { userId: user.id } })
+        .catch(() => {});
+    }
 
     sendWelcomeEmail({
       to: user.email,
