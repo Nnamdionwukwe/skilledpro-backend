@@ -31,7 +31,20 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import crypto from "crypto";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 // ── Campaign Configuration ────────────────────────────────────────────────────
 export const CAMPAIGN_CONFIG = {
   REWARD_PER_REFERRAL: 100, // ₦100 per fully qualified referral
@@ -179,6 +192,7 @@ export const getCampaignStatus = async (req, res) => {
           select: {
             campaignWalletBalance: true,
             campaignWalletLifetimeTotal: true,
+            referralCode: true,
           },
         }),
         prisma.campaignReferral.findMany({
@@ -212,6 +226,37 @@ export const getCampaignStatus = async (req, res) => {
         }),
       ]);
 
+    // ── Ensure the user has a referral code ────────────────────────────────
+    // Mirrors the auto-generation in /referral/dashboard so the campaign
+    // page never shows an empty code for a real, logged-in user.
+    let finalCode = user?.referralCode || null;
+    if (!finalCode) {
+      try {
+        let code;
+        let attempts = 0;
+        do {
+          code = `SP${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+          attempts++;
+          const clash = await prisma.user.findUnique({
+            where: { referralCode: code },
+            select: { id: true },
+          });
+          if (!clash) break;
+        } while (attempts < 10);
+
+        await prisma.user.update({
+          where: { id: userId },
+          data: { referralCode: code },
+        });
+        finalCode = code;
+      } catch (genErr) {
+        console.error(
+          "getCampaignStatus — referral code generation failed:",
+          genErr.message,
+        );
+      }
+    }
+
     // Categorise today's referrals
     const today = new Date().setHours(0, 0, 0, 0);
     const todayReferrals = referrals.filter(
@@ -228,6 +273,7 @@ export const getCampaignStatus = async (req, res) => {
 
     return sendResponse(res, {
       data: {
+        code: finalCode,
         wallet: {
           balance: user?.campaignWalletBalance || 0,
           lifetimeTotal: user?.campaignWalletLifetimeTotal || 0,
