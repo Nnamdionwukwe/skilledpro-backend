@@ -470,9 +470,11 @@ export const login = asyncHandler(async (req, res) => {
 //                       don't create an account.
 //   Phase 2 (role):    new user picks HIRER or WORKER → account is created.
 export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken, accessToken, role } = req.body;
+  const { idToken, accessToken, role, ref } = req.body;
 
   const hasRole = ["HIRER", "WORKER"].includes(role);
+  const referralCode =
+    typeof ref === "string" && ref.trim() ? ref.toUpperCase().trim() : null;
 
   if (!idToken && !accessToken) {
     return res
@@ -733,6 +735,25 @@ export const googleSignIn = asyncHandler(async (req, res) => {
       await prisma.hirerProfile
         .create({ data: { userId: user.id } })
         .catch(() => {});
+    }
+
+    // ── Apply referral + campaign credits (NEW USER ONLY) ─────────────────
+    // Both helpers dedupe internally on `referredId`:
+    //   • applyReferralOnSignup  → no-op if a Referral row already exists
+    //   • registerCampaignReferral → no-op if a CampaignReferral already exists
+    // They also ignore self-referrals and banned/inactive referrers.
+    // Existing users never reach this branch, so they can never be re-credited.
+    if (referralCode) {
+      try {
+        await applyReferralOnSignup(user.id, referralCode);
+        await registerCampaignReferral(user.id, referralCode);
+      } catch (refErr) {
+        // Non-fatal — signup still succeeds even if crediting fails.
+        console.error(
+          "[google-auth:signin] referral credit failed:",
+          refErr.message,
+        );
+      }
     }
 
     sendWelcomeEmail({
