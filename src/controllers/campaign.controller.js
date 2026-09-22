@@ -5,9 +5,9 @@
 //   1. Referred user signs up using referrer's code → CampaignReferral created
 //   2. Referred user completes tasks:
 //        a. Download app (auto-true on signup)
-//        b. Set up profile (auto-detected from DB)
+//        b. Set up profile (auto-detected from DB — name + avatar required)
 //        c. Follow Facebook  }
-//        d. Follow Instagram }  user self-reports + optional screenshot
+//        d. Follow Instagram }  user uploads screenshot as proof (required)
 //        e. Follow TikTok    }
 //   3. Referrer sees TASKS_DONE referrals in their dashboard
 //   4. Referrer submits their daily batch (once per day)
@@ -15,18 +15,6 @@
 //   6. Approved: ₦100 credited to referrer's campaign wallet
 //   7. Rejected: deducted from gross payout (admin has final say)
 //   8. Referrer can withdraw from campaign wallet (min ₦500) any time
-//
-// ─── Add to schema.prisma (prisma generate after migration) ──────────────────
-//
-//  Add to User model:
-
-//
-//  model CampaignReferral { ... }  — see migration script
-//  model CampaignSubmission { ... }
-//  model CampaignTransaction { ... }
-//  model CampaignWithdrawal { ... }
-//  enum CampaignReferralStatus { PENDING TASKS_DONE SUBMITTED APPROVED REJECTED }
-//  enum CampaignSubmissionStatus { PENDING REVIEWING APPROVED PARTIAL REJECTED }
 // ─────────────────────────────────────────────────────────────────────────────
 
 import prisma from "../config/database.js";
@@ -45,6 +33,7 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+
 // ── Campaign Configuration ────────────────────────────────────────────────────
 export const CAMPAIGN_CONFIG = {
   REWARD_PER_REFERRAL: 100, // ₦100 per fully qualified referral
@@ -67,8 +56,19 @@ const REQUIRED_TASKS = [
   { key: "hasFollowedTt", label: "Follow on TikTok", auto: false },
 ];
 
+/**
+ * A referral is only "done" when:
+ *   - all 5 task flags are true, AND
+ *   - all 3 social screenshot proofs are present.
+ *
+ * The screenshot requirement is what stops a user from clicking "done"
+ * without actually following the page.
+ */
 function allTasksDone(ref) {
-  return REQUIRED_TASKS.every((t) => ref[t.key] === true);
+  const flagsOk = REQUIRED_TASKS.every((t) => ref[t.key] === true);
+  const proofsOk =
+    !!ref.fbScreenshotUrl && !!ref.igScreenshotUrl && !!ref.ttScreenshotUrl;
+  return flagsOk && proofsOk;
 }
 
 function todayDateString() {
@@ -136,32 +136,60 @@ export const registerCampaignReferral = async (newUserId, referralCode) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INTERNAL — call this when a user completes their profile
-//            (e.g. from user.controller after profile update)
+// INTERNAL — call this when a user updates their profile / avatar.
+//
+// A referral's `hasSetupProfile` only flips to true when the user actually
+// has: firstName + lastName + avatar. This prevents users from triggering
+// the task with an empty update.
+//
+// Also flips the referral to TASKS_DONE if the 3 social tasks and their
+// screenshots are all in place by the time the profile is saved.
 // ─────────────────────────────────────────────────────────────────────────────
 export const markProfileSetupComplete = async (userId) => {
   try {
+    // 1. Verify the user actually has a meaningful profile
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        firstName: true,
+        lastName: true,
+        avatar: true,
+      },
+    });
+    if (!user) return;
+
+    const profileComplete =
+      !!user.firstName?.trim() && !!user.lastName?.trim() && !!user.avatar;
+    if (!profileComplete) return;
+
+    // 2. Look up the campaign referral for this user (if any)
     const ref = await prisma.campaignReferral.findUnique({
       where: { referredId: userId },
     });
-    if (!ref || ref.hasSetupProfile) return;
+    if (!ref) return;
+    if (ref.hasSetupProfile) return; // already handled
+
+    // 3. Check whether all other tasks (social + proofs) are already done
+    const otherTasksDone =
+      ref.hasFollowedFb &&
+      ref.hasFollowedIg &&
+      ref.hasFollowedTt &&
+      !!ref.fbScreenshotUrl &&
+      !!ref.igScreenshotUrl &&
+      !!ref.ttScreenshotUrl;
 
     const updated = await prisma.campaignReferral.update({
       where: { id: ref.id },
       data: {
         hasSetupProfile: true,
-        // Check if all tasks are now done
-        ...(ref.hasFollowedFb && ref.hasFollowedIg && ref.hasFollowedTt
-          ? {
-              status: "TASKS_DONE",
-              tasksCompletedAt: new Date(),
-            }
+        ...(otherTasksDone && ref.status === "PENDING"
+          ? { status: "TASKS_DONE", tasksCompletedAt: new Date() }
           : {}),
         updatedAt: new Date(),
       },
     });
 
-    // Notify referrer if all tasks are now done
+    // 4. If this completes the referral, notify the referrer
     if (updated.status === "TASKS_DONE") {
       await prisma.notification.create({
         data: {
@@ -227,8 +255,6 @@ export const getCampaignStatus = async (req, res) => {
       ]);
 
     // ── Ensure the user has a referral code ────────────────────────────────
-    // Mirrors the auto-generation in /referral/dashboard so the campaign
-    // page never shows an empty code for a real, logged-in user.
     let finalCode = user?.referralCode || null;
     if (!finalCode) {
       try {
@@ -388,11 +414,14 @@ export const getMyCampaignReferrals = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. REFERRED USER REPORTS SOCIAL FOLLOW
 //    POST /campaign/my-tasks/social
+//    multipart/form-data: { platform, screenshot: <file> }
 //    (called by the REFERRED USER on their own dashboard)
 // ─────────────────────────────────────────────────────────────────────────────
 export const reportSocialFollow = async (req, res) => {
   try {
-    const { platform, screenshotUrl } = req.body;
+    const { platform } = req.body;
+
+    // ── 1. Validate platform ─────────────────────────────────────────────
     const validPlatforms = ["facebook", "instagram", "tiktok"];
     if (!validPlatforms.includes(platform)) {
       return sendError(
@@ -402,7 +431,27 @@ export const reportSocialFollow = async (req, res) => {
       );
     }
 
-    // Find the campaign referral where THIS user is the referred one
+    // ── 2. Require a screenshot file ─────────────────────────────────────
+    if (!req.file) {
+      return sendError(
+        res,
+        "Screenshot is required — upload an image showing you follow this page.",
+        400,
+      );
+    }
+    const screenshotUrl = req.file.path || req.file.secure_url;
+    if (!screenshotUrl) {
+      console.error(
+        "reportSocialFollow: multer did not populate req.file.path",
+      );
+      return sendError(
+        res,
+        "Upload failed — no URL returned from storage",
+        500,
+      );
+    }
+
+    // ── 3. Find the campaign referral for THIS user ──────────────────────
     const ref = await prisma.campaignReferral.findUnique({
       where: { referredId: req.user.id },
     });
@@ -416,6 +465,7 @@ export const reportSocialFollow = async (req, res) => {
       );
     }
 
+    // ── 4. Map platform → boolean + proof column ─────────────────────────
     const fieldMap = {
       facebook: { flag: "hasFollowedFb", proof: "fbScreenshotUrl" },
       instagram: { flag: "hasFollowedIg", proof: "igScreenshotUrl" },
@@ -425,17 +475,14 @@ export const reportSocialFollow = async (req, res) => {
 
     const updateData = {
       [flag]: true,
-      [proof]: screenshotUrl || null,
+      [proof]: screenshotUrl,
       updatedAt: new Date(),
     };
 
-    // Fetch fresh to check if all tasks complete after this update
-    const fresh = await prisma.campaignReferral.findUnique({
-      where: { id: ref.id },
-    });
-    const afterUpdate = { ...fresh, [flag]: true };
+    // ── 5. Check if all 5 flags + 3 proofs are now satisfied ─────────────
+    const afterUpdate = { ...ref, [flag]: true, [proof]: screenshotUrl };
 
-    if (allTasksDone(afterUpdate) && fresh.status === "PENDING") {
+    if (allTasksDone(afterUpdate) && ref.status === "PENDING") {
       updateData.status = "TASKS_DONE";
       updateData.tasksCompletedAt = new Date();
     }
@@ -445,7 +492,7 @@ export const reportSocialFollow = async (req, res) => {
       data: updateData,
     });
 
-    // Notify the referrer when all tasks are done
+    // ── 6. Notify referrer if all tasks are now done ─────────────────────
     if (updated.status === "TASKS_DONE") {
       const you = await prisma.user.findUnique({
         where: { id: req.user.id },
@@ -526,7 +573,7 @@ export const getMyTaskStatus = async (req, res) => {
         label: "Complete your profile setup",
         done: ref.hasSetupProfile,
         auto: true,
-        hint: "Fill in your name, role, and profile picture",
+        hint: "Fill in your name and upload a profile picture",
       },
       {
         key: "hasFollowedFb",
@@ -614,6 +661,24 @@ export const submitDailyCampaign = async (req, res) => {
       return sendError(
         res,
         "No ready referrals to submit. Your referred users need to complete all tasks first.",
+        400,
+      );
+    }
+
+    // ── Safety net: reject if any ready referral lost a prerequisite ─────
+    // (Should never happen — the status only flips to TASKS_DONE when all
+    //  flags + proofs are in. But belt and suspenders.)
+    const missingProofs = ready.filter(
+      (r) =>
+        !r.hasSetupProfile ||
+        !r.fbScreenshotUrl ||
+        !r.igScreenshotUrl ||
+        !r.ttScreenshotUrl,
+    );
+    if (missingProofs.length > 0) {
+      return sendError(
+        res,
+        `${missingProofs.length} referral${missingProofs.length !== 1 ? "s are" : " is"} missing required tasks or screenshots.`,
         400,
       );
     }

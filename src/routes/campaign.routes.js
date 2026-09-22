@@ -28,6 +28,8 @@ import {
   validatePagination,
 } from "../utils/validators.js";
 
+import { uploadScreenshot } from "../middleware/upload.middleware.js";
+
 const router = Router();
 router.use(protect);
 
@@ -37,7 +39,7 @@ router.use(protect);
 // GET  /api/campaign/my-tasks              — see your task checklist
 router.get("/my-tasks", getMyTaskStatus);
 // POST /api/campaign/my-tasks/social      — report a social follow (FB/IG/TT)
-router.post("/my-tasks/social", validateSocialFollow, reportSocialFollow);
+router.post("/my-tasks/social", protect, uploadScreenshot, reportSocialFollow);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRER routes (the person who shared their code does these)

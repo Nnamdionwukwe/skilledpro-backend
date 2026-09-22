@@ -476,6 +476,19 @@ export const googleSignIn = asyncHandler(async (req, res) => {
   const referralCode =
     typeof ref === "string" && ref.trim() ? ref.toUpperCase().trim() : null;
 
+  // ── DEBUG: log what the frontend actually sent ─────────────────────────────
+  console.log("[google-auth:signin] === REQUEST RECEIVED ===");
+  console.log("[google-auth:signin] has idToken:", !!idToken);
+  console.log("[google-auth:signin] has accessToken:", !!accessToken);
+  console.log("[google-auth:signin] role:", role || "(none)");
+  console.log("[google-auth:signin] raw ref:", ref);
+  console.log("[google-auth:signin] normalized referralCode:", referralCode);
+  console.log(
+    "[google-auth:signin] full body keys:",
+    Object.keys(req.body || {}),
+  );
+  // ───────────────────────────────────────────────────────────────────────────
+
   if (!idToken && !accessToken) {
     return res
       .status(400)
@@ -743,17 +756,47 @@ export const googleSignIn = asyncHandler(async (req, res) => {
     //   • registerCampaignReferral → no-op if a CampaignReferral already exists
     // They also ignore self-referrals and banned/inactive referrers.
     // Existing users never reach this branch, so they can never be re-credited.
+    console.log(
+      "[google-auth:signin] NEW USER CREATED — about to apply referral:",
+      { userId: user.id, referralCode, ref },
+    );
+
     if (referralCode) {
       try {
-        await applyReferralOnSignup(user.id, referralCode);
-        await registerCampaignReferral(user.id, referralCode);
+        console.log(
+          "[google-auth:signin] calling applyReferralOnSignup with",
+          referralCode,
+        );
+        const refResult = await applyReferralOnSignup(user.id, referralCode);
+        console.log(
+          "[google-auth:signin] ✅ applyReferralOnSignup returned:",
+          refResult ? "created" : "null (silent no-op)",
+        );
+
+        console.log(
+          "[google-auth:signin] calling registerCampaignReferral with",
+          referralCode,
+        );
+        const campResult = await registerCampaignReferral(
+          user.id,
+          referralCode,
+        );
+        console.log(
+          "[google-auth:signin] ✅ registerCampaignReferral returned:",
+          campResult ? "created" : "null (silent no-op)",
+        );
       } catch (refErr) {
-        // Non-fatal — signup still succeeds even if crediting fails.
         console.error(
-          "[google-auth:signin] referral credit failed:",
+          "[google-auth:signin] ❌ referral credit THREW:",
           refErr.message,
         );
+        console.error(
+          "[google-auth:signin] stack:",
+          refErr.stack?.split("\n").slice(0, 6).join("\n"),
+        );
       }
+    } else {
+      console.log("[google-auth:signin] ⚠️ no referralCode — skipping credit");
     }
 
     sendWelcomeEmail({

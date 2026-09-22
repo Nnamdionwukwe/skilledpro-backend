@@ -2,6 +2,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../config/cloudinary.js";
+import { markProfileSetupComplete } from "./campaign.controller.js";
 import {
   paginate,
   paginationMeta,
@@ -181,6 +182,10 @@ export const updateProfile = async (req, res) => {
         avatarCustom: true,
       },
     });
+
+    // ── Campaign: profile setup may now be complete ─────────────────────────
+    await markProfileSetupComplete(req.user.id).catch(() => {});
+
     return sendResponse(res, { message: "Profile updated", data: { user } });
   } catch (err) {
     if (err.code === "P2002")
@@ -238,6 +243,9 @@ export const updateAvatar = async (req, res) => {
       },
       select: { id: true, avatar: true, avatarCustom: true },
     });
+
+    // ── Campaign: avatar upload may complete profile setup ──────────────────
+    await markProfileSetupComplete(req.user.id).catch(() => {});
 
     return sendResponse(res, {
       message: "Avatar updated",
@@ -307,6 +315,10 @@ export const updateWorkerProfile = async (req, res) => {
       where: { userId: req.user.id },
       data,
     });
+
+    // ── Campaign: profile setup may now be complete ─────────────────────────
+    await markProfileSetupComplete(req.user.id).catch(() => {});
+
     return sendResponse(res, {
       message: "Worker profile updated",
       data: { workerProfile: profile },
@@ -342,6 +354,10 @@ export const updateHirerProfile = async (req, res) => {
         data,
       });
     }
+
+    // ── Campaign: profile setup may now be complete ─────────────────────────
+    await markProfileSetupComplete(req.user.id).catch(() => {});
+
     return sendResponse(res, { message: "Company profile updated" });
   } catch (err) {
     console.error("updateHirerProfile error:", err);
