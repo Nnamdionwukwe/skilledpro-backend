@@ -139,10 +139,13 @@ router.get("/hirer", validatePagination, getHirerPayments);
 // ── Worker earnings ───────────────────────────────────────────────────────────
 router.get("/earnings", validatePagination, getWorkerEarnings);
 
-// ── Withdrawal PIN management (workers only) ──────────────────────────────────
-router.get("/pin/status", requireRole("WORKER"), getWithdrawalPinStatus);
-router.post("/pin/set", requireRole("WORKER"), setWithdrawalPin);
-router.post("/pin/change", requireRole("WORKER"), changeWithdrawalPin);
+// ── Withdrawal PIN management ─────────────────────────────────────────────────
+// Open to every authenticated user — the same PIN secures worker payouts,
+// hirer wallet withdrawals, referral withdrawals, and campaign withdrawals.
+// There is no per-role restriction; the PIN is a per-user credential.
+router.get("/pin/status", getWithdrawalPinStatus);
+router.post("/pin/set", setWithdrawalPin);
+router.post("/pin/change", changeWithdrawalPin);
 
 // ── Worker withdrawal ─────────────────────────────────────────────────────────
 router.post("/withdraw", validateRequestWithdrawal, requestWithdrawal);

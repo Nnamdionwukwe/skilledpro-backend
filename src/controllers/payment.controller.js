@@ -2306,6 +2306,16 @@ async function _notifyPaymentHeld(bookingId) {
 // § A  SET WITHDRAWAL PIN (first time)
 // POST /api/payments/pin/set
 // Body: { pin: "1234" }
+//
+// Available to every authenticated user. The same 4-digit PIN authorises:
+//   • worker payouts        (/api/payments/withdraw)
+//   • hirer wallet          (/api/wallet/withdraw)
+//   • referral wallet       (/api/referral/withdraw)
+//   • campaign wallet       (/api/campaign/withdraw)
+//
+// The PIN is a per-user credential stored on User.withdrawalPin. There is no
+// per-role restriction — any authenticated user may set, read, or change
+// their own PIN.
 // ─────────────────────────────────────────────────────────────────────────────
 export const setWithdrawalPin = asyncHandler(async (req, res) => {
   const { pin } = req.body;
@@ -2321,6 +2331,10 @@ export const setWithdrawalPin = asyncHandler(async (req, res) => {
     where: { id: req.user.id },
     select: { id: true, withdrawalPinSet: true },
   });
+
+  if (!user) {
+    return res.status(404).json({ success: false, message: "User not found" });
+  }
 
   if (user.withdrawalPinSet) {
     return res.status(400).json({
@@ -2351,6 +2365,10 @@ export const setWithdrawalPin = asyncHandler(async (req, res) => {
 // § B  CHANGE WITHDRAWAL PIN
 // POST /api/payments/pin/change
 // Body: { currentPin: "1234", newPin: "5678" }
+//
+// Available to every authenticated user. Verifies the current PIN against
+// the shared lockout counter (via verifyWithdrawalPin in pin.service.js),
+// then writes the new hash and resets the attempt counters.
 // ─────────────────────────────────────────────────────────────────────────────
 export const changeWithdrawalPin = asyncHandler(async (req, res) => {
   const { currentPin, newPin } = req.body;
@@ -2359,6 +2377,13 @@ export const changeWithdrawalPin = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "New PIN must be exactly 4 digits",
+    });
+  }
+
+  if (!currentPin) {
+    return res.status(400).json({
+      success: false,
+      message: "Current PIN is required",
     });
   }
 
@@ -2372,6 +2397,10 @@ export const changeWithdrawalPin = asyncHandler(async (req, res) => {
       withdrawalPinLockedUntil: true,
     },
   });
+
+  if (!user) {
+    return res.status(404).json({ success: false, message: "User not found" });
+  }
 
   if (!user.withdrawalPinSet) {
     return res.status(400).json({
