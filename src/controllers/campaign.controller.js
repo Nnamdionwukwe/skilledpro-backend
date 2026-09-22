@@ -20,6 +20,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
+import { REWARDS } from "../config/rewards.js";
 import {
   paginate,
   paginationMeta,
@@ -35,11 +36,13 @@ import {
 } from "../utils/helpers.js";
 
 // ── Campaign Configuration ────────────────────────────────────────────────────
+// Values come from src/config/rewards.js — the single source of truth.
+// The SOCIAL block stays here because it's campaign-specific.
 export const CAMPAIGN_CONFIG = {
-  REWARD_PER_REFERRAL: 200, // ₦200 per fully qualified referral
-  MIN_WITHDRAWAL: 1000, // ₦500 minimum withdrawal
-  CURRENCY: "NGN",
-  MAX_DAILY_REFERRALS: 50, // fraud guard — max per day per user
+  REWARD_PER_REFERRAL: REWARDS.CAMPAIGN.PER_REFERRAL,
+  MIN_WITHDRAWAL: REWARDS.CAMPAIGN.MIN_WITHDRAWAL,
+  CURRENCY: REWARDS.CAMPAIGN.CURRENCY,
+  MAX_DAILY_REFERRALS: REWARDS.CAMPAIGN.MAX_DAILY_REFERRALS,
   SOCIAL: {
     facebook:
       process.env.FACEBOOK_URL || "https://www.facebook.com/share/1DCpgLdsQ8/",
@@ -200,7 +203,7 @@ export const markProfileSetupComplete = async (userId) => {
         data: {
           userId: ref.referrerId,
           title: "Referral ready! ✅",
-          body: "One of your referrals has completed all tasks. Submit your daily batch to earn ₦100.",
+          body: `One of your referrals has completed all tasks. Submit your daily batch to earn ₦${CAMPAIGN_CONFIG.REWARD_PER_REFERRAL.toLocaleString()}.`,
           type: "CAMPAIGN_TASKS_DONE",
           data: { campaignReferralId: ref.id },
         },
@@ -241,7 +244,24 @@ export const getCampaignStatus = async (req, res) => {
             rewardAmount: true,
             createdAt: true,
             referred: {
-              select: { firstName: true, lastName: true, avatar: true },
+              select: {
+                firstName: true,
+                lastName: true,
+                avatar: true,
+                role: true,
+                // ── Cross-reference: same user's referral-program row ───
+                // Relation name confirmed from schema.prisma:
+                //   User.referralReceived  Referral?
+                referralReceived: {
+                  select: {
+                    id: true,
+                    status: true,
+                    referrerBonus: true,
+                    paidAt: true,
+                    convertedAt: true,
+                  },
+                },
+              },
             },
           },
           orderBy: { createdAt: "desc" },
@@ -302,6 +322,20 @@ export const getCampaignStatus = async (req, res) => {
       (r) => r.status === "APPROVED",
     ).length;
 
+    // ── Helper: combined status ─────────────────────────────────────────────
+    function combinedStatus(campaignStatus, referralStatus) {
+      if (campaignStatus === "APPROVED" && referralStatus === "REWARDED")
+        return "ALL_DONE";
+      if (campaignStatus === "APPROVED") return "CAMPAIGN_PAID";
+      if (referralStatus === "REWARDED") return "REFERRAL_PAID";
+      if (campaignStatus === "TASKS_DONE") return "CAMPAIGN_READY";
+      if (referralStatus === "QUALIFIED") return "REFERRAL_QUALIFIED";
+      if (campaignStatus === "SUBMITTED") return "CAMPAIGN_SUBMITTED";
+      if (campaignStatus === "REJECTED") return "CAMPAIGN_REJECTED";
+      if (referralStatus === "EXPIRED") return "EXPIRED";
+      return "PENDING";
+    }
+
     return sendResponse(res, {
       data: {
         code: finalCode,
@@ -337,6 +371,50 @@ export const getCampaignStatus = async (req, res) => {
         rewardPerReferral: CAMPAIGN_CONFIG.REWARD_PER_REFERRAL,
         social: CAMPAIGN_CONFIG.SOCIAL,
         tasks: REQUIRED_TASKS,
+
+        // ── Per-referral list so the UI can show both systems at a glance ──
+        referrals: referrals.map((r) => {
+          const rp = r.referred.referralReceived;
+          const tasksCompleted = [
+            r.hasDownloadedApp,
+            r.hasSetupProfile,
+            r.hasFollowedFb,
+            r.hasFollowedIg,
+            r.hasFollowedTt,
+          ].filter(Boolean).length;
+
+          const referralProgram = rp
+            ? {
+                id: rp.id,
+                status: rp.status,
+                bonus: rp.referrerBonus,
+                paidAt: rp.paidAt,
+                convertedAt: rp.convertedAt,
+              }
+            : null;
+
+          return {
+            id: r.id,
+            status: r.status,
+            name: `${r.referred.firstName} ${r.referred.lastName}`,
+            avatar: r.referred.avatar,
+            role: r.referred.role,
+            joinedAt: r.createdAt,
+            rewardAmount: r.rewardAmount,
+            tasks: {
+              hasDownloadedApp: r.hasDownloadedApp,
+              hasSetupProfile: r.hasSetupProfile,
+              hasFollowedFb: r.hasFollowedFb,
+              hasFollowedIg: r.hasFollowedIg,
+              hasFollowedTt: r.hasFollowedTt,
+              completedCount: tasksCompleted,
+              totalCount: 5,
+            },
+            // ── Cross-system enrichment ────────────────────────────────────
+            referralProgram,
+            combinedStatus: combinedStatus(r.status, rp?.status),
+          };
+        }),
       },
     });
   } catch (err) {

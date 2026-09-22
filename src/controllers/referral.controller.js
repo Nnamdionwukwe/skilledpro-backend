@@ -36,6 +36,7 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
+import { REWARDS } from "../config/rewards.js";
 import { FEE_CONFIG } from "../config/fees.js";
 import {
   paginate,
@@ -53,14 +54,8 @@ import {
 // ── Tier & reward configuration ───────────────────────────────────────────────
 
 // ── Tier base bonuses (Phase-1 amounts — scale via getBonusForPhase) ──────────
-const TIER_BASE_BONUSES = {
-  BRONZE: { workerBonus: 800, hirerBonus: 600 },
-  SILVER: { workerBonus: 1_200, hirerBonus: 900 },
-  GOLD: { workerBonus: 2_000, hirerBonus: 1_500 },
-  DIAMOND: { workerBonus: 3_500, hirerBonus: 2_500 },
-};
-
-const PHASE_MULTIPLIERS = { 1: 1.0, 2: 1.6, 3: 2.2 };
+const TIER_BASE_BONUSES = REWARDS.REFERRAL.TIER_BASE_BONUSES;
+const PHASE_MULTIPLIERS = REWARDS.REFERRAL.PHASE_MULTIPLIERS;
 
 export function getBonusForPhase(tierKey) {
   const base = TIER_BASE_BONUSES[tierKey] || TIER_BASE_BONUSES.BRONZE;
@@ -120,16 +115,15 @@ export const REFEREE_PERKS = {
 };
 
 export const REFERRAL_CONFIG = {
-  CURRENCY: "NGN",
-  CONVERSION_WINDOW_DAYS: 90,
-  REWARD_EXPIRY_DAYS: 180,
-  CODE_LENGTH: 8,
-  MIN_WITHDRAWAL: 5_000,
-  MAX_PENDING_REFERRALS: 50,
+  CURRENCY: REWARDS.REFERRAL.CURRENCY,
+  CONVERSION_WINDOW_DAYS: REWARDS.REFERRAL.CONVERSION_WINDOW_DAYS,
+  REWARD_EXPIRY_DAYS: REWARDS.REFERRAL.REWARD_EXPIRY_DAYS,
+  CODE_LENGTH: 8, // (unused — kept for backwards compat)
+  MIN_WITHDRAWAL: REWARDS.REFERRAL.MIN_WITHDRAWAL,
+  MAX_PENDING_REFERRALS: REWARDS.REFERRAL.MAX_PENDING_REFERRALS,
   APP_URL: process.env.APP_BASE_URL || "https://skilledproz.com",
-  // ── Sustainability guardrails ─────────────────────────────────────────────
-  MIN_FIRST_BOOKING_VALUE: 5_000,
-  MAX_SINGLE_BOOKING_PAYOUT_PCT: 0.85,
+  MIN_FIRST_BOOKING_VALUE: REWARDS.REFERRAL.MIN_FIRST_BOOKING_VALUE,
+  MAX_SINGLE_BOOKING_PAYOUT_PCT: REWARDS.REFERRAL.MAX_SINGLE_BOOKING_PAYOUT_PCT,
 };
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -595,6 +589,23 @@ export const getMyReferralDashboard = async (req, res) => {
               avatar: true,
               role: true,
               createdAt: true,
+              // ── Cross-reference: the same user's campaign referral row ──
+              // Relation name confirmed from schema.prisma:
+              //   User.campaignReferralReceived  CampaignReferral?
+              campaignReferralReceived: {
+                select: {
+                  id: true,
+                  status: true,
+                  hasDownloadedApp: true,
+                  hasSetupProfile: true,
+                  hasFollowedFb: true,
+                  hasFollowedIg: true,
+                  hasFollowedTt: true,
+                  rewardAmount: true,
+                  reviewedAt: true,
+                  tasksCompletedAt: true,
+                },
+              },
             },
           },
         },
@@ -626,6 +637,21 @@ export const getMyReferralDashboard = async (req, res) => {
       acc[r.status] = (acc[r.status] || 0) + 1;
       return acc;
     }, {});
+
+    // ── Helper: derived combined status ────────────────────────────────────
+    // Gives the frontend one badge to render if it doesn't want to render two.
+    function combinedStatus(referralStatus, campaignStatus) {
+      if (referralStatus === "REWARDED" && campaignStatus === "APPROVED")
+        return "ALL_DONE";
+      if (campaignStatus === "APPROVED") return "CAMPAIGN_PAID";
+      if (referralStatus === "REWARDED") return "REFERRAL_PAID";
+      if (campaignStatus === "TASKS_DONE") return "CAMPAIGN_READY";
+      if (referralStatus === "QUALIFIED") return "REFERRAL_QUALIFIED";
+      if (campaignStatus === "SUBMITTED") return "CAMPAIGN_SUBMITTED";
+      if (campaignStatus === "REJECTED") return "CAMPAIGN_REJECTED";
+      if (referralStatus === "EXPIRED") return "EXPIRED";
+      return "PENDING";
+    }
 
     return sendResponse(res, {
       data: {
@@ -686,18 +712,49 @@ export const getMyReferralDashboard = async (req, res) => {
         },
 
         leaderboardRank: leaderboardRank + 1,
-        referrals: referrals.map((r) => ({
-          id: r.id,
-          status: r.status,
-          role: r.referredRole,
-          name: `${r.referred.firstName} ${r.referred.lastName}`,
-          avatar: r.referred.avatar,
-          bonus: r.referrerBonus,
-          paidAt: r.paidAt,
-          joinedAt: r.referred.createdAt,
-          convertedAt: r.convertedAt,
-          expiresAt: r.expiresAt,
-        })),
+
+        referrals: referrals.map((r) => {
+          const c = r.referred.campaignReferralReceived;
+          const campaignTasksDone = c
+            ? [
+                c.hasDownloadedApp,
+                c.hasSetupProfile,
+                c.hasFollowedFb,
+                c.hasFollowedIg,
+                c.hasFollowedTt,
+              ].filter(Boolean).length
+            : 0;
+
+          const campaign = c
+            ? {
+                id: c.id,
+                status: c.status,
+                tasksCompleted: campaignTasksDone,
+                tasksTotal: 5,
+                rewardAmount: c.rewardAmount,
+                reviewedAt: c.reviewedAt,
+                tasksCompletedAt: c.tasksCompletedAt,
+              }
+            : null;
+
+          return {
+            id: r.id,
+            status: r.status,
+            role: r.referredRole,
+            name: `${r.referred.firstName} ${r.referred.lastName}`,
+            avatar: r.referred.avatar,
+            bonus: r.referrerBonus,
+            paidAt: r.paidAt,
+            joinedAt: r.referred.createdAt,
+            convertedAt: r.convertedAt,
+            expiresAt: r.expiresAt,
+
+            // ── Cross-system enrichment ────────────────────────────────────
+            campaign, // null if the user didn't come through the campaign
+            combinedStatus: combinedStatus(r.status, c?.status),
+          };
+        }),
+
         recentEarnings: walletTransactions,
       },
     });

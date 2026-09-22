@@ -658,3 +658,24 @@ export function workerProfileCompletion(worker) {
   ];
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
+
+// ── Shared date + code helpers ────────────────────────────────────────────────
+
+/**
+ * Returns today's date in "YYYY-MM-DD" form (UTC).
+ * Used by both the campaign submission and any daily-cron logic.
+ */
+export function todayDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Generates a referral code like "SPA3F2B8C1".
+ * Used on user signup and whenever a user's code needs auto-generation.
+ */
+export function makeReferralCode() {
+  // Lazy import to avoid a top-level crypto dependency in helpers.js
+  // if this file is ever imported in a browser-like environment.
+  const { randomBytes } = require("node:crypto");
+  return `SP${randomBytes(4).toString("hex").toUpperCase()}`;
+}
