@@ -292,6 +292,8 @@ export const applyReferralOnSignup = async (newUserId, referralCode) => {
     const bonus = tierBonus(referrer.referralTier, newUser.role);
 
     // Create referral record
+    // NOTE: `refereePerk` is a String column — store the human-readable
+    // description (e.g. "30-day profile boost..."), not the whole perk object.
     const referral = await prisma.referral.create({
       data: {
         referrerId: referrer.id,
@@ -300,7 +302,7 @@ export const applyReferralOnSignup = async (newUserId, referralCode) => {
         status: "PENDING",
         referredRole: newUser.role,
         referrerBonus: bonus,
-        refereePerk: perk,
+        refereePerk: perk.description,
         currency: REFERRAL_CONFIG.CURRENCY,
         expiresAt: expiryDate(),
       },
@@ -318,7 +320,7 @@ export const applyReferralOnSignup = async (newUserId, referralCode) => {
       data: { totalReferrals: { increment: 1 } },
     });
 
-    // Immediate cash bonus for HIRER referee (₦500 signup credit)
+    // Immediate cash bonus for HIRER referee (₦150 signup credit)
     if (newUser.role === "HIRER" && perk.cashBonus > 0) {
       await prisma.$transaction([
         prisma.user.update({
@@ -355,7 +357,12 @@ export const applyReferralOnSignup = async (newUserId, referralCode) => {
 
     return referral;
   } catch (err) {
-    console.error("applyReferralOnSignup error:", err);
+    console.error("❌ applyReferralOnSignup FAILED:", err.message);
+    console.error(
+      "   full stack:",
+      err.stack?.split("\n").slice(0, 6).join("\n"),
+    );
+    console.error("   args:", { newUserId, referralCode });
     return null; // non-blocking — don't fail signup
   }
 };
