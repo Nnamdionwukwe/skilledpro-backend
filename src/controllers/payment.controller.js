@@ -24,6 +24,12 @@ import {
   getHirerFirstBookingDiscount,
 } from "./referral.controller.js";
 
+import {
+  verifyWithdrawalPin,
+  PIN_MAX_ATTEMPTS,
+  PIN_DIGITS_RE,
+} from "../services/pin.service.js";
+
 import { releaseEscrow } from "../services/payment.service.js";
 import {
   createRefundFromAdmin,
@@ -47,9 +53,6 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
-const PIN_MAX_ATTEMPTS = 3;
-const PIN_LOCKOUT_MINS = 30;
-const PIN_DIGITS_RE = /^\d{4}$/;
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
@@ -941,6 +944,9 @@ export const refundPayment = asyncHandler(async (req, res) => {
 // Debt handling: if the worker has an outstanding debt (from a dispute
 // refund that couldn't be clawed back because they had already withdrawn
 // the earnings), the debt is auto-deducted from this payout first.
+//
+// PIN: verified via the shared pin.service so the same 4-digit PIN and
+// lockout counter apply to worker, referral, and campaign wallets alike.
 // ─────────────────────────────────────────────────────────────────────────────
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1000,7 +1006,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  const pinCheck = await _verifyPin(user, pin);
+  const pinCheck = await verifyWithdrawalPin(user, pin);
 
   if (!pinCheck.ok) {
     if (pinCheck.reason === "locked") {
@@ -2297,70 +2303,6 @@ async function _notifyPaymentHeld(bookingId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WITHDRAWAL PIN — additions to payment.controller.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Add this import at the top of payment.controller.js (alongside existing imports):
-//
-//   import bcrypt from "bcryptjs";
-//
-// Then add the four exports below anywhere before the final export block.
-// Also replace requestWithdrawal with the new version at the bottom.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ── Internal helper — verifies PIN and handles lockout ────────────────────────
-async function _verifyPin(user, pin) {
-  // Not set yet
-  if (!user.withdrawalPinSet || !user.withdrawalPin) {
-    return { ok: false, reason: "no_pin" };
-  }
-
-  // Locked out?
-  if (
-    user.withdrawalPinLockedUntil &&
-    new Date() < user.withdrawalPinLockedUntil
-  ) {
-    const mins = Math.ceil(
-      (user.withdrawalPinLockedUntil - Date.now()) / 60000,
-    );
-    return { ok: false, reason: "locked", mins };
-  }
-
-  const match = await bcrypt.compare(String(pin), user.withdrawalPin);
-
-  if (!match) {
-    const attempts = user.withdrawalPinAttempts + 1;
-    const lockedUntil =
-      attempts >= PIN_MAX_ATTEMPTS
-        ? new Date(Date.now() + PIN_LOCKOUT_MINS * 60000)
-        : null;
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        withdrawalPinAttempts: attempts,
-        withdrawalPinLockedUntil: lockedUntil,
-      },
-    });
-
-    const remaining = PIN_MAX_ATTEMPTS - attempts;
-    return {
-      ok: false,
-      reason: "wrong_pin",
-      remaining: Math.max(0, remaining),
-      locked: attempts >= PIN_MAX_ATTEMPTS,
-    };
-  }
-
-  // Correct — reset attempts
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { withdrawalPinAttempts: 0, withdrawalPinLockedUntil: null },
-  });
-
-  return { ok: true };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // § A  SET WITHDRAWAL PIN (first time)
 // POST /api/payments/pin/set
 // Body: { pin: "1234" }
@@ -2438,7 +2380,7 @@ export const changeWithdrawalPin = asyncHandler(async (req, res) => {
     });
   }
 
-  const check = await _verifyPin(user, currentPin);
+  const check = await verifyWithdrawalPin(user, currentPin);
   if (!check.ok) {
     if (check.reason === "locked") {
       return res.status(429).json({

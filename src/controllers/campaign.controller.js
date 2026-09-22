@@ -35,6 +35,8 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+import { verifyWithdrawalPin } from "../services/pin.service.js";
+
 // ── Campaign Configuration ────────────────────────────────────────────────────
 // Values come from src/config/rewards.js — the single source of truth.
 // The SOCIAL block stays here because it's campaign-specific.
@@ -940,10 +942,12 @@ export const getCampaignWallet = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 8. WITHDRAW CAMPAIGN EARNINGS   POST /campaign/withdraw
+//
+// Requires the 4-digit withdrawal PIN. Shared across all three wallets.
 // ─────────────────────────────────────────────────────────────────────────────
 export const withdrawCampaignEarnings = async (req, res) => {
   try {
-    const { amount, bankName, accountNumber, accountName } = req.body;
+    const { amount, pin, bankName, accountNumber, accountName } = req.body;
 
     if (!amount || !bankName || !accountNumber || !accountName) {
       return sendError(
@@ -953,6 +957,63 @@ export const withdrawCampaignEarnings = async (req, res) => {
       );
     }
 
+    // ── 1. Require PIN ───────────────────────────────────────────────────
+    if (!pin) {
+      return sendError(res, "Withdrawal PIN is required", 400);
+    }
+
+    // ── 2. Load user with PIN fields ─────────────────────────────────────
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        campaignWalletBalance: true,
+        firstName: true,
+        withdrawalPin: true,
+        withdrawalPinSet: true,
+        withdrawalPinAttempts: true,
+        withdrawalPinLockedUntil: true,
+      },
+    });
+    if (!user) return sendError(res, "User not found", 404);
+
+    // ── 3. PIN must be set ───────────────────────────────────────────────
+    if (!user.withdrawalPinSet) {
+      return sendError(
+        res,
+        "You must set a 4-digit withdrawal PIN before withdrawing. POST /api/payments/pin/set",
+        403,
+      );
+    }
+
+    // ── 4. Verify PIN ────────────────────────────────────────────────────
+    const pinCheck = await verifyWithdrawalPin(user, pin);
+
+    if (!pinCheck.ok) {
+      if (pinCheck.reason === "locked") {
+        return sendError(
+          res,
+          `Too many wrong PIN attempts. Try again in ${pinCheck.mins} minute(s).`,
+          429,
+        );
+      }
+      if (pinCheck.reason === "no_pin") {
+        return sendError(
+          res,
+          "No withdrawal PIN set. POST /api/payments/pin/set first.",
+          403,
+        );
+      }
+      return sendError(
+        res,
+        pinCheck.remaining > 0
+          ? `Incorrect PIN. ${pinCheck.remaining} attempt(s) remaining before lockout.`
+          : "Too many wrong attempts. Account locked for 30 minutes.",
+        401,
+      );
+    }
+
+    // ── 5. Validate amount ───────────────────────────────────────────────
     const withdrawAmount = parseFloat(amount);
     if (
       isNaN(withdrawAmount) ||
@@ -965,11 +1026,6 @@ export const withdrawCampaignEarnings = async (req, res) => {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { campaignWalletBalance: true, firstName: true },
-    });
-    if (!user) return sendError(res, "User not found", 404);
     if (user.campaignWalletBalance < withdrawAmount) {
       return sendError(
         res,
@@ -978,7 +1034,7 @@ export const withdrawCampaignEarnings = async (req, res) => {
       );
     }
 
-    // Debit + log
+    // ── 6. Debit + log ───────────────────────────────────────────────────
     await prisma.$transaction([
       prisma.user.update({
         where: { id: req.user.id },

@@ -38,6 +38,7 @@ import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
 import { REWARDS } from "../config/rewards.js";
 import { FEE_CONFIG } from "../config/fees.js";
+import { verifyWithdrawalPin } from "../services/pin.service.js";
 import {
   paginate,
   paginationMeta,
@@ -813,10 +814,13 @@ export const getMyWallet = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 8. WITHDRAW REFERRAL EARNINGS     POST /referral/withdraw
+//
+// Requires the 4-digit withdrawal PIN. The PIN is shared across all three
+// wallets (worker, referral, campaign) — one PIN, set once, used everywhere.
 // ─────────────────────────────────────────────────────────────────────────────
 export const withdrawReferralEarnings = async (req, res) => {
   try {
-    const { amount, bankName, accountNumber, accountName } = req.body;
+    const { amount, pin, bankName, accountNumber, accountName } = req.body;
 
     if (!amount || !bankName || !accountNumber || !accountName) {
       return sendError(
@@ -826,6 +830,65 @@ export const withdrawReferralEarnings = async (req, res) => {
       );
     }
 
+    // ── 1. Validate PIN was sent ─────────────────────────────────────────
+    if (!pin) {
+      return sendError(res, "Withdrawal PIN is required", 400);
+    }
+
+    // ── 2. Load the user with PIN fields ─────────────────────────────────
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        walletBalance: true,
+        firstName: true,
+        lastName: true,
+        withdrawalPin: true,
+        withdrawalPinSet: true,
+        withdrawalPinAttempts: true,
+        withdrawalPinLockedUntil: true,
+      },
+    });
+
+    if (!user) return sendError(res, "User not found", 404);
+
+    // ── 3. PIN must be set before withdrawing ────────────────────────────
+    if (!user.withdrawalPinSet) {
+      return sendError(
+        res,
+        "You must set a 4-digit withdrawal PIN before withdrawing. POST /api/payments/pin/set",
+        403,
+      );
+    }
+
+    // ── 4. Verify PIN (handles lockout + attempts) ───────────────────────
+    const pinCheck = await verifyWithdrawalPin(user, pin);
+
+    if (!pinCheck.ok) {
+      if (pinCheck.reason === "locked") {
+        return sendError(
+          res,
+          `Too many wrong PIN attempts. Try again in ${pinCheck.mins} minute(s).`,
+          429,
+        );
+      }
+      if (pinCheck.reason === "no_pin") {
+        return sendError(
+          res,
+          "No withdrawal PIN set. POST /api/payments/pin/set first.",
+          403,
+        );
+      }
+      return sendError(
+        res,
+        pinCheck.remaining > 0
+          ? `Incorrect PIN. ${pinCheck.remaining} attempt(s) remaining before lockout.`
+          : "Too many wrong attempts. Account locked for 30 minutes.",
+        401,
+      );
+    }
+
+    // ── 5. Validate amount ───────────────────────────────────────────────
     const withdrawAmount = parseFloat(amount);
     if (
       isNaN(withdrawAmount) ||
@@ -838,12 +901,6 @@ export const withdrawReferralEarnings = async (req, res) => {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { walletBalance: true, firstName: true, lastName: true },
-    });
-
-    if (!user) return sendError(res, "User not found", 404);
     if (user.walletBalance < withdrawAmount) {
       return sendError(
         res,
@@ -852,7 +909,7 @@ export const withdrawReferralEarnings = async (req, res) => {
       );
     }
 
-    // Debit wallet and create pending withdrawal
+    // ── 6. Debit wallet and create pending withdrawal ────────────────────
     await prisma.$transaction([
       prisma.user.update({
         where: { id: req.user.id },
