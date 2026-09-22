@@ -36,14 +36,19 @@ import {
 
 // ── Campaign Configuration ────────────────────────────────────────────────────
 export const CAMPAIGN_CONFIG = {
-  REWARD_PER_REFERRAL: 100, // ₦100 per fully qualified referral
-  MIN_WITHDRAWAL: 500, // ₦500 minimum withdrawal
+  REWARD_PER_REFERRAL: 200, // ₦200 per fully qualified referral
+  MIN_WITHDRAWAL: 1000, // ₦500 minimum withdrawal
   CURRENCY: "NGN",
   MAX_DAILY_REFERRALS: 50, // fraud guard — max per day per user
   SOCIAL: {
-    facebook: process.env.FACEBOOK_URL || "https://facebook.com/skilledproz",
-    instagram: process.env.INSTAGRAM_URL || "https://instagram.com/skilledproz",
-    tiktok: process.env.TIKTOK_URL || "https://tiktok.com/@skilledproz",
+    facebook:
+      process.env.FACEBOOK_URL || "https://www.facebook.com/share/1DCpgLdsQ8/",
+    instagram:
+      process.env.INSTAGRAM_URL ||
+      "https://www.instagram.com/skilledproz?stkn=MWltanU2ZmY4Ym51ag%3D%3D&utm_source=qr",
+    tiktok:
+      process.env.TIKTOK_URL ||
+      "https://www.tiktok.com/@skilledprozmarketplace?_r=1&_t=ZS-99wjTpteUbK",
   },
 };
 
