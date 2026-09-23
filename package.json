@@ -18,7 +18,8 @@
     "deploy:logs": "bash deploy-logs.sh",
     "prisma:format": "prisma format",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "audit:admin:backend": "node scripts/audit-admin-backend.mjs"
   },
   "keywords": [],
   "author": "",

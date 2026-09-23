@@ -1,0 +1,312 @@
+═══════════════════════════════════════════════════════════════
+ADMIN BACKEND AUDIT
+═══════════════════════════════════════════════════════════════
+
+─────────────────────────────────────────────────────────────
+A. ADMIN HANDLERS LIVING OUTSIDE admin.controller.js
+─────────────────────────────────────────────────────────────
+
+src/controllers/admin.dispute.controller.js
+  resolveDispute
+  → 1 handler(s) should move to admin.controller.js
+
+src/controllers/adminJob.controller.js
+  adminCreateJobPost
+  adminGetAllJobPosts
+  adminGetJobPost
+  adminUpdateJobPost
+  adminDeleteJobPost
+  adminToggleJobStatus
+  adminBulkUpdateStatus
+  adminBulkDelete
+  → 8 handler(s) should move to admin.controller.js
+
+src/controllers/campaign.controller.js
+  adminGetSubmissions
+  adminReviewSubmission
+  adminApproveCampaignWithdrawal
+  adminRejectCampaignWithdrawal
+  adminGetCampaignStats
+  adminGetCampaignWithdrawals
+  → 6 handler(s) should move to admin.controller.js
+
+src/controllers/category.controller.js
+  deleteCategory
+  updateCategory
+  → 2 handler(s) should move to admin.controller.js
+
+src/controllers/dispute.controller.js
+  resolveDispute
+  → 1 handler(s) should move to admin.controller.js
+
+src/controllers/hirerWallet.controller.js
+  approveWithdrawal
+  rejectWithdrawal
+  → 2 handler(s) should move to admin.controller.js
+
+src/controllers/payment.controller.js
+  approveWithdrawalPayout
+  getAllPayments
+  → 2 handler(s) should move to admin.controller.js
+
+src/controllers/referral.controller.js
+  adminGetAllReferrals
+  adminGetReferralStats
+  adminFlagReferral
+  adminAdjustWallet
+  adminManualReward
+  adminExpireReferral
+  → 6 handler(s) should move to admin.controller.js
+
+src/controllers/report.controller.js
+  adminGetAllReports
+  adminGetReportDetail
+  adminGetReportsByTarget
+  adminStartReview
+  adminResolveReport
+  adminDismissReport
+  adminBulkDismiss
+  adminGetReportStats
+  → 8 handler(s) should move to admin.controller.js
+
+src/controllers/review.controller.js
+  deleteReview
+  → 1 handler(s) should move to admin.controller.js
+
+src/controllers/verification.controller.js
+  getPendingVerifications
+  getVerificationStats
+  → 2 handler(s) should move to admin.controller.js
+
+─────────────────────────────────────────────────────────────
+B. ADMIN ROUTES LIVING OUTSIDE admin.routes.js
+─────────────────────────────────────────────────────────────
+
+src/routes/adminLogs.routes.js  (mounted at /api/admin)
+  GET    /logs/admin/:adminId           → /api/admin/logs/admin/:adminId
+  → 1 route(s) should move to admin.routes.js
+
+src/routes/audit.routes.js  (mounted at /api/audit)
+  GET    /admins                        → /api/audit/admins
+  → 1 route(s) should move to admin.routes.js
+
+src/routes/campaign.routes.js  (mounted at /api/campaign)
+  GET    /admin/stats                   → /api/campaign/admin/stats
+  GET    /admin/submissions             → /api/campaign/admin/submissions
+  PATCH  /admin/submissions/:id/review  → /api/campaign/admin/submissions/:id/review
+  GET    /admin/withdrawals             → /api/campaign/admin/withdrawals
+  PATCH  /admin/withdrawals/:id/approve → /api/campaign/admin/withdrawals/:id/approve
+  PATCH  /admin/withdrawals/:id/reject  → /api/campaign/admin/withdrawals/:id/reject
+  → 6 route(s) should move to admin.routes.js
+
+src/routes/category.routes.js  (mounted at /api/categories)
+  PATCH  /:id                           → /api/categories/:id
+  DELETE /:id                           → /api/categories/:id
+  → 2 route(s) should move to admin.routes.js
+
+src/routes/dispute.routes.js  (mounted at /api/disputes)
+  GET    /admin/all                     → /api/disputes/admin/all
+  PATCH  /admin/:id/resolve             → /api/disputes/admin/:id/resolve
+  → 2 route(s) should move to admin.routes.js
+
+src/routes/feedback.routes.js  (mounted at /api/feedback)
+  GET    /admin                         → /api/feedback/admin
+  PATCH  /admin/:id/status              → /api/feedback/admin/:id/status
+  GET    /admin/:id                     → /api/feedback/admin/:id
+  PATCH  /admin/:id/status              → /api/feedback/admin/:id/status
+  DELETE /admin/:id                     → /api/feedback/admin/:id
+  GET    /admin/export/csv              → /api/feedback/admin/export/csv
+  → 6 route(s) should move to admin.routes.js
+
+src/routes/hirerWallet.routes.js  (mounted at /api/wallet)
+  GET    /admin/withdrawals             → /api/wallet/admin/withdrawals
+  PATCH  /admin/withdrawals/:id/approve → /api/wallet/admin/withdrawals/:id/approve
+  PATCH  /admin/withdrawals/:id/reject  → /api/wallet/admin/withdrawals/:id/reject
+  GET    /admin/stats                   → /api/wallet/admin/stats
+  → 4 route(s) should move to admin.routes.js
+
+src/routes/payment.routes.js  (mounted at /api/payments)
+  POST   /withdrawals/:withdrawalId/payout → /api/payments/withdrawals/:withdrawalId/payout
+  GET    /                              → /api/payments/
+  → 2 route(s) should move to admin.routes.js
+
+src/routes/referral.routes.js  (mounted at /api/referral)
+  GET    /admin                         → /api/referral/admin
+  GET    /admin/stats                   → /api/referral/admin/stats
+  PATCH  /admin/:id/flag                → /api/referral/admin/:id/flag
+  PATCH  /admin/:id/expire              → /api/referral/admin/:id/expire
+  POST   /admin/:id/reward              → /api/referral/admin/:id/reward
+  PATCH  /admin/:id/wallet              → /api/referral/admin/:id/wallet
+  → 6 route(s) should move to admin.routes.js
+
+src/routes/refund.routes.js  (mounted at /api/refunds)
+  GET    /admin/all                     → /api/refunds/admin/all
+  GET    /admin/stats/summary           → /api/refunds/admin/stats/summary
+  PUT    /admin/bulk-approve            → /api/refunds/admin/bulk-approve
+  POST   /admin/bulk-approve            → /api/refunds/admin/bulk-approve
+  PUT    /admin/bulk-reject             → /api/refunds/admin/bulk-reject
+  POST   /admin/bulk-reject             → /api/refunds/admin/bulk-reject
+  PUT    /admin/settings/auto-approve   → /api/refunds/admin/settings/auto-approve
+  GET    /admin/settings/auto-approve   → /api/refunds/admin/settings/auto-approve
+  PUT    /admin/:id/approve             → /api/refunds/admin/:id/approve
+  PUT    /admin/:id/reject              → /api/refunds/admin/:id/reject
+  PUT    /admin/:id/reverse             → /api/refunds/admin/:id/reverse
+  GET    /admin/:id                     → /api/refunds/admin/:id
+  → 12 route(s) should move to admin.routes.js
+
+src/routes/report.routes.js  (mounted at /api/reports)
+  GET    /admin/stats                   → /api/reports/admin/stats
+  GET    /admin                         → /api/reports/admin
+  GET    /admin/target/:targetType/:targetId → /api/reports/admin/target/:targetType/:targetId
+  PATCH  /admin/bulk-dismiss            → /api/reports/admin/bulk-dismiss
+  GET    /admin/:id                     → /api/reports/admin/:id
+  PATCH  /admin/:id/review              → /api/reports/admin/:id/review
+  PATCH  /admin/:id/resolve             → /api/reports/admin/:id/resolve
+  PATCH  /admin/:id/dismiss             → /api/reports/admin/:id/dismiss
+  → 8 route(s) should move to admin.routes.js
+
+src/routes/subscription.routes.js  (mounted at /api/subscriptions)
+  GET    /admin/promo-codes             → /api/subscriptions/admin/promo-codes
+  POST   /admin/promo-codes             → /api/subscriptions/admin/promo-codes
+  GET    /admin/promo-codes/:id         → /api/subscriptions/admin/promo-codes/:id
+  PATCH  /admin/promo-codes/:id         → /api/subscriptions/admin/promo-codes/:id
+  PATCH  /admin/promo-codes/:id/toggle  → /api/subscriptions/admin/promo-codes/:id/toggle
+  DELETE /admin/promo-codes/:id         → /api/subscriptions/admin/promo-codes/:id
+  → 6 route(s) should move to admin.routes.js
+
+src/routes/survey.routes.js  (mounted at /api/survey)
+  GET    /admin/stats                   → /api/survey/admin/stats
+  GET    /admin/responses               → /api/survey/admin/responses
+  GET    /admin/responses/:id           → /api/survey/admin/responses/:id
+  PATCH  /admin/responses/:id/status    → /api/survey/admin/responses/:id/status
+  DELETE /admin/responses/bulk          → /api/survey/admin/responses/bulk
+  GET    /admin/export/csv              → /api/survey/admin/export/csv
+  → 6 route(s) should move to admin.routes.js
+
+src/routes/verification.routes.js  (mounted at /api/verification)
+  GET    /admin/stats                   → /api/verification/admin/stats
+  GET    /admin/pending                 → /api/verification/admin/pending
+  GET    /admin/verified                → /api/verification/admin/verified
+  GET    /admin/hirers/pending          → /api/verification/admin/hirers/pending
+  PATCH  /admin/certifications/:certId/verify → /api/verification/admin/certifications/:certId/verify
+  PATCH  /admin/:userId/review          → /api/verification/admin/:userId/review
+  PATCH  /admin/:userId/background-check → /api/verification/admin/:userId/background-check
+  PATCH  /admin/hirers/:userId/review   → /api/verification/admin/hirers/:userId/review
+  → 8 route(s) should move to admin.routes.js
+
+src/routes/waitlist.routes.js  (mounted at /api/waitlist)
+  GET    /admin/stats                   → /api/waitlist/admin/stats
+  GET    /admin/entries                 → /api/waitlist/admin/entries
+  GET    /admin/entries/:id             → /api/waitlist/admin/entries/:id
+  PATCH  /admin/entries/:id/status      → /api/waitlist/admin/entries/:id/status
+  DELETE /admin/entries/:id             → /api/waitlist/admin/entries/:id
+  GET    /admin/export/csv              → /api/waitlist/admin/export/csv
+  POST   /admin/broadcast               → /api/waitlist/admin/broadcast
+  GET    /admin/campaigns               → /api/waitlist/admin/campaigns
+  POST   /admin/launch                  → /api/waitlist/admin/launch
+  → 9 route(s) should move to admin.routes.js
+
+─────────────────────────────────────────────────────────────
+C. HANDLERS IMPORTED BY admin.routes.js FROM NON-ADMIN CONTROLLERS
+─────────────────────────────────────────────────────────────
+
+From ../controllers/payment.controller.js:
+  - approveWithdrawalPayout
+  → handler(s) should move to admin.controller.js
+
+From ../controllers/admin.refund.controller.js:
+  - getAllRefunds
+  - getRefundDetails
+  - approveRefund
+  - rejectRefund
+  - reverseRefund
+  - bulkApproveRefunds
+  - bulkRejectRefunds
+  - getRefundStats
+  - toggleAutoApproval
+  - getAutoApprovalStatus
+  → handler(s) should move to admin.controller.js
+
+─────────────────────────────────────────────────────────────
+D. DUPLICATE ADMIN ROUTES
+─────────────────────────────────────────────────────────────
+
+SAME HANDLER IN TWO FILES: getVerificationStats
+  src/routes/admin.routes.js  → GET /verifications/stats
+  src/routes/verification.routes.js  → GET /admin/stats
+
+SAME HANDLER IN TWO FILES: getPendingVerifications
+  src/routes/admin.routes.js  → GET /verifications/pending
+  src/routes/verification.routes.js  → GET /admin/pending
+
+SAME HANDLER IN TWO FILES: approveWithdrawalPayout
+  src/routes/admin.routes.js  → POST /withdrawals/:withdrawalId/payout
+  src/routes/payment.routes.js  → POST /withdrawals/:withdrawalId/payout
+
+SAME HANDLER IN TWO FILES: updateCategory
+  src/routes/admin.routes.js  → PATCH /categories/:categoryId
+  src/routes/category.routes.js  → PATCH /:id
+
+SAME HANDLER IN TWO FILES: deleteCategory
+  src/routes/admin.routes.js  → DELETE /categories/:categoryId
+  src/routes/category.routes.js  → DELETE /:id
+
+SAME HANDLER IN TWO FILES: deleteReview
+  src/routes/admin.routes.js  → DELETE /reviews/:reviewId
+  src/routes/review.routes.js  → DELETE /:reviewId
+
+SAME HANDLER IN TWO FILES: adminDeleteJobPost
+  src/routes/admin.routes.js  → DELETE /platform/jobs/:jobId
+  src/routes/adminJob.routes.js  → DELETE /external/jobs/:id
+
+SAME HANDLER IN TWO FILES: getAllRefunds
+  src/routes/admin.routes.js  → GET /refunds
+  src/routes/refund.routes.js  → GET /admin/all
+
+SAME HANDLER IN TWO FILES: getRefundStats
+  src/routes/admin.routes.js  → GET /refunds/stats/summary
+  src/routes/refund.routes.js  → GET /admin/stats/summary
+
+SAME HANDLER IN TWO FILES: bulkApproveRefunds
+  src/routes/admin.routes.js  → PUT /refunds/bulk-approve
+  src/routes/admin.routes.js  → POST /refunds/bulk-approve
+  src/routes/refund.routes.js  → PUT /admin/bulk-approve
+  src/routes/refund.routes.js  → POST /admin/bulk-approve
+
+SAME HANDLER IN TWO FILES: bulkRejectRefunds
+  src/routes/admin.routes.js  → PUT /refunds/bulk-reject
+  src/routes/admin.routes.js  → POST /refunds/bulk-reject
+  src/routes/refund.routes.js  → PUT /admin/bulk-reject
+  src/routes/refund.routes.js  → POST /admin/bulk-reject
+
+SAME HANDLER IN TWO FILES: getRefundDetails
+  src/routes/admin.routes.js  → GET /refunds/:id
+  src/routes/refund.routes.js  → GET /:id
+
+SAME HANDLER IN TWO FILES: approveRefund
+  src/routes/admin.routes.js  → PUT /refunds/:id/approve
+  src/routes/refund.routes.js  → PUT /admin/:id/approve
+
+SAME HANDLER IN TWO FILES: rejectRefund
+  src/routes/admin.routes.js  → PUT /refunds/:id/reject
+  src/routes/refund.routes.js  → PUT /admin/:id/reject
+
+SAME HANDLER IN TWO FILES: reverseRefund
+  src/routes/admin.routes.js  → PUT /refunds/:id/reverse
+  src/routes/refund.routes.js  → PUT /admin/:id/reverse
+
+SAME HANDLER IN TWO FILES: toggleAutoApproval
+  src/routes/admin.routes.js  → PUT /settings/refund-auto-approve
+  src/routes/refund.routes.js  → PUT /admin/settings/auto-approve
+
+SAME HANDLER IN TWO FILES: getAutoApprovalStatus
+  src/routes/admin.routes.js  → GET /settings/refund-auto-approve
+  src/routes/refund.routes.js  → GET /admin/settings/auto-approve
+
+═══════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════
+Controllers with admin handlers to move: 11
+Total admin handlers to move:             39
+Route files with admin routes to move:    15
+Total admin routes to move:               79
