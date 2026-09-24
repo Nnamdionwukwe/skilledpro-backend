@@ -1,0 +1,863 @@
+{
+  "generatedAt": "2026-09-24T12:29:12.058Z",
+  "projectRoot": "/Users/onwukwennamdi/Desktop/skilledpro-backend",
+  "mounts": [
+    {
+      "mountPath": "/health",
+      "router": "healthRouter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api",
+      "router": "globalLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/login",
+      "router": "authLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/register",
+      "router": "registerLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/forgot-password",
+      "router": "sensitiveLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/reset-password",
+      "router": "sensitiveLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/resend-verification",
+      "router": "sensitiveLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth/verify-email",
+      "router": "sensitiveLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/wallet",
+      "router": "walletLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/wallet/fund",
+      "router": "walletLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/wallet/withdraw",
+      "router": "walletLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/admin",
+      "router": "adminLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/feedback",
+      "router": "feedbackLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/survey",
+      "router": "surveyLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/notifications/broadcast",
+      "router": "emailLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/waitlist/admin/broadcast",
+      "router": "emailLimiter",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/auth",
+      "router": "authRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/users",
+      "router": "userRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/workers",
+      "router": "workerRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/hirers",
+      "router": "hirerRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/bookings",
+      "router": "bookingRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/payments",
+      "router": "paymentRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/reviews",
+      "router": "reviewRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/messages",
+      "router": "messageRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/categories",
+      "router": "categoryRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/verification",
+      "router": "verificationRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/search",
+      "router": "searchRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/disputes",
+      "router": "disputeRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/admin",
+      "router": "adminRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/notifications",
+      "router": "notificationRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/jobs",
+      "router": "jobRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/ai",
+      "router": "aiRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/insurance",
+      "router": "insuranceRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/subscriptions",
+      "router": "subscriptionRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/featured",
+      "router": "featuredRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/posts",
+      "router": "postRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/video-calls",
+      "router": "videoCallRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/settings",
+      "router": "settingsRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/translate",
+      "router": "translateRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/referral",
+      "router": "referralRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/campaign",
+      "router": "campaignRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/reports",
+      "router": "reportRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/audit",
+      "router": "auditRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/admin",
+      "router": "adminJobRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/external-jobs",
+      "router": "externalJobRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/survey",
+      "router": "surveyRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/waitlist",
+      "router": "waitlistRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/feedback",
+      "router": "feedbackRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/wallet",
+      "router": "hirerWalletRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/admin",
+      "router": "adminLogsRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/refunds",
+      "router": "refundRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/admin/worker-debts",
+      "router": "adminDebtRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    },
+    {
+      "mountPath": "/api/worker/refunds",
+      "router": "workerRefundRoutes",
+      "file": "/Users/onwukwennamdi/Desktop/skilledpro-backend/src/app.js"
+    }
+  ],
+  "routeFiles": [
+    {
+      "file": "src/routes/admin.debt.routes.js",
+      "uses": [
+        "protect",
+        "requireRole(\"ADMIN\""
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/stats",
+          "handler": "getWorkerDebtStats"
+        },
+        {
+          "method": "GET",
+          "path": "/by-worker/:workerId",
+          "handler": "getDebtsByWorker"
+        },
+        {
+          "method": "GET",
+          "path": "/",
+          "handler": "getAllWorkerDebts"
+        },
+        {
+          "method": "GET",
+          "path": "/:id",
+          "handler": "getWorkerDebtDetail"
+        },
+        {
+          "method": "PATCH",
+          "path": "/:id/forgive",
+          "handler": "forgiveWorkerDebt"
+        },
+        {
+          "method": "PATCH",
+          "path": "/:id/mark-collection",
+          "handler": "markDebtForCollection"
+        }
+      ]
+    },
+    {
+      "file": "src/routes/admin.routes.js",
+      "uses": [
+        "protect, requireRole(\"ADMIN\""
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/stats",
+          "handler": "getPlatformStats"
+        },
+        {
+          "method": "GET",
+          "path": "/dashboard",
+          "handler": "getAdminDashboard"
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/users",
+          "handler": "getUserGrowthAnalytics"
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/revenue",
+          "handler": "getRevenueAnalytics"
+        },
+        {
+          "method": "GET",
+          "path": "/users",
+          "handler": "getAllUsers"
+        },
+        {
+          "method": "GET",
+          "path": "/users/:userId",
+          "handler": "getUserDetail"
+        },
+        {
+          "method": "PATCH",
+          "path": "/users/:userId/ban",
+          "handler": "banUser"
+        },
+        {
+          "method": "PATCH",
+          "path": "/users/:userId/unban",
+          "handler": "unbanUser"
+        },
+        {
+          "method": "PATCH",
+          "path": "/users/:userId/role",
+          "handler": "updateUserRole"
+        },
+        {
+          "method": "DELETE",
+          "path": "/users/:userId",
+          "handler": "deleteUser"
+        },
+        {
+          "method": "GET",
+          "path": "/verifications/stats",
+          "handler": "getVerificationStats"
+        },
+        {
+          "method": "GET",
+          "path": "/verifications/pending",
+          "handler": "getPendingVerifications"
+        },
+        {
+          "method": "PATCH",
+          "path": "/users/:userId/verify",
+          "handler": "verifyWorker"
+        },
+        {
+          "method": "GET",
+          "path": "/bookings",
+          "handler": "getAllBookings"
+        },
+        {
+          "method": "GET",
+          "path": "/bookings/:bookingId",
+          "handler": "getAdminBookingDetail"
+        },
+        {
+          "method": "PATCH",
+          "path": "/bookings/:bookingId/status",
+          "handler": "adminUpdateBookingStatus"
+        },
+        {
+          "method": "GET",
+          "path": "/disputes",
+          "handler": "getDisputes"
+        },
+        {
+          "method": "PATCH",
+          "path": "/disputes/:bookingId/resolve",
+          "handler": "resolveDispute"
+        },
+        {
+          "method": "GET",
+          "path": "/payments/stats",
+          "handler": "adminManualPaymentStats"
+        },
+        {
+          "method": "GET",
+          "path": "/payments/booking/:bookingId/attempts",
+          "handler": "adminGetPaymentAttempts"
+        },
+        {
+          "method": "GET",
+          "path": "/payments",
+          "handler": "adminGetManualPayments"
+        },
+        {
+          "method": "GET",
+          "path": "/payments/:paymentId",
+          "handler": "getPaymentDetail"
+        },
+        {
+          "method": "POST",
+          "path": "/payments/:bookingId/release",
+          "handler": "adminReleasePayment"
+        },
+        {
+          "method": "POST",
+          "path": "/payments/:bookingId/refund",
+          "handler": "adminRefundPayment"
+        },
+        {
+          "method": "PATCH",
+          "path": "/payments/:bookingId/verify",
+          "handler": "adminVerifyManualPayment"
+        },
+        {
+          "method": "PATCH",
+          "path": "/payments/:bookingId/reject-manual",
+          "handler": "adminRejectManualPayment"
+        },
+        {
+          "method": "GET",
+          "path": "/withdrawals",
+          "handler": "getAllWithdrawals"
+        },
+        {
+          "method": "PATCH",
+          "path": "/withdrawals/:withdrawalId/approve",
+          "handler": "approveWithdrawal"
+        },
+        {
+          "method": "PATCH",
+          "path": "/withdrawals/:withdrawalId/reject",
+          "handler": "rejectWithdrawal"
+        },
+        {
+          "method": "POST",
+          "path": "/withdrawals/:withdrawalId/payout",
+          "handler": "approveWithdrawalPayout"
+        },
+        {
+          "method": "GET",
+          "path": "/categories",
+          "handler": "getAllCategories"
+        },
+        {
+          "method": "POST",
+          "path": "/categories",
+          "handler": "createCategory"
+        },
+        {
+          "method": "PATCH",
+          "path": "/categories/:categoryId",
+          "handler": "updateCategory"
+        },
+        {
+          "method": "DELETE",
+          "path": "/categories/:categoryId",
+          "handler": "deleteCategory"
+        },
+        {
+          "method": "GET",
+          "path": "/reviews",
+          "handler": "getAllReviews"
+        },
+        {
+          "method": "DELETE",
+          "path": "/reviews/:reviewId",
+          "handler": "deleteReview"
+        },
+        {
+          "method": "GET",
+          "path": "/platform/jobs",
+          "handler": "getAllJobPosts"
+        },
+        {
+          "method": "GET",
+          "path": "/platform/jobs/:jobId",
+          "handler": "getJobPostDetail"
+        },
+        {
+          "method": "PATCH",
+          "path": "/platform/jobs/:jobId/status",
+          "handler": "adminUpdateJobStatus"
+        },
+        {
+          "method": "DELETE",
+          "path": "/platform/jobs/:jobId",
+          "handler": "adminDeleteJobPost"
+        },
+        {
+          "method": "GET",
+          "path": "/subscriptions",
+          "handler": "getAllSubscriptions"
+        },
+        {
+          "method": "PATCH",
+          "path": "/subscriptions/:subscriptionId/cancel",
+          "handler": "adminCancelSubscription"
+        },
+        {
+          "method": "GET",
+          "path": "/featured",
+          "handler": "getAllFeaturedListings"
+        },
+        {
+          "method": "DELETE",
+          "path": "/featured/:listingId",
+          "handler": "adminRemoveFeaturedListing"
+        },
+        {
+          "method": "GET",
+          "path": "/posts",
+          "handler": "getAllPosts"
+        },
+        {
+          "method": "DELETE",
+          "path": "/posts/comments/:commentId",
+          "handler": "adminDeleteComment"
+        },
+        {
+          "method": "DELETE",
+          "path": "/posts/:postId",
+          "handler": "adminDeletePost"
+        },
+        {
+          "method": "GET",
+          "path": "/conversations",
+          "handler": "getAllConversations"
+        },
+        {
+          "method": "GET",
+          "path": "/conversations/:conversationId",
+          "handler": "getConversationMessages"
+        },
+        {
+          "method": "POST",
+          "path": "/broadcast",
+          "handler": "broadcastNotification"
+        },
+        {
+          "method": "GET",
+          "path": "/video-calls",
+          "handler": "getAllVideoCalls"
+        },
+        {
+          "method": "GET",
+          "path": "/refunds",
+          "handler": "getAllRefunds"
+        },
+        {
+          "method": "GET",
+          "path": "/refunds/stats/summary",
+          "handler": "getRefundStats"
+        },
+        {
+          "method": "PUT",
+          "path": "/refunds/bulk-approve",
+          "handler": "bulkApproveRefunds"
+        },
+        {
+          "method": "PUT",
+          "path": "/refunds/bulk-reject",
+          "handler": "bulkRejectRefunds"
+        },
+        {
+          "method": "POST",
+          "path": "/refunds/bulk-approve",
+          "handler": "bulkApproveRefunds"
+        },
+        {
+          "method": "POST",
+          "path": "/refunds/bulk-reject",
+          "handler": "bulkRejectRefunds"
+        },
+        {
+          "method": "GET",
+          "path": "/refunds/:id",
+          "handler": "getRefundDetails"
+        },
+        {
+          "method": "PUT",
+          "path": "/refunds/:id/approve",
+          "handler": "approveRefund"
+        },
+        {
+          "method": "PUT",
+          "path": "/refunds/:id/reject",
+          "handler": "rejectRefund"
+        },
+        {
+          "method": "PUT",
+          "path": "/refunds/:id/reverse",
+          "handler": "reverseRefund"
+        },
+        {
+          "method": "PUT",
+          "path": "/settings/refund-auto-approve",
+          "handler": "toggleAutoApproval"
+        },
+        {
+          "method": "GET",
+          "path": "/settings/refund-auto-approve",
+          "handler": "getAutoApprovalStatus"
+        }
+      ]
+    },
+    {
+      "file": "src/routes/adminJob.routes.js",
+      "uses": [
+        "protect, requireRole(\"ADMIN\""
+      ],
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/external/jobs",
+          "handler": "adminCreateJobPost"
+        },
+        {
+          "method": "GET",
+          "path": "/external/jobs",
+          "handler": "adminGetAllJobPosts"
+        },
+        {
+          "method": "GET",
+          "path": "/external/jobs/:id",
+          "handler": "adminGetJobPost"
+        },
+        {
+          "method": "PUT",
+          "path": "/external/jobs/:id",
+          "handler": "adminUpdateJobPost"
+        },
+        {
+          "method": "PATCH",
+          "path": "/external/jobs/:id",
+          "handler": "adminUpdateJobPost"
+        },
+        {
+          "method": "PATCH",
+          "path": "/external/jobs/:id/status",
+          "handler": "adminToggleJobStatus"
+        },
+        {
+          "method": "DELETE",
+          "path": "/external/jobs/:id",
+          "handler": "adminDeleteJobPost"
+        },
+        {
+          "method": "PATCH",
+          "path": "/external/jobs/bulk/status",
+          "handler": "adminBulkUpdateStatus"
+        },
+        {
+          "method": "DELETE",
+          "path": "/external/jobs/bulk",
+          "handler": "adminBulkDelete"
+        },
+        {
+          "method": "GET",
+          "path": "/external/jobs/:id/stats",
+          "handler": "getJobStats"
+        }
+      ]
+    },
+    {
+      "file": "src/routes/adminLogs.routes.js",
+      "uses": [
+        "protect, requireRole(\"ADMIN\""
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/logs/stats/summary",
+          "handler": "getAuditLogStats"
+        },
+        {
+          "method": "GET",
+          "path": "/logs/export",
+          "handler": "exportAuditLogs"
+        },
+        {
+          "method": "GET",
+          "path": "/logs",
+          "handler": "getAuditLogs"
+        },
+        {
+          "method": "GET",
+          "path": "/logs/admin/:adminId",
+          "handler": "getAuditLogsByAdmin"
+        },
+        {
+          "method": "GET",
+          "path": "/logs/target/:targetType/:targetId",
+          "handler": "getAuditLogsByTarget"
+        },
+        {
+          "method": "GET",
+          "path": "/logs/:id",
+          "handler": "getAuditLogById"
+        }
+      ]
+    }
+  ],
+  "controllerFiles": [
+    {
+      "file": "src/controllers/admin.controller.js",
+      "lines": 3118,
+      "exports": [
+        "getPlatformStats",
+        "getUserGrowthAnalytics",
+        "getRevenueAnalytics",
+        "getAllUsers",
+        "getUserDetail",
+        "banUser",
+        "unbanUser",
+        "deleteUser",
+        "updateUserRole",
+        "verifyWorker",
+        "getPendingVerifications",
+        "getVerificationStats",
+        "getAllBookings",
+        "getAdminBookingDetail",
+        "adminUpdateBookingStatus",
+        "getDisputes",
+        "resolveDispute",
+        "getAllPayments",
+        "getPaymentDetail",
+        "adminReleasePayment",
+        "adminRefundPayment",
+        "getAllWithdrawals",
+        "approveWithdrawal",
+        "rejectWithdrawal",
+        "createCategory",
+        "updateCategory",
+        "deleteCategory",
+        "getAllCategories",
+        "getAllReviews",
+        "deleteReview",
+        "getAllJobPosts",
+        "getJobPostDetail",
+        "adminDeleteJobPost",
+        "adminUpdateJobStatus",
+        "getAllSubscriptions",
+        "adminCancelSubscription",
+        "getAllFeaturedListings",
+        "adminRemoveFeaturedListing",
+        "getAllPosts",
+        "adminDeletePost",
+        "adminDeleteComment",
+        "getAllConversations",
+        "getConversationMessages",
+        "broadcastNotification",
+        "getAllVideoCalls",
+        "verifyManualPayment",
+        "rejectManualPayment",
+        "getAdminDashboard",
+        "adminCreateJobPost",
+        "adminUpdateJobPost",
+        "adminGetManualPayments",
+        "adminGetPaymentAttempts",
+        "adminVerifyManualPayment",
+        "adminRejectManualPayment",
+        "adminManualPaymentStats"
+      ]
+    },
+    {
+      "file": "src/controllers/admin.debt.controller.js",
+      "lines": 427,
+      "exports": [
+        "getAllWorkerDebts",
+        "getWorkerDebtStats",
+        "getWorkerDebtDetail",
+        "forgiveWorkerDebt",
+        "markDebtForCollection",
+        "getDebtsByWorker"
+      ]
+    },
+    {
+      "file": "src/controllers/admin.dispute.controller.js",
+      "lines": 200,
+      "exports": [
+        "getAllDisputes",
+        "resolveDispute"
+      ]
+    },
+    {
+      "file": "src/controllers/admin.refund.controller.js",
+      "lines": 619,
+      "exports": [
+        "getAllRefunds",
+        "getRefundDetails",
+        "getRefundStats",
+        "approveRefund",
+        "rejectRefund",
+        "bulkApproveRefunds",
+        "bulkRejectRefunds",
+        "toggleAutoApproval",
+        "getAutoApprovalStatus",
+        "reverseRefund"
+      ]
+    },
+    {
+      "file": "src/controllers/adminJob.controller.js",
+      "lines": 547,
+      "exports": [
+        "adminCreateJobPost",
+        "adminGetAllJobPosts",
+        "adminGetJobPost",
+        "adminUpdateJobPost",
+        "adminDeleteJobPost",
+        "adminToggleJobStatus",
+        "adminBulkUpdateStatus",
+        "adminBulkDelete"
+      ]
+    },
+    {
+      "file": "src/controllers/adminLog.controller.js",
+      "lines": 274,
+      "exports": [
+        "getAuditLogs",
+        "getAuditLogById",
+        "getAuditLogStats",
+        "getAuditLogsByAdmin",
+        "getAuditLogsByTarget",
+        "exportAuditLogs"
+      ]
+    }
+  ],
+  "summary": {
+    "mountPoints": 53,
+    "routeFiles": 4,
+    "routes": 85,
+    "controllerFiles": 6,
+    "exports": 87
+  }
+}
