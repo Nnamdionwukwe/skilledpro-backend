@@ -2,20 +2,37 @@
 import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
+  // USER — worker
   submitIdVerification,
   submitCertification,
   getVerificationStatus,
   deleteCertification,
-  getPendingVerifications,
-  getVerifiedWorkers,
-  reviewVerification,
-  verifyCertification,
-  updateBackgroundCheck,
-  getVerificationStats,
+  // USER — hirer
   submitHirerVerification,
   getHirerVerificationStatus,
-  getPendingHirerVerifications,
+  // ADMIN — worker
+  getPendingWorkers,
+  getVerifiedWorkers,
+  getRejectedWorkers,
+  getUnverifiedWorkers,
+  getWorkerVerificationDetail,
+  reviewWorkerVerification,
+  revokeWorkerVerification,
+  updateBackgroundCheck,
+  // ADMIN — hirer
+  getPendingHirers,
+  getVerifiedHirers,
+  getRejectedHirers,
+  getHirerVerificationDetail,
   reviewHirerVerification,
+  revokeHirerVerification,
+  // ADMIN — certifications
+  getPendingCertifications,
+  verifyCertification,
+  rejectCertification,
+  // ADMIN — summary
+  getVerificationStats,
+  getVerificationActivityLog,
 } from "../controllers/verification.controller.js";
 import {
   uploadSingle,
@@ -27,18 +44,18 @@ import {
   validateSubmitIdVerification,
   validateSubmitCertification,
   validateSubmitHirerVerification,
+  validateReviewVerification,
+  validateRevokeVerification,
+  validateBackgroundCheck,
+  validateRejectCertification,
 } from "../utils/validators.js";
 
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WORKER routes
+// USER — WORKER
 // ─────────────────────────────────────────────────────────────────────────────
-
-// GET  /api/verification/status       — worker's own verification status
 router.get("/status", protect, requireRole("WORKER"), getVerificationStatus);
-
-// POST /api/verification/submit-id    — upload government ID for verification
 router.post(
   "/submit-id",
   protect,
@@ -48,8 +65,6 @@ router.post(
   validateSubmitIdVerification,
   submitIdVerification,
 );
-
-// POST /api/verification/submit-certification — add a professional certificate
 router.post(
   "/submit-certification",
   protect,
@@ -59,8 +74,6 @@ router.post(
   validateSubmitCertification,
   submitCertification,
 );
-
-// DELETE /api/verification/certifications/:certId
 router.delete(
   "/certifications/:certId",
   protect,
@@ -70,18 +83,14 @@ router.delete(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HIRER routes
+// USER — HIRER
 // ─────────────────────────────────────────────────────────────────────────────
-
-// GET  /api/verification/hirer/status — hirer's own verification status
 router.get(
   "/hirer/status",
   protect,
   requireRole("HIRER"),
   getHirerVerificationStatus,
 );
-
-// POST /api/verification/hirer/submit — upload business / ID docs
 router.post(
   "/hirer/submit",
   protect,
@@ -93,42 +102,142 @@ router.post(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN routes — all require ADMIN role
-// Static paths come before parameterised ones to avoid route conflicts
+// ADMIN — all under /admin/* and require ADMIN
+// Static paths come BEFORE parameterised paths.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET  /api/verification/admin/stats
+// Summary
 router.get("/admin/stats", protect, requireRole("ADMIN"), getVerificationStats);
-
-// GET  /api/verification/admin/pending         — workers awaiting review
 router.get(
-  "/admin/pending",
+  "/admin/activity",
+  protect,
+  requireRole("ADMIN"),
+  getVerificationActivityLog,
+);
+
+// Worker lists
+router.get(
+  "/admin/workers/pending",
   protect,
   requireRole("ADMIN"),
   validatePagination,
-  getPendingVerifications,
+  getPendingWorkers,
 );
-
-// GET  /api/verification/admin/verified        — all verified workers
 router.get(
-  "/admin/verified",
+  "/admin/workers/verified",
   protect,
   requireRole("ADMIN"),
   validatePagination,
   getVerifiedWorkers,
 );
+router.get(
+  "/admin/workers/rejected",
+  protect,
+  requireRole("ADMIN"),
+  validatePagination,
+  getRejectedWorkers,
+);
+router.get(
+  "/admin/workers/unverified",
+  protect,
+  requireRole("ADMIN"),
+  validatePagination,
+  getUnverifiedWorkers,
+);
 
-// GET  /api/verification/admin/hirers/pending  — hirers awaiting review
+// Worker actions
+router.patch(
+  "/admin/workers/:userId/review",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  validateReviewVerification,
+  reviewWorkerVerification,
+);
+router.patch(
+  "/admin/workers/:userId/revoke",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  validateRevokeVerification,
+  revokeWorkerVerification,
+);
+router.patch(
+  "/admin/workers/:userId/background-check",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  validateBackgroundCheck,
+  updateBackgroundCheck,
+);
+
+// Worker detail — after all static /admin/workers/* actions
+router.get(
+  "/admin/workers/:userId",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  getWorkerVerificationDetail,
+);
+
+// Hirer lists
 router.get(
   "/admin/hirers/pending",
   protect,
   requireRole("ADMIN"),
   validatePagination,
-  getPendingHirerVerifications,
+  getPendingHirers,
+);
+router.get(
+  "/admin/hirers/verified",
+  protect,
+  requireRole("ADMIN"),
+  validatePagination,
+  getVerifiedHirers,
+);
+router.get(
+  "/admin/hirers/rejected",
+  protect,
+  requireRole("ADMIN"),
+  validatePagination,
+  getRejectedHirers,
 );
 
-// PATCH /api/verification/admin/certifications/:certId/verify
-// (static sub-path — must come before /:userId routes)
+// Hirer actions
+router.patch(
+  "/admin/hirers/:userId/review",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  validateReviewVerification,
+  reviewHirerVerification,
+);
+router.patch(
+  "/admin/hirers/:userId/revoke",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  validateRevokeVerification,
+  revokeHirerVerification,
+);
+
+// Hirer detail — after all static /admin/hirers/* actions
+router.get(
+  "/admin/hirers/:userId",
+  protect,
+  requireRole("ADMIN"),
+  ...validateUUIDParam("userId"),
+  getHirerVerificationDetail,
+);
+
+// Certifications
+router.get(
+  "/admin/certifications/pending",
+  protect,
+  requireRole("ADMIN"),
+  validatePagination,
+  getPendingCertifications,
+);
 router.patch(
   "/admin/certifications/:certId/verify",
   protect,
@@ -136,32 +245,13 @@ router.patch(
   ...validateUUIDParam("certId"),
   verifyCertification,
 );
-
-// PATCH /api/verification/admin/:userId/review          — approve or reject ID
 router.patch(
-  "/admin/:userId/review",
+  "/admin/certifications/:certId/reject",
   protect,
   requireRole("ADMIN"),
-  ...validateUUIDParam("userId"),
-  reviewVerification,
-);
-
-// PATCH /api/verification/admin/:userId/background-check
-router.patch(
-  "/admin/:userId/background-check",
-  protect,
-  requireRole("ADMIN"),
-  ...validateUUIDParam("userId"),
-  updateBackgroundCheck,
-);
-
-// PATCH /api/verification/admin/hirers/:userId/review
-router.patch(
-  "/admin/hirers/:userId/review",
-  protect,
-  requireRole("ADMIN"),
-  ...validateUUIDParam("userId"),
-  reviewHirerVerification,
+  ...validateUUIDParam("certId"),
+  validateRejectCertification,
+  rejectCertification,
 );
 
 export default router;

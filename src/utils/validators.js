@@ -3465,3 +3465,63 @@ export const validateCreateBookingFromJobPost = [
 
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § VERIFICATION ADMIN REVIEW VALIDATORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// PATCH /api/verification/admin/workers/:userId/review
+// PATCH /api/verification/admin/hirers/:userId/review
+export const validateReviewVerification = [
+  body("status")
+    .notEmpty()
+    .withMessage("Status is required")
+    .isIn(["VERIFIED", "REJECTED"])
+    .withMessage("Status must be VERIFIED or REJECTED"),
+  body("rejectionReason")
+    .if(body("status").equals("REJECTED"))
+    .trim()
+    .notEmpty()
+    .withMessage("Rejection reason is required when rejecting")
+    .isLength({ max: 500 })
+    .withMessage("Rejection reason must not exceed 500 characters"),
+  body("notes")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Notes must not exceed 500 characters"),
+  validate,
+];
+
+// PATCH /api/verification/admin/workers/:userId/revoke
+// PATCH /api/verification/admin/hirers/:userId/revoke
+export const validateRevokeVerification = [
+  body("reason")
+    .trim()
+    .notEmpty()
+    .withMessage("Reason is required")
+    .isLength({ min: 5, max: 500 })
+    .withMessage("Reason must be 5–500 characters"),
+  validate,
+];
+
+// PATCH /api/verification/admin/workers/:userId/background-check
+export const validateBackgroundCheck = [
+  body("passed")
+    .notEmpty()
+    .withMessage("passed is required")
+    .isBoolean()
+    .withMessage("passed must be true or false"),
+  validate,
+];
+
+// PATCH /api/verification/admin/certifications/:certId/reject
+export const validateRejectCertification = [
+  body("reason")
+    .trim()
+    .notEmpty()
+    .withMessage("Reason is required")
+    .isLength({ min: 5, max: 500 })
+    .withMessage("Reason must be 5–500 characters"),
+  validate,
+];

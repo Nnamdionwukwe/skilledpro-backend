@@ -72,6 +72,12 @@ import {
   getAllVideoCalls,
 } from "../controllers/admin.controller.js";
 
+import {
+  getPendingWorkers as _getPendingWorkers,
+  getVerificationStats as _getVerificationStats,
+  reviewWorkerVerification as _reviewWorkerVerification,
+} from "../controllers/verification.controller.js";
+
 import { approveWithdrawalPayout } from "../controllers/payment.controller.js";
 
 // ── Refund Controllers ────────────────────────────────────────────────────────
@@ -118,16 +124,12 @@ router.patch(
 router.delete("/users/:userId", ...validateUUIDParam("userId"), deleteUser);
 
 // ── Verifications ──────────────────────────────────────────────────────────────
-router.get("/verifications/stats", getVerificationStats);
-router.get(
-  "/verifications/pending",
-  validatePagination,
-  getPendingVerifications,
-);
+router.get("/verifications/stats", _getVerificationStats);
+router.get("/verifications/pending", validatePagination, _getPendingWorkers);
 router.patch(
   "/users/:userId/verify",
   ...validateUUIDParam("userId"),
-  verifyWorker,
+  _reviewWorkerVerification,
 );
 
 // ── Bookings ───────────────────────────────────────────────────────────────────

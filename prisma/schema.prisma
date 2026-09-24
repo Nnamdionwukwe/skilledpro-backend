@@ -390,6 +390,11 @@ model User {
   deletionReason        String?
   deletionRequestedAt   DateTime?
 
+    // ── VERIFICATION RELATIONS ────────────────────────────────────────────────
+  workerVerificationsReviewed WorkerProfile[] @relation("WorkerVerifReviewedBy")
+  hirerVerificationsReviewed  HirerProfile[]   @relation("HirerVerifReviewedBy")
+  bgChecksPerformed           WorkerProfile[]  @relation("BgCheckedBy")
+  certificationsVerified      Certification[]  @relation("CertVerifiedBy")
 }
 
 model Referral {
@@ -646,6 +651,20 @@ model WorkerProfile {
 
   // Relation to individual debt records
   debts WorkerDebt[]
+
+    // ── VERIFICATION ──────────────────────────────────────────────────────────
+  idType                String?    // "NATIONAL_ID" | "PASSPORT" | ...
+  idNumber              String?
+  idDateOfBirth         DateTime?
+  idNationality         String?
+  submittedAt           DateTime?  // when worker submitted for review
+  reviewedAt            DateTime?  // when admin approved/rejected
+  reviewedById          String?
+  reviewedBy            User?      @relation("WorkerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rejectionReason       String?
+  backgroundCheckAt     DateTime?
+  backgroundCheckedById String?
+  backgroundCheckedBy   User?      @relation("BgCheckedBy", fields: [backgroundCheckedById], references: [id], onDelete: SetNull)
 }
 
 // ─── Worker Debt Model ───────────────────────────────────────────────────────
@@ -704,6 +723,20 @@ model HirerProfile {
   avgRating   Float    @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+    // ── VERIFICATION ──────────────────────────────────────────────────────────
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verificationType   String?            // "INDIVIDUAL" | "BUSINESS"
+  idType             String?
+  idNumber           String?
+  idDocument         String?
+  companyRegNumber   String?
+  companyCountry     String?
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  reviewedById       String?
+  reviewedBy         User?      @relation("HirerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rejectionReason    String?
 }
 
 model Category {
@@ -756,7 +789,12 @@ model Certification {
   expiryDate      DateTime?
   documentUrl     String?
   verified        Boolean       @default(false)
+  verifiedAt      DateTime?
+  verifiedById    String?
+  verifiedBy      User?         @relation("CertVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  rejectionReason String?
   createdAt       DateTime      @default(now())
+  updatedAt DateTime @updatedAt @default(now())
 }
 
 model Availability {
