@@ -70,6 +70,9 @@ import {
   broadcastNotification,
   // Video calls
   getAllVideoCalls,
+  // Insurance
+  adminGetAllPolicies,
+  adminGetInsuranceStats,
 } from "../controllers/admin.controller.js";
 
 import {
@@ -152,6 +155,10 @@ router.patch(
   ...validateResolveDispute,
   resolveDispute,
 );
+// ── Insurance ──────────────────────────────────────────────────────────────────
+// NOTE: static path "/stats" MUST come before any parameterized path.
+router.get("/insurance/stats", adminGetInsuranceStats);
+router.get("/insurance/policies", validatePagination, adminGetAllPolicies);
 
 // ── Payments ───────────────────────────────────────────────────────────────────
 // CRITICAL ORDER: specific static paths MUST come before parameterized ones.

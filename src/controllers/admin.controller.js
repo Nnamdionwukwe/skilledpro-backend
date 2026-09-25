@@ -3115,3 +3115,224 @@ async function _notifyPaymentHeld(bookingId) {
     ],
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INSURANCE (admin oversight)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ADMIN: Get all insurance policies system-wide
+ * GET /api/admin/insurance/policies
+ *
+ * Query: { page, limit, planId, search, from, to }
+ *
+ * Policies are stored as Notification rows with type = "INSURANCE_PURCHASED".
+ * Every field the user sees in their /insurance/my view is stored in `data`.
+ * We hydrate the owning user and join the linked booking (if any) so the
+ * admin can see full context: who bought what, for which booking.
+ *
+ * NOTE: the Notification model uses `isRead` (boolean) — it does NOT have
+ * `read` or `readAt` fields. This function returns `isRead` as the canonical
+ * read-status field.
+ */
+export const adminGetAllPolicies = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, planId, search, from, to } = req.query;
+    const { skip, take } = paginate(page, limit);
+
+    const where = { type: "INSURANCE_PURCHASED" };
+
+    // Plan filter — matches against the JSON data.planId
+    if (planId) {
+      where.data = { path: ["planId"], equals: planId };
+    }
+
+    // Date range on notification.createdAt (== policy purchasedAt)
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(from);
+      if (to) where.createdAt.lte = new Date(to);
+    }
+
+    // Search: reference, userEmail, userName, bookingId, plan name
+    if (search?.trim()) {
+      const s = search.trim();
+      where.OR = [
+        { data: { path: ["reference"], string_contains: s } },
+        { data: { path: ["planName"], string_contains: s } },
+        { data: { path: ["bookingId"], string_contains: s } },
+        { user: { email: { contains: s, mode: "insensitive" } } },
+        { user: { firstName: { contains: s, mode: "insensitive" } } },
+        { user: { lastName: { contains: s, mode: "insensitive" } } },
+      ];
+    }
+
+    const [policies, total] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              avatar: true,
+              role: true,
+              country: true,
+              city: true,
+            },
+          },
+        },
+      }),
+      prisma.notification.count({ where }),
+    ]);
+
+    // Hydrate: attach linked booking details where bookingId is present
+    const bookingIds = policies.map((p) => p.data?.bookingId).filter(Boolean);
+
+    const bookings = bookingIds.length
+      ? await prisma.booking.findMany({
+          where: { id: { in: bookingIds } },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            currency: true,
+            scheduledAt: true,
+            hirerId: true,
+            workerId: true,
+            hirer: {
+              select: { firstName: true, lastName: true, email: true },
+            },
+            worker: {
+              select: { firstName: true, lastName: true, email: true },
+            },
+          },
+        })
+      : [];
+    const bookingMap = Object.fromEntries(bookings.map((b) => [b.id, b]));
+
+    // Flatten for the frontend so it doesn't have to reach into `.data`
+    const flattened = policies.map((p) => ({
+      // Notification identifiers
+      id: p.id,
+      notificationId: p.id,
+      type: p.type,
+      title: p.title,
+      body: p.body,
+      isRead: p.isRead ?? false,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+
+      // Policy core fields (from data JSON)
+      planId: p.data?.planId ?? null,
+      planName: p.data?.planName ?? null,
+      reference: p.data?.reference ?? null,
+      bookingId: p.data?.bookingId ?? null,
+      coverageAmount: p.data?.coverageAmount ?? null,
+      coverageCurrency: p.data?.coverageCurrency ?? "USD",
+      price: p.data?.price ?? null,
+      currency: p.data?.currency ?? "USD",
+      flwTransactionId: p.data?.flwTransactionId ?? null,
+      status: p.data?.status ?? "ACTIVE",
+      purchasedAt: p.data?.purchasedAt ?? p.createdAt,
+
+      // Owner
+      user: p.user,
+
+      // Linked booking (hydrated — null when standalone)
+      booking: p.data?.bookingId
+        ? (bookingMap[p.data.bookingId] ?? null)
+        : null,
+    }));
+
+    return sendResponse(res, {
+      data: {
+        policies: flattened,
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / take),
+      },
+    });
+  } catch (err) {
+    console.error("adminGetAllPolicies error:", err);
+    return sendError(res, "Failed to fetch insurance policies");
+  }
+};
+
+/**
+ * ADMIN: Get insurance KPIs + per-plan breakdown
+ * GET /api/admin/insurance/stats
+ *
+ * Returns:
+ *   overview: totalPolicies, totalRevenue, activePolicies, avgPrice
+ *   perPlan:  { basic: { total, revenue, active }, standard: {...}, premium: {...}, other: {...} }
+ *   currency: currency in which the revenue figure is denominated (USD)
+ */
+export const adminGetInsuranceStats = async (req, res) => {
+  try {
+    // Pull every policy — this count is bounded (insurance is per-booking) and
+    // admin dashboards want complete accuracy, not sampling.
+    //
+    // NOTE: the Notification model does NOT have `read` or `readAt` fields.
+    // The correct boolean field is `isRead`. Including a non-existent field
+    // here causes Prisma to throw "Unknown field" at query time.
+    const policies = await prisma.notification.findMany({
+      where: { type: "INSURANCE_PURCHASED" },
+      select: { data: true, createdAt: true, isRead: true },
+    });
+
+    // Known plan ids — matches the backend PLANS constant.
+    // Anything else falls into "other".
+    const PLAN_IDS = ["basic", "standard", "premium"];
+
+    const perPlan = {};
+    PLAN_IDS.forEach((id) => {
+      perPlan[id] = { total: 0, revenue: 0, active: 0 };
+    });
+    perPlan.other = { total: 0, revenue: 0, active: 0 };
+
+    let totalRevenue = 0;
+
+    policies.forEach((p) => {
+      const planId = p.data?.planId;
+      const price = Number(p.data?.price || 0);
+      const bucket = PLAN_IDS.includes(planId) ? planId : "other";
+
+      perPlan[bucket].total += 1;
+      perPlan[bucket].revenue += price;
+      if (p.data?.status === "ACTIVE") perPlan[bucket].active += 1;
+
+      totalRevenue += price;
+    });
+
+    const totalPolicies = policies.length;
+    const activePolicies = policies.filter(
+      (p) => p.data?.status === "ACTIVE",
+    ).length;
+    const avgPrice =
+      totalPolicies > 0 ? Number((totalRevenue / totalPolicies).toFixed(2)) : 0;
+
+    // Currency is USD across all current plans (defined in insurance.controller.js)
+    return sendResponse(res, {
+      data: {
+        overview: {
+          totalPolicies,
+          activePolicies,
+          totalRevenue,
+          avgPrice,
+          currency: "USD",
+        },
+        perPlan,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error("adminGetInsuranceStats error:", err);
+    return sendError(res, "Failed to fetch insurance stats");
+  }
+};
