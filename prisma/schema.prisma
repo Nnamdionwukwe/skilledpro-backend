@@ -157,6 +157,12 @@ enum AuditAction {
   WORKER_DEBT_DEDUCTED
   WORKER_DEBT_FORGIVEN
   WORKER_DEBT_MARKED_COLLECTION
+  // ── Refund management ────────────────────────────────────────────────────  ← NEW
+  REFUND_APPROVED
+  REFUND_REJECTED
+  REFUND_REVERSED
+  REFUND_BULK_APPROVED
+  REFUND_BULK_REJECTED
   // ── Report management ────────────────────────────────────────────────────
   REPORT_REVIEWED
   REPORT_RESOLVED
@@ -190,6 +196,10 @@ enum AuditAction {
   SUBSCRIPTION_CANCELLED
   // ── Notifications ────────────────────────────────────────────────────────
   NOTIFICATION_BROADCAST
+  // ── Survey moderation ────────────────────────────────────────────────────  ← NEW
+  SURVEY_VIEWED
+  SURVEY_STATUS_UPDATED
+  SURVEY_BULK_DELETED
   // ── System ───────────────────────────────────────────────────────────────
   ADMIN_LOGIN
   SETTINGS_CHANGED
@@ -215,6 +225,8 @@ enum AuditTargetType {
   SUBSCRIPTION
   FEATURED_LISTING
   DISPUTE
+  REFUND // ← NEW
+  SURVEY // ← NEW
   SYSTEM
 }
 
@@ -383,18 +395,18 @@ model User {
   avatarCustom Boolean @default(false) // true once user sets their own avatar
   nameCustom   Boolean @default(false) // true once user sets their own name
 
-    // ── Account lifecycle ────────────────────────────────────────
-  isPaused              Boolean   @default(false)  // "Take a break" state
-  pausedAt              DateTime?
-  deletionScheduledAt   DateTime?                  // set when user requests permanent delete
-  deletionReason        String?
-  deletionRequestedAt   DateTime?
+  // ── Account lifecycle ────────────────────────────────────────
+  isPaused            Boolean   @default(false) // "Take a break" state
+  pausedAt            DateTime?
+  deletionScheduledAt DateTime? // set when user requests permanent delete
+  deletionReason      String?
+  deletionRequestedAt DateTime?
 
-    // ── VERIFICATION RELATIONS ────────────────────────────────────────────────
+  // ── VERIFICATION RELATIONS ────────────────────────────────────────────────
   workerVerificationsReviewed WorkerProfile[] @relation("WorkerVerifReviewedBy")
-  hirerVerificationsReviewed  HirerProfile[]   @relation("HirerVerifReviewedBy")
-  bgChecksPerformed           WorkerProfile[]  @relation("BgCheckedBy")
-  certificationsVerified      Certification[]  @relation("CertVerifiedBy")
+  hirerVerificationsReviewed  HirerProfile[]  @relation("HirerVerifReviewedBy")
+  bgChecksPerformed           WorkerProfile[] @relation("BgCheckedBy")
+  certificationsVerified      Certification[] @relation("CertVerifiedBy")
 }
 
 model Referral {
@@ -652,19 +664,19 @@ model WorkerProfile {
   // Relation to individual debt records
   debts WorkerDebt[]
 
-    // ── VERIFICATION ──────────────────────────────────────────────────────────
-  idType                String?    // "NATIONAL_ID" | "PASSPORT" | ...
+  // ── VERIFICATION ──────────────────────────────────────────────────────────
+  idType                String? // "NATIONAL_ID" | "PASSPORT" | ...
   idNumber              String?
   idDateOfBirth         DateTime?
   idNationality         String?
-  submittedAt           DateTime?  // when worker submitted for review
-  reviewedAt            DateTime?  // when admin approved/rejected
+  submittedAt           DateTime? // when worker submitted for review
+  reviewedAt            DateTime? // when admin approved/rejected
   reviewedById          String?
-  reviewedBy            User?      @relation("WorkerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy            User?     @relation("WorkerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   rejectionReason       String?
   backgroundCheckAt     DateTime?
   backgroundCheckedById String?
-  backgroundCheckedBy   User?      @relation("BgCheckedBy", fields: [backgroundCheckedById], references: [id], onDelete: SetNull)
+  backgroundCheckedBy   User?     @relation("BgCheckedBy", fields: [backgroundCheckedById], references: [id], onDelete: SetNull)
 }
 
 // ─── Worker Debt Model ───────────────────────────────────────────────────────
@@ -724,9 +736,9 @@ model HirerProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-    // ── VERIFICATION ──────────────────────────────────────────────────────────
+  // ── VERIFICATION ──────────────────────────────────────────────────────────
   verificationStatus VerificationStatus @default(UNVERIFIED)
-  verificationType   String?            // "INDIVIDUAL" | "BUSINESS"
+  verificationType   String? // "INDIVIDUAL" | "BUSINESS"
   idType             String?
   idNumber           String?
   idDocument         String?
@@ -735,7 +747,7 @@ model HirerProfile {
   submittedAt        DateTime?
   reviewedAt         DateTime?
   reviewedById       String?
-  reviewedBy         User?      @relation("HirerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy         User?              @relation("HirerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   rejectionReason    String?
 }
 
@@ -794,7 +806,7 @@ model Certification {
   verifiedBy      User?         @relation("CertVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
   rejectionReason String?
   createdAt       DateTime      @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
 }
 
 model Availability {
@@ -817,7 +829,7 @@ model Booking {
   category       Category      @relation(fields: [categoryId], references: [id])
   title          String
   description    String
-    address        String?
+  address        String?
   latitude       Float?
   longitude      Float?
   scheduledAt    DateTime
@@ -875,14 +887,14 @@ model Booking {
   refunds  Refund[]
   disputes Dispute[]
 
-    // ── Source & linkage ─────────────────────────────────────────────────────
-  source        BookingSource @default(DIRECT)
-  jobPostId     String?
-  jobPost       JobPost?      @relation("JobPostBookings", fields: [jobPostId], references: [id], onDelete: SetNull)
+  // ── Source & linkage ─────────────────────────────────────────────────────
+  source    BookingSource @default(DIRECT)
+  jobPostId String?
+  jobPost   JobPost?      @relation("JobPostBookings", fields: [jobPostId], references: [id], onDelete: SetNull)
 
   // Snapshot of what the hirer selected from the job's price options
-  selectedRateOption String?   // "budget" | "salaryAmount" | "salaryMin" | "salaryMax" | "salaryText"
-  jobRateSnapshot    Json?     // optional: snapshot the job's price fields at booking time
+  selectedRateOption String? // "budget" | "salaryAmount" | "salaryMin" | "salaryMax" | "salaryText"
+  jobRateSnapshot    Json? // optional: snapshot the job's price fields at booking time
 }
 
 model Payment {
@@ -1087,7 +1099,7 @@ model JobPost {
   // experienceLevel already exists (String) – could later change to enum
 
   externalJobClicks ExternalJobClick[]
-    bookings Booking[] @relation("JobPostBookings")
+  bookings          Booking[]          @relation("JobPostBookings")
 }
 
 model ExternalJobClick {

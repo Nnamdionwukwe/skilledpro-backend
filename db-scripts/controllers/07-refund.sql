@@ -27,25 +27,48 @@ CREATE TABLE IF NOT EXISTS "Refund" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
+    -- ── Added: link back to the Dispute that generated this refund (if any).
+    --    Read by refund.controller.js (`finalRefund.disputeId`, `include: { dispute }`)
+    --    and admin.refund.controller.js (`include: { dispute }`).
+    --    FK deferred to 99-final-fks.sql because Refund is created before Dispute. ──
+    "disputeId" TEXT,
+
     CONSTRAINT "Refund_pkey" PRIMARY KEY ("id")
 );
 
 
 -- Indexes: Refund
-CREATE UNIQUE INDEX IF NOT EXISTS "Refund_reference_key" ON "Refund"("reference");
-CREATE INDEX IF NOT EXISTS "Refund_bookingId_idx" ON "Refund"("bookingId");
-CREATE INDEX IF NOT EXISTS "Refund_paymentId_idx" ON "Refund"("paymentId");
-CREATE INDEX IF NOT EXISTS "Refund_hirerId_idx" ON "Refund"("hirerId");
-CREATE INDEX IF NOT EXISTS "Refund_workerId_idx" ON "Refund"("workerId");
-CREATE INDEX IF NOT EXISTS "Refund_adminId_idx" ON "Refund"("adminId");
-CREATE INDEX IF NOT EXISTS "Refund_status_idx" ON "Refund"("status");
-CREATE INDEX IF NOT EXISTS "Refund_reference_idx" ON "Refund"("reference");
-CREATE INDEX IF NOT EXISTS "Refund_createdAt_idx" ON "Refund"("createdAt" DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS "Refund_reference_key"  ON "Refund"("reference");
+CREATE UNIQUE INDEX IF NOT EXISTS "Refund_disputeId_key"  ON "Refund"("disputeId");
+CREATE INDEX        IF NOT EXISTS "Refund_bookingId_idx"  ON "Refund"("bookingId");
+CREATE INDEX        IF NOT EXISTS "Refund_paymentId_idx"  ON "Refund"("paymentId");
+CREATE INDEX        IF NOT EXISTS "Refund_hirerId_idx"    ON "Refund"("hirerId");
+CREATE INDEX        IF NOT EXISTS "Refund_workerId_idx"   ON "Refund"("workerId");
+CREATE INDEX        IF NOT EXISTS "Refund_adminId_idx"    ON "Refund"("adminId");
+CREATE INDEX        IF NOT EXISTS "Refund_status_idx"     ON "Refund"("status");
+CREATE INDEX        IF NOT EXISTS "Refund_reference_idx"  ON "Refund"("reference");
+CREATE INDEX        IF NOT EXISTS "Refund_createdAt_idx"  ON "Refund"("createdAt" DESC);
 
 -- Foreign keys: Refund
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "Payment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_bookingId_fkey"
+    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
 
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey"
+    FOREIGN KEY ("paymentId") REFERENCES "Payment"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_hirerId_fkey"
+    FOREIGN KEY ("hirerId") REFERENCES "User"("id")
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_workerId_fkey"
+    FOREIGN KEY ("workerId") REFERENCES "User"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_adminId_fkey"
+    FOREIGN KEY ("adminId") REFERENCES "User"("id")
+    ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- NOTE: FK Refund.disputeId → Dispute(id) is added in 99-final-fks.sql
+--       because Refund is created before Dispute.

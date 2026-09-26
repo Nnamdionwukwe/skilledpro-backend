@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS "HirerWallet" (
     "totalDeposited" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "totalSpent" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "totalWithdrawn" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "totalRefunded" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "lastTransactionAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -189,4 +190,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Withdrawal_reference_key" ON "Withdrawal"("re
 
 -- Foreign keys: Withdrawal
 ALTER TABLE "Withdrawal" ADD CONSTRAINT "Withdrawal_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-

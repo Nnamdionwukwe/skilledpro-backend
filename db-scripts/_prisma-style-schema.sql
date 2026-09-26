@@ -1,10 +1,11 @@
 -- ============================================================
--- SkilledProz — Full Schema (idempotent)
+-- SkilledProz — Full Schema (Prisma-style)
 -- Generated: 2026-09-26T16:41:58Z
 -- Source commit: 5972ca7
 -- DO NOT EDIT — regenerate via db-scripts/generate-full-schema.sh
--- Safe to run on empty / partial / fully-built DBs.
+-- NOT idempotent — will fail if run on an existing DB.
 -- ============================================================
+
 
 
 -- ════════════════════════════════════════════════════════════
@@ -37,104 +38,72 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 --                          plus REFUND + SURVEY audit targets)
 -- ============================================================
 
-DO $$ BEGIN
-  CREATE TYPE "Role" AS ENUM ('HIRER', 'WORKER', 'ADMIN');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "Role" AS ENUM ('HIRER', 'WORKER', 'ADMIN');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "BookingStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "BookingStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "BookingSource" AS ENUM ('DIRECT', 'JOB_POST');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "BookingSource" AS ENUM ('DIRECT', 'JOB_POST');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'HELD', 'RELEASED', 'REFUNDED', 'FAILED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'HELD', 'RELEASED', 'REFUNDED', 'FAILED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "VerificationStatus" AS ENUM ('UNVERIFIED', 'PENDING', 'VERIFIED', 'REJECTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "VerificationStatus" AS ENUM ('UNVERIFIED', 'PENDING', 'VERIFIED', 'REJECTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "JobPostStatus" AS ENUM ('OPEN', 'FILLED', 'CANCELLED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "JobPostStatus" AS ENUM ('OPEN', 'FILLED', 'CANCELLED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ApplicationStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ApplicationStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReferralTier" AS ENUM ('BRONZE', 'SILVER', 'GOLD', 'DIAMOND');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReferralTier" AS ENUM ('BRONZE', 'SILVER', 'GOLD', 'DIAMOND');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReferralStatus" AS ENUM ('PENDING', 'QUALIFIED', 'CONVERTED', 'REWARDED', 'EXPIRED', 'FLAGGED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReferralStatus" AS ENUM ('PENDING', 'QUALIFIED', 'CONVERTED', 'REWARDED', 'EXPIRED', 'FLAGGED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "CampaignReferralStatus" AS ENUM ('PENDING', 'TASKS_DONE', 'SUBMITTED', 'APPROVED', 'REJECTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "CampaignReferralStatus" AS ENUM ('PENDING', 'TASKS_DONE', 'SUBMITTED', 'APPROVED', 'REJECTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "CampaignSubmissionStatus" AS ENUM ('PENDING', 'REVIEWING', 'APPROVED', 'PARTIAL', 'REJECTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "CampaignSubmissionStatus" AS ENUM ('PENDING', 'REVIEWING', 'APPROVED', 'PARTIAL', 'REJECTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReportType" AS ENUM ('USER', 'JOB_POST', 'POST', 'REVIEW', 'BOOKING', 'MESSAGE');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReportType" AS ENUM ('USER', 'JOB_POST', 'POST', 'REVIEW', 'BOOKING', 'MESSAGE');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReportReason" AS ENUM ('SPAM', 'FAKE_PROFILE', 'INAPPROPRIATE_CONTENT', 'FRAUD', 'HARASSMENT', 'SCAM', 'MISLEADING_INFORMATION', 'FAKE_REVIEWS', 'UNDERAGE_USER', 'HATE_SPEECH', 'OTHER');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReportReason" AS ENUM ('SPAM', 'FAKE_PROFILE', 'INAPPROPRIATE_CONTENT', 'FRAUD', 'HARASSMENT', 'SCAM', 'MISLEADING_INFORMATION', 'FAKE_REVIEWS', 'UNDERAGE_USER', 'HATE_SPEECH', 'OTHER');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReportStatus" AS ENUM ('PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReportStatus" AS ENUM ('PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReportAction" AS ENUM ('NO_ACTION', 'WARNING_ISSUED', 'CONTENT_REMOVED', 'USER_SUSPENDED', 'USER_BANNED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReportAction" AS ENUM ('NO_ACTION', 'WARNING_ISSUED', 'CONTENT_REMOVED', 'USER_SUSPENDED', 'USER_BANNED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "AuditAction" AS ENUM (
+-- CreateEnum
+CREATE TYPE "AuditAction" AS ENUM (
     -- ── User management ──────────────────────────────────────────────────────
     'USER_BANNED', 'USER_UNBANNED', 'USER_DELETED', 'USER_ROLE_CHANGED',
     'USER_VERIFIED', 'USER_VERIFICATION_REJECTED', 'USER_SUSPENDED',
@@ -178,12 +147,10 @@ DO $$ BEGIN
     -- ── Job helpers ──────────────────────────────────────────────────────────
     'JOB_CREATED', 'JOB_UPDATED'
   );
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "AuditTargetType" AS ENUM (
+-- CreateEnum
+CREATE TYPE "AuditTargetType" AS ENUM (
     'USER', 'PAYMENT', 'WITHDRAWAL', 'BOOKING', 'JOB_POST', 'POST',
     'COMMENT', 'REVIEW', 'CATEGORY', 'REPORT',
     'CAMPAIGN_SUBMISSION', 'CAMPAIGN_WITHDRAWAL',
@@ -194,110 +161,74 @@ DO $$ BEGIN
     -- Added: survey controller
     'SURVEY'
   );
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "SalaryPeriod" AS ENUM ('HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "SalaryPeriod" AS ENUM ('HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "EducationLevel" AS ENUM ('HIGH_SCHOOL', 'DIPLOMA', 'BACHELOR', 'MASTER', 'DOCTORATE', 'CERTIFICATION', 'OTHER');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "EducationLevel" AS ENUM ('HIGH_SCHOOL', 'DIPLOMA', 'BACHELOR', 'MASTER', 'DOCTORATE', 'CERTIFICATION', 'OTHER');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "AuditResult" AS ENUM ('SUCCESS', 'FAILED', 'PARTIAL');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "AuditResult" AS ENUM ('SUCCESS', 'FAILED', 'PARTIAL');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "SubscriptionTier" AS ENUM ('FREE', 'PRO', 'ENTERPRISE');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "SubscriptionTier" AS ENUM ('FREE', 'PRO', 'ENTERPRISE');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "SubscriptionRole" AS ENUM ('WORKER', 'HIRER');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "SubscriptionRole" AS ENUM ('WORKER', 'HIRER');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "SubscriptionStatus" AS ENUM ('ACTIVE', 'CANCELLED', 'EXPIRED', 'PENDING');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "SubscriptionStatus" AS ENUM ('ACTIVE', 'CANCELLED', 'EXPIRED', 'PENDING');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "PostType" AS ENUM ('GENERAL', 'JOB_UPDATE', 'ACHIEVEMENT', 'PORTFOLIO', 'ANNOUNCEMENT', 'HIRING');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "PostType" AS ENUM ('GENERAL', 'JOB_UPDATE', 'ACHIEVEMENT', 'PORTFOLIO', 'ANNOUNCEMENT', 'HIRING');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "ReactionType" AS ENUM ('LIKE', 'LOVE', 'INSIGHTFUL', 'CELEBRATE', 'SUPPORT');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "ReactionType" AS ENUM ('LIKE', 'LOVE', 'INSIGHTFUL', 'CELEBRATE', 'SUPPORT');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "JobType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'TEMPORARY');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "JobType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'TEMPORARY');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "LocationType" AS ENUM ('REMOTE', 'ON_SITE', 'HYBRID');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "LocationType" AS ENUM ('REMOTE', 'ON_SITE', 'HYBRID');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "BudgetType" AS ENUM ('FIXED', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "BudgetType" AS ENUM ('FIXED', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "DurationType" AS ENUM ('HOURS', 'DAYS', 'WEEKS', 'MONTHS', 'CUSTOM');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "DurationType" AS ENUM ('HOURS', 'DAYS', 'WEEKS', 'MONTHS', 'CUSTOM');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "RefundStatus" AS ENUM ('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED', 'REVERSED', 'DISPUTED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "RefundStatus" AS ENUM ('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED', 'REVERSED', 'DISPUTED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "RefundType" AS ENUM ('FULL', 'PARTIAL', 'CUSTOM_AMOUNT', 'DISPUTE');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "RefundType" AS ENUM ('FULL', 'PARTIAL', 'CUSTOM_AMOUNT', 'DISPUTE');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "DisputeStatus" AS ENUM ('PENDING_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_RELEASE', 'CANCELLED');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "DisputeStatus" AS ENUM ('PENDING_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_RELEASE', 'CANCELLED');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "DisputeResolution" AS ENUM ('REFUND', 'RELEASE');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "DisputeResolution" AS ENUM ('REFUND', 'RELEASE');
 
 -- CreateEnum
-DO $$ BEGIN
-  CREATE TYPE "DisputeRaisedBy" AS ENUM ('HIRER', 'WORKER');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- CreateEnum
+CREATE TYPE "DisputeRaisedBy" AS ENUM ('HIRER', 'WORKER');
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/02-auth.sql
 -- ════════════════════════════════════════════════════════════
@@ -308,7 +239,7 @@ END $$;
 -- ============================================================
 
 -- Table: User
-CREATE TABLE IF NOT EXISTS "User" (
+CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone" TEXT,
@@ -386,15 +317,14 @@ CREATE TABLE IF NOT EXISTS "User" (
 
 
 -- Indexes: User
-CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key"        ON "User"("email");
-CREATE UNIQUE INDEX IF NOT EXISTS "User_phone_key"        ON "User"("phone");
-CREATE UNIQUE INDEX IF NOT EXISTS "User_referralCode_key" ON "User"("referralCode");
-CREATE UNIQUE INDEX IF NOT EXISTS "User_googleId_key"     ON "User"("googleId");
+CREATE UNIQUE INDEX "User_email_key"        ON "User"("email");
+CREATE UNIQUE INDEX "User_phone_key"        ON "User"("phone");
+CREATE UNIQUE INDEX "User_referralCode_key" ON "User"("referralCode");
+CREATE UNIQUE INDEX "User_googleId_key"     ON "User"("googleId");
 
 -- Foreign keys: User
-ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_referredById_fkey";
-ALTER TABLE "User" ADD CONSTRAINT "User_referredById_fkey"
-  FOREIGN KEY ("referredById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "User" ADD CONSTRAINT "User_referredById_fkey" FOREIGN KEY ("referredById") REFERENCES "User"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/02-user.sql
@@ -406,7 +336,7 @@ ALTER TABLE "User" ADD CONSTRAINT "User_referredById_fkey"
 -- ============================================================
 
 -- Table: DeviceToken
-CREATE TABLE IF NOT EXISTS "DeviceToken" (
+CREATE TABLE "DeviceToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "token" TEXT NOT NULL,
@@ -420,17 +350,17 @@ CREATE TABLE IF NOT EXISTS "DeviceToken" (
 
 
 -- Indexes: DeviceToken
-CREATE UNIQUE INDEX IF NOT EXISTS "DeviceToken_userId_token_key" ON "DeviceToken"("userId", "token");
-CREATE INDEX IF NOT EXISTS "DeviceToken_userId_idx" ON "DeviceToken"("userId");
-CREATE INDEX IF NOT EXISTS "DeviceToken_token_idx" ON "DeviceToken"("token");
-CREATE INDEX IF NOT EXISTS "DeviceToken_active_idx" ON "DeviceToken"("active");
+CREATE UNIQUE INDEX "DeviceToken_userId_token_key" ON "DeviceToken"("userId", "token");
+CREATE INDEX "DeviceToken_userId_idx" ON "DeviceToken"("userId");
+CREATE INDEX "DeviceToken_token_idx" ON "DeviceToken"("token");
+CREATE INDEX "DeviceToken_active_idx" ON "DeviceToken"("active");
 
 -- Foreign keys: DeviceToken
-ALTER TABLE "DeviceToken" DROP CONSTRAINT IF EXISTS "DeviceToken_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "DeviceToken" ADD CONSTRAINT "DeviceToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: SavedWorker
-CREATE TABLE IF NOT EXISTS "SavedWorker" (
+CREATE TABLE "SavedWorker" (
     "id" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
     "workerId" TEXT NOT NULL,
@@ -441,18 +371,18 @@ CREATE TABLE IF NOT EXISTS "SavedWorker" (
 
 
 -- Indexes: SavedWorker
-CREATE UNIQUE INDEX IF NOT EXISTS "SavedWorker_hirerId_workerId_key" ON "SavedWorker"("hirerId", "workerId");
-CREATE INDEX IF NOT EXISTS "SavedWorker_hirerId_idx" ON "SavedWorker"("hirerId");
-CREATE INDEX IF NOT EXISTS "SavedWorker_workerId_idx" ON "SavedWorker"("workerId");
+CREATE UNIQUE INDEX "SavedWorker_hirerId_workerId_key" ON "SavedWorker"("hirerId", "workerId");
+CREATE INDEX "SavedWorker_hirerId_idx" ON "SavedWorker"("hirerId");
+CREATE INDEX "SavedWorker_workerId_idx" ON "SavedWorker"("workerId");
 
 -- Foreign keys: SavedWorker
-ALTER TABLE "SavedWorker" DROP CONSTRAINT IF EXISTS "SavedWorker_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "SavedWorker" ADD CONSTRAINT "SavedWorker_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "SavedWorker" DROP CONSTRAINT IF EXISTS "SavedWorker_workerId_fkey";
+-- AddForeignKey
 ALTER TABLE "SavedWorker" ADD CONSTRAINT "SavedWorker_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: SavedJob
-CREATE TABLE IF NOT EXISTS "SavedJob" (
+CREATE TABLE "SavedJob" (
     "id" TEXT NOT NULL,
     "workerId" TEXT NOT NULL,
     "jobPostId" TEXT NOT NULL,
@@ -463,12 +393,12 @@ CREATE TABLE IF NOT EXISTS "SavedJob" (
 
 
 -- Indexes: SavedJob
-CREATE UNIQUE INDEX IF NOT EXISTS "SavedJob_workerId_jobPostId_key" ON "SavedJob"("workerId", "jobPostId");
-CREATE INDEX IF NOT EXISTS "SavedJob_workerId_idx" ON "SavedJob"("workerId");
-CREATE INDEX IF NOT EXISTS "SavedJob_jobPostId_idx" ON "SavedJob"("jobPostId");
+CREATE UNIQUE INDEX "SavedJob_workerId_jobPostId_key" ON "SavedJob"("workerId", "jobPostId");
+CREATE INDEX "SavedJob_workerId_idx" ON "SavedJob"("workerId");
+CREATE INDEX "SavedJob_jobPostId_idx" ON "SavedJob"("jobPostId");
 
 -- Foreign keys: SavedJob
-ALTER TABLE "SavedJob" DROP CONSTRAINT IF EXISTS "SavedJob_workerId_fkey";
+-- AddForeignKey
 ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
@@ -482,7 +412,7 @@ ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_workerId_fkey" FOREIGN KEY ("wor
 -- ============================================================
 
 -- Table: Category
-CREATE TABLE IF NOT EXISTS "Category" (
+CREATE TABLE "Category" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
@@ -498,11 +428,11 @@ CREATE TABLE IF NOT EXISTS "Category" (
 
 
 -- Indexes: Category
-CREATE UNIQUE INDEX IF NOT EXISTS "Category_name_key" ON "Category"("name");
-CREATE UNIQUE INDEX IF NOT EXISTS "Category_slug_key" ON "Category"("slug");
+CREATE UNIQUE INDEX "Category_name_key" ON "Category"("name");
+CREATE UNIQUE INDEX "Category_slug_key" ON "Category"("slug");
 
 -- Foreign keys: Category
-ALTER TABLE "Category" DROP CONSTRAINT IF EXISTS "Category_parentId_fkey";
+-- AddForeignKey
 ALTER TABLE "Category" ADD CONSTRAINT "Category_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
@@ -516,7 +446,7 @@ ALTER TABLE "Category" ADD CONSTRAINT "Category_parentId_fkey" FOREIGN KEY ("par
 -- ============================================================
 
 -- Table: WorkerProfile
-CREATE TABLE IF NOT EXISTS "WorkerProfile" (
+CREATE TABLE "WorkerProfile" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -569,26 +499,23 @@ CREATE TABLE IF NOT EXISTS "WorkerProfile" (
 
 
 -- Indexes: WorkerProfile
-CREATE UNIQUE INDEX IF NOT EXISTS "WorkerProfile_userId_key" ON "WorkerProfile"("userId");
+CREATE UNIQUE INDEX "WorkerProfile_userId_key" ON "WorkerProfile"("userId");
 
 -- Foreign keys: WorkerProfile
-ALTER TABLE "WorkerProfile" DROP CONSTRAINT IF EXISTS "WorkerProfile_userId_fkey";
-ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_userId_fkey"
-    FOREIGN KEY ("userId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerProfile" DROP CONSTRAINT IF EXISTS "WorkerProfile_reviewedById_fkey";
-ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_reviewedById_fkey"
-    FOREIGN KEY ("reviewedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerProfile" DROP CONSTRAINT IF EXISTS "WorkerProfile_backgroundCheckedById_fkey";
-ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_backgroundCheckedById_fkey"
-    FOREIGN KEY ("backgroundCheckedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerProfile" ADD CONSTRAINT "WorkerProfile_backgroundCheckedById_fkey" FOREIGN KEY ("backgroundCheckedById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: Portfolio
-CREATE TABLE IF NOT EXISTS "Portfolio" (
+CREATE TABLE "Portfolio" (
     "id" TEXT NOT NULL,
     "workerProfileId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -601,13 +528,12 @@ CREATE TABLE IF NOT EXISTS "Portfolio" (
 
 
 -- Foreign keys: Portfolio
-ALTER TABLE "Portfolio" DROP CONSTRAINT IF EXISTS "Portfolio_workerProfileId_fkey";
-ALTER TABLE "Portfolio" ADD CONSTRAINT "Portfolio_workerProfileId_fkey"
-    FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
+-- AddForeignKey
+ALTER TABLE "Portfolio" ADD CONSTRAINT "Portfolio_workerProfileId_fkey" FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: Certification
-CREATE TABLE IF NOT EXISTS "Certification" (
+CREATE TABLE "Certification" (
     "id" TEXT NOT NULL,
     "workerProfileId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -629,18 +555,16 @@ CREATE TABLE IF NOT EXISTS "Certification" (
 
 
 -- Foreign keys: Certification
-ALTER TABLE "Certification" DROP CONSTRAINT IF EXISTS "Certification_workerProfileId_fkey";
-ALTER TABLE "Certification" ADD CONSTRAINT "Certification_workerProfileId_fkey"
-    FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
+-- AddForeignKey
+ALTER TABLE "Certification" ADD CONSTRAINT "Certification_workerProfileId_fkey" FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "Certification" DROP CONSTRAINT IF EXISTS "Certification_verifiedById_fkey";
-ALTER TABLE "Certification" ADD CONSTRAINT "Certification_verifiedById_fkey"
-    FOREIGN KEY ("verifiedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Certification" ADD CONSTRAINT "Certification_verifiedById_fkey" FOREIGN KEY ("verifiedById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: Availability
-CREATE TABLE IF NOT EXISTS "Availability" (
+CREATE TABLE "Availability" (
     "id" TEXT NOT NULL,
     "workerProfileId" TEXT NOT NULL,
     "dayOfWeek" INTEGER NOT NULL,
@@ -653,13 +577,12 @@ CREATE TABLE IF NOT EXISTS "Availability" (
 
 
 -- Foreign keys: Availability
-ALTER TABLE "Availability" DROP CONSTRAINT IF EXISTS "Availability_workerProfileId_fkey";
-ALTER TABLE "Availability" ADD CONSTRAINT "Availability_workerProfileId_fkey"
-    FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
+-- AddForeignKey
+ALTER TABLE "Availability" ADD CONSTRAINT "Availability_workerProfileId_fkey" FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: WorkerCategory
-CREATE TABLE IF NOT EXISTS "WorkerCategory" (
+CREATE TABLE "WorkerCategory" (
     "id" TEXT NOT NULL,
     "workerProfileId" TEXT NOT NULL,
     "categoryId" TEXT NOT NULL,
@@ -670,18 +593,16 @@ CREATE TABLE IF NOT EXISTS "WorkerCategory" (
 
 
 -- Indexes: WorkerCategory
-CREATE UNIQUE INDEX IF NOT EXISTS "WorkerCategory_workerProfileId_categoryId_key"
+CREATE UNIQUE INDEX "WorkerCategory_workerProfileId_categoryId_key"
     ON "WorkerCategory"("workerProfileId", "categoryId");
 
 -- Foreign keys: WorkerCategory
-ALTER TABLE "WorkerCategory" DROP CONSTRAINT IF EXISTS "WorkerCategory_workerProfileId_fkey";
-ALTER TABLE "WorkerCategory" ADD CONSTRAINT "WorkerCategory_workerProfileId_fkey"
-    FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerCategory" ADD CONSTRAINT "WorkerCategory_workerProfileId_fkey" FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerCategory" DROP CONSTRAINT IF EXISTS "WorkerCategory_categoryId_fkey";
-ALTER TABLE "WorkerCategory" ADD CONSTRAINT "WorkerCategory_categoryId_fkey"
-    FOREIGN KEY ("categoryId") REFERENCES "Category"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerCategory" ADD CONSTRAINT "WorkerCategory_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/04-hirer.sql
@@ -693,7 +614,7 @@ ALTER TABLE "WorkerCategory" ADD CONSTRAINT "WorkerCategory_categoryId_fkey"
 -- ============================================================
 
 -- Table: HirerProfile
-CREATE TABLE IF NOT EXISTS "HirerProfile" (
+CREATE TABLE "HirerProfile" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "companyName" TEXT,
@@ -724,17 +645,15 @@ CREATE TABLE IF NOT EXISTS "HirerProfile" (
 
 
 -- Indexes: HirerProfile
-CREATE UNIQUE INDEX IF NOT EXISTS "HirerProfile_userId_key" ON "HirerProfile"("userId");
+CREATE UNIQUE INDEX "HirerProfile_userId_key" ON "HirerProfile"("userId");
 
 -- Foreign keys: HirerProfile
-ALTER TABLE "HirerProfile" DROP CONSTRAINT IF EXISTS "HirerProfile_userId_fkey";
-ALTER TABLE "HirerProfile" ADD CONSTRAINT "HirerProfile_userId_fkey"
-    FOREIGN KEY ("userId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "HirerProfile" ADD CONSTRAINT "HirerProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "HirerProfile" DROP CONSTRAINT IF EXISTS "HirerProfile_reviewedById_fkey";
-ALTER TABLE "HirerProfile" ADD CONSTRAINT "HirerProfile_reviewedById_fkey"
-    FOREIGN KEY ("reviewedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "HirerProfile" ADD CONSTRAINT "HirerProfile_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/05-booking.sql
@@ -746,7 +665,7 @@ ALTER TABLE "HirerProfile" ADD CONSTRAINT "HirerProfile_reviewedById_fkey"
 -- ============================================================
 
 -- Table: Booking
-CREATE TABLE IF NOT EXISTS "Booking" (
+CREATE TABLE "Booking" (
     "id" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
     "workerId" TEXT NOT NULL,
@@ -812,29 +731,25 @@ CREATE TABLE IF NOT EXISTS "Booking" (
 
 
 -- Foreign keys: Booking
-ALTER TABLE "Booking" DROP CONSTRAINT IF EXISTS "Booking_hirerId_fkey";
-ALTER TABLE "Booking" ADD CONSTRAINT "Booking_hirerId_fkey"
-    FOREIGN KEY ("hirerId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Booking" ADD CONSTRAINT "Booking_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Booking" DROP CONSTRAINT IF EXISTS "Booking_workerId_fkey";
-ALTER TABLE "Booking" ADD CONSTRAINT "Booking_workerId_fkey"
-    FOREIGN KEY ("workerId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Booking" ADD CONSTRAINT "Booking_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Booking" DROP CONSTRAINT IF EXISTS "Booking_categoryId_fkey";
-ALTER TABLE "Booking" ADD CONSTRAINT "Booking_categoryId_fkey"
-    FOREIGN KEY ("categoryId") REFERENCES "Category"("id")
+-- AddForeignKey
+ALTER TABLE "Booking" ADD CONSTRAINT "Booking_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Booking → JobPost: onDelete SET NULL (matches schema.prisma @relation(..., onDelete: SetNull))
-ALTER TABLE "Booking" DROP CONSTRAINT IF EXISTS "Booking_jobPostId_fkey";
-ALTER TABLE "Booking" ADD CONSTRAINT "Booking_jobPostId_fkey"
-    FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id")
+-- AddForeignKey
+ALTER TABLE "Booking" ADD CONSTRAINT "Booking_jobPostId_fkey" FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: Review
-CREATE TABLE IF NOT EXISTS "Review" (
+CREATE TABLE "Review" (
     "id" TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
     "giverId" TEXT NOT NULL,
@@ -854,26 +769,23 @@ CREATE TABLE IF NOT EXISTS "Review" (
 
 
 -- Indexes: Review
-CREATE UNIQUE INDEX IF NOT EXISTS "Review_bookingId_giverId_key" ON "Review"("bookingId", "giverId");
+CREATE UNIQUE INDEX "Review_bookingId_giverId_key" ON "Review"("bookingId", "giverId");
 
 -- Foreign keys: Review
-ALTER TABLE "Review" DROP CONSTRAINT IF EXISTS "Review_bookingId_fkey";
-ALTER TABLE "Review" ADD CONSTRAINT "Review_bookingId_fkey"
-    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+-- AddForeignKey
+ALTER TABLE "Review" ADD CONSTRAINT "Review_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Review" DROP CONSTRAINT IF EXISTS "Review_giverId_fkey";
-ALTER TABLE "Review" ADD CONSTRAINT "Review_giverId_fkey"
-    FOREIGN KEY ("giverId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Review" ADD CONSTRAINT "Review_giverId_fkey" FOREIGN KEY ("giverId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Review" DROP CONSTRAINT IF EXISTS "Review_receiverId_fkey";
-ALTER TABLE "Review" ADD CONSTRAINT "Review_receiverId_fkey"
-    FOREIGN KEY ("receiverId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Review" ADD CONSTRAINT "Review_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: Conversation
-CREATE TABLE IF NOT EXISTS "Conversation" (
+CREATE TABLE "Conversation" (
     "id" TEXT NOT NULL,
     "bookingId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -884,16 +796,15 @@ CREATE TABLE IF NOT EXISTS "Conversation" (
 
 
 -- Indexes: Conversation
-CREATE UNIQUE INDEX IF NOT EXISTS "Conversation_bookingId_key" ON "Conversation"("bookingId");
+CREATE UNIQUE INDEX "Conversation_bookingId_key" ON "Conversation"("bookingId");
 
 -- Foreign keys: Conversation
-ALTER TABLE "Conversation" DROP CONSTRAINT IF EXISTS "Conversation_bookingId_fkey";
-ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_bookingId_fkey"
-    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+-- AddForeignKey
+ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: ConversationUser
-CREATE TABLE IF NOT EXISTS "ConversationUser" (
+CREATE TABLE "ConversationUser" (
     "id" TEXT NOT NULL,
     "conversationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -903,22 +814,20 @@ CREATE TABLE IF NOT EXISTS "ConversationUser" (
 
 
 -- Indexes: ConversationUser
-CREATE UNIQUE INDEX IF NOT EXISTS "ConversationUser_conversationId_userId_key"
+CREATE UNIQUE INDEX "ConversationUser_conversationId_userId_key"
     ON "ConversationUser"("conversationId", "userId");
 
 -- Foreign keys: ConversationUser
-ALTER TABLE "ConversationUser" DROP CONSTRAINT IF EXISTS "ConversationUser_conversationId_fkey";
-ALTER TABLE "ConversationUser" ADD CONSTRAINT "ConversationUser_conversationId_fkey"
-    FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id")
+-- AddForeignKey
+ALTER TABLE "ConversationUser" ADD CONSTRAINT "ConversationUser_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "ConversationUser" DROP CONSTRAINT IF EXISTS "ConversationUser_userId_fkey";
-ALTER TABLE "ConversationUser" ADD CONSTRAINT "ConversationUser_userId_fkey"
-    FOREIGN KEY ("userId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "ConversationUser" ADD CONSTRAINT "ConversationUser_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: Message
-CREATE TABLE IF NOT EXISTS "Message" (
+CREATE TABLE "Message" (
     "id" TEXT NOT NULL,
     "conversationId" TEXT NOT NULL,
     "senderId" TEXT NOT NULL,
@@ -933,23 +842,20 @@ CREATE TABLE IF NOT EXISTS "Message" (
 
 
 -- Foreign keys: Message
-ALTER TABLE "Message" DROP CONSTRAINT IF EXISTS "Message_conversationId_fkey";
-ALTER TABLE "Message" ADD CONSTRAINT "Message_conversationId_fkey"
-    FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id")
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "Message" DROP CONSTRAINT IF EXISTS "Message_senderId_fkey";
-ALTER TABLE "Message" ADD CONSTRAINT "Message_senderId_fkey"
-    FOREIGN KEY ("senderId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Message" DROP CONSTRAINT IF EXISTS "Message_receiverId_fkey";
-ALTER TABLE "Message" ADD CONSTRAINT "Message_receiverId_fkey"
-    FOREIGN KEY ("receiverId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: VideoCall
-CREATE TABLE IF NOT EXISTS "VideoCall" (
+CREATE TABLE "VideoCall" (
     "id" TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
     "initiatorId" TEXT NOT NULL,
@@ -965,23 +871,20 @@ CREATE TABLE IF NOT EXISTS "VideoCall" (
 
 
 -- Indexes: VideoCall
-CREATE UNIQUE INDEX IF NOT EXISTS "VideoCall_bookingId_key" ON "VideoCall"("bookingId");
-CREATE UNIQUE INDEX IF NOT EXISTS "VideoCall_roomId_key"    ON "VideoCall"("roomId");
+CREATE UNIQUE INDEX "VideoCall_bookingId_key" ON "VideoCall"("bookingId");
+CREATE UNIQUE INDEX "VideoCall_roomId_key"    ON "VideoCall"("roomId");
 
 -- Foreign keys: VideoCall
-ALTER TABLE "VideoCall" DROP CONSTRAINT IF EXISTS "VideoCall_bookingId_fkey";
-ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_bookingId_fkey"
-    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+-- AddForeignKey
+ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "VideoCall" DROP CONSTRAINT IF EXISTS "VideoCall_initiatorId_fkey";
-ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_initiatorId_fkey"
-    FOREIGN KEY ("initiatorId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_initiatorId_fkey" FOREIGN KEY ("initiatorId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "VideoCall" DROP CONSTRAINT IF EXISTS "VideoCall_receiverId_fkey";
-ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_receiverId_fkey"
-    FOREIGN KEY ("receiverId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/06-payment.sql
@@ -993,7 +896,7 @@ ALTER TABLE "VideoCall" ADD CONSTRAINT "VideoCall_receiverId_fkey"
 -- ============================================================
 
 -- Table: Payment
-CREATE TABLE IF NOT EXISTS "Payment" (
+CREATE TABLE "Payment" (
     "id" TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -1031,9 +934,9 @@ CREATE TABLE IF NOT EXISTS "Payment" (
 
 
 -- Foreign keys: Payment
-ALTER TABLE "Payment" DROP CONSTRAINT IF EXISTS "Payment_bookingId_fkey";
+-- AddForeignKey
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "Payment" DROP CONSTRAINT IF EXISTS "Payment_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 
@@ -1047,7 +950,7 @@ ALTER TABLE "Payment" ADD CONSTRAINT "Payment_userId_fkey" FOREIGN KEY ("userId"
 -- ============================================================
 
 -- Table: Refund
-CREATE TABLE IF NOT EXISTS "Refund" (
+CREATE TABLE "Refund" (
     "id" TEXT NOT NULL,
     "reference" TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
@@ -1080,8 +983,8 @@ CREATE TABLE IF NOT EXISTS "Refund" (
 
 
 -- Indexes: Refund
-CREATE UNIQUE INDEX IF NOT EXISTS "Refund_reference_key"  ON "Refund"("reference");
-CREATE UNIQUE INDEX IF NOT EXISTS "Refund_disputeId_key"  ON "Refund"("disputeId");
+CREATE UNIQUE INDEX "Refund_reference_key"  ON "Refund"("reference");
+CREATE UNIQUE INDEX "Refund_disputeId_key"  ON "Refund"("disputeId");
 CREATE INDEX        IF NOT EXISTS "Refund_bookingId_idx"  ON "Refund"("bookingId");
 CREATE INDEX        IF NOT EXISTS "Refund_paymentId_idx"  ON "Refund"("paymentId");
 CREATE INDEX        IF NOT EXISTS "Refund_hirerId_idx"    ON "Refund"("hirerId");
@@ -1092,29 +995,24 @@ CREATE INDEX        IF NOT EXISTS "Refund_reference_idx"  ON "Refund"("reference
 CREATE INDEX        IF NOT EXISTS "Refund_createdAt_idx"  ON "Refund"("createdAt" DESC);
 
 -- Foreign keys: Refund
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_bookingId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_bookingId_fkey"
-    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_paymentId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey"
-    FOREIGN KEY ("paymentId") REFERENCES "Payment"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "Payment"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_hirerId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_hirerId_fkey"
-    FOREIGN KEY ("hirerId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_workerId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_workerId_fkey"
-    FOREIGN KEY ("workerId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_adminId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_adminId_fkey"
-    FOREIGN KEY ("adminId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- NOTE: FK Refund.disputeId → Dispute(id) is added in 99-final-fks.sql
@@ -1129,7 +1027,7 @@ ALTER TABLE "Refund" ADD CONSTRAINT "Refund_adminId_fkey"
 -- ============================================================
 
 -- Table: HirerWallet
-CREATE TABLE IF NOT EXISTS "HirerWallet" (
+CREATE TABLE "HirerWallet" (
     "id" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
     "currency" TEXT NOT NULL DEFAULT 'NGN',
@@ -1148,17 +1046,17 @@ CREATE TABLE IF NOT EXISTS "HirerWallet" (
 
 
 -- Indexes: HirerWallet
-CREATE UNIQUE INDEX IF NOT EXISTS "HirerWallet_hirerId_currency_key" ON "HirerWallet"("hirerId", "currency");
-CREATE INDEX IF NOT EXISTS "HirerWallet_hirerId_idx" ON "HirerWallet"("hirerId");
-CREATE INDEX IF NOT EXISTS "HirerWallet_currency_idx" ON "HirerWallet"("currency");
-CREATE INDEX IF NOT EXISTS "HirerWallet_createdAt_idx" ON "HirerWallet"("createdAt");
+CREATE UNIQUE INDEX "HirerWallet_hirerId_currency_key" ON "HirerWallet"("hirerId", "currency");
+CREATE INDEX "HirerWallet_hirerId_idx" ON "HirerWallet"("hirerId");
+CREATE INDEX "HirerWallet_currency_idx" ON "HirerWallet"("currency");
+CREATE INDEX "HirerWallet_createdAt_idx" ON "HirerWallet"("createdAt");
 
 -- Foreign keys: HirerWallet
-ALTER TABLE "HirerWallet" DROP CONSTRAINT IF EXISTS "HirerWallet_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerWallet" ADD CONSTRAINT "HirerWallet_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: HirerTransaction
-CREATE TABLE IF NOT EXISTS "HirerTransaction" (
+CREATE TABLE "HirerTransaction" (
     "id" TEXT NOT NULL,
     "walletId" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
@@ -1183,24 +1081,24 @@ CREATE TABLE IF NOT EXISTS "HirerTransaction" (
 
 
 -- Indexes: HirerTransaction
-CREATE UNIQUE INDEX IF NOT EXISTS "HirerTransaction_reference_key" ON "HirerTransaction"("reference");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_walletId_idx" ON "HirerTransaction"("walletId");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_hirerId_idx" ON "HirerTransaction"("hirerId");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_reference_idx" ON "HirerTransaction"("reference");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_status_idx" ON "HirerTransaction"("status");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_type_idx" ON "HirerTransaction"("type");
-CREATE INDEX IF NOT EXISTS "HirerTransaction_createdAt_idx" ON "HirerTransaction"("createdAt");
+CREATE UNIQUE INDEX "HirerTransaction_reference_key" ON "HirerTransaction"("reference");
+CREATE INDEX "HirerTransaction_walletId_idx" ON "HirerTransaction"("walletId");
+CREATE INDEX "HirerTransaction_hirerId_idx" ON "HirerTransaction"("hirerId");
+CREATE INDEX "HirerTransaction_reference_idx" ON "HirerTransaction"("reference");
+CREATE INDEX "HirerTransaction_status_idx" ON "HirerTransaction"("status");
+CREATE INDEX "HirerTransaction_type_idx" ON "HirerTransaction"("type");
+CREATE INDEX "HirerTransaction_createdAt_idx" ON "HirerTransaction"("createdAt");
 
 -- Foreign keys: HirerTransaction
-ALTER TABLE "HirerTransaction" DROP CONSTRAINT IF EXISTS "HirerTransaction_walletId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerTransaction" ADD CONSTRAINT "HirerTransaction_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "HirerWallet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "HirerTransaction" DROP CONSTRAINT IF EXISTS "HirerTransaction_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerTransaction" ADD CONSTRAINT "HirerTransaction_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "HirerTransaction" DROP CONSTRAINT IF EXISTS "HirerTransaction_paymentId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerTransaction" ADD CONSTRAINT "HirerTransaction_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "Payment"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: HirerWithdrawal
-CREATE TABLE IF NOT EXISTS "HirerWithdrawal" (
+CREATE TABLE "HirerWithdrawal" (
     "id" TEXT NOT NULL,
     "walletId" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
@@ -1226,21 +1124,21 @@ CREATE TABLE IF NOT EXISTS "HirerWithdrawal" (
 
 
 -- Indexes: HirerWithdrawal
-CREATE UNIQUE INDEX IF NOT EXISTS "HirerWithdrawal_reference_key" ON "HirerWithdrawal"("reference");
-CREATE INDEX IF NOT EXISTS "HirerWithdrawal_walletId_idx" ON "HirerWithdrawal"("walletId");
-CREATE INDEX IF NOT EXISTS "HirerWithdrawal_hirerId_idx" ON "HirerWithdrawal"("hirerId");
-CREATE INDEX IF NOT EXISTS "HirerWithdrawal_reference_idx" ON "HirerWithdrawal"("reference");
-CREATE INDEX IF NOT EXISTS "HirerWithdrawal_status_idx" ON "HirerWithdrawal"("status");
-CREATE INDEX IF NOT EXISTS "HirerWithdrawal_createdAt_idx" ON "HirerWithdrawal"("createdAt");
+CREATE UNIQUE INDEX "HirerWithdrawal_reference_key" ON "HirerWithdrawal"("reference");
+CREATE INDEX "HirerWithdrawal_walletId_idx" ON "HirerWithdrawal"("walletId");
+CREATE INDEX "HirerWithdrawal_hirerId_idx" ON "HirerWithdrawal"("hirerId");
+CREATE INDEX "HirerWithdrawal_reference_idx" ON "HirerWithdrawal"("reference");
+CREATE INDEX "HirerWithdrawal_status_idx" ON "HirerWithdrawal"("status");
+CREATE INDEX "HirerWithdrawal_createdAt_idx" ON "HirerWithdrawal"("createdAt");
 
 -- Foreign keys: HirerWithdrawal
-ALTER TABLE "HirerWithdrawal" DROP CONSTRAINT IF EXISTS "HirerWithdrawal_walletId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerWithdrawal" ADD CONSTRAINT "HirerWithdrawal_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "HirerWallet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "HirerWithdrawal" DROP CONSTRAINT IF EXISTS "HirerWithdrawal_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerWithdrawal" ADD CONSTRAINT "HirerWithdrawal_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: HirerFundingAttempt
-CREATE TABLE IF NOT EXISTS "HirerFundingAttempt" (
+CREATE TABLE "HirerFundingAttempt" (
     "id" TEXT NOT NULL,
     "walletId" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
@@ -1264,23 +1162,23 @@ CREATE TABLE IF NOT EXISTS "HirerFundingAttempt" (
 
 
 -- Indexes: HirerFundingAttempt
-CREATE UNIQUE INDEX IF NOT EXISTS "HirerFundingAttempt_providerRef_key" ON "HirerFundingAttempt"("providerRef");
-CREATE INDEX IF NOT EXISTS "HirerFundingAttempt_walletId_idx" ON "HirerFundingAttempt"("walletId");
-CREATE INDEX IF NOT EXISTS "HirerFundingAttempt_hirerId_idx" ON "HirerFundingAttempt"("hirerId");
-CREATE INDEX IF NOT EXISTS "HirerFundingAttempt_providerRef_idx" ON "HirerFundingAttempt"("providerRef");
-CREATE INDEX IF NOT EXISTS "HirerFundingAttempt_status_idx" ON "HirerFundingAttempt"("status");
-CREATE INDEX IF NOT EXISTS "HirerFundingAttempt_createdAt_idx" ON "HirerFundingAttempt"("createdAt");
+CREATE UNIQUE INDEX "HirerFundingAttempt_providerRef_key" ON "HirerFundingAttempt"("providerRef");
+CREATE INDEX "HirerFundingAttempt_walletId_idx" ON "HirerFundingAttempt"("walletId");
+CREATE INDEX "HirerFundingAttempt_hirerId_idx" ON "HirerFundingAttempt"("hirerId");
+CREATE INDEX "HirerFundingAttempt_providerRef_idx" ON "HirerFundingAttempt"("providerRef");
+CREATE INDEX "HirerFundingAttempt_status_idx" ON "HirerFundingAttempt"("status");
+CREATE INDEX "HirerFundingAttempt_createdAt_idx" ON "HirerFundingAttempt"("createdAt");
 
 -- Foreign keys: HirerFundingAttempt
-ALTER TABLE "HirerFundingAttempt" DROP CONSTRAINT IF EXISTS "HirerFundingAttempt_walletId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerFundingAttempt" ADD CONSTRAINT "HirerFundingAttempt_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "HirerWallet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "HirerFundingAttempt" DROP CONSTRAINT IF EXISTS "HirerFundingAttempt_transactionId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerFundingAttempt" ADD CONSTRAINT "HirerFundingAttempt_transactionId_fkey" FOREIGN KEY ("transactionId") REFERENCES "HirerTransaction"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "HirerFundingAttempt" DROP CONSTRAINT IF EXISTS "HirerFundingAttempt_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "HirerFundingAttempt" ADD CONSTRAINT "HirerFundingAttempt_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: WalletTransaction
-CREATE TABLE IF NOT EXISTS "WalletTransaction" (
+CREATE TABLE "WalletTransaction" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -1296,11 +1194,11 @@ CREATE TABLE IF NOT EXISTS "WalletTransaction" (
 
 
 -- Foreign keys: WalletTransaction
-ALTER TABLE "WalletTransaction" DROP CONSTRAINT IF EXISTS "WalletTransaction_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "WalletTransaction" ADD CONSTRAINT "WalletTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: Withdrawal
-CREATE TABLE IF NOT EXISTS "Withdrawal" (
+CREATE TABLE "Withdrawal" (
     "id" TEXT NOT NULL,
     "workerId" TEXT NOT NULL,
     "amount" DOUBLE PRECISION NOT NULL,
@@ -1320,10 +1218,10 @@ CREATE TABLE IF NOT EXISTS "Withdrawal" (
 
 
 -- Indexes: Withdrawal
-CREATE UNIQUE INDEX IF NOT EXISTS "Withdrawal_reference_key" ON "Withdrawal"("reference");
+CREATE UNIQUE INDEX "Withdrawal_reference_key" ON "Withdrawal"("reference");
 
 -- Foreign keys: Withdrawal
-ALTER TABLE "Withdrawal" DROP CONSTRAINT IF EXISTS "Withdrawal_workerId_fkey";
+-- AddForeignKey
 ALTER TABLE "Withdrawal" ADD CONSTRAINT "Withdrawal_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 -- ════════════════════════════════════════════════════════════
 -- db-scripts/controllers/09-adminLog.sql
@@ -1335,7 +1233,7 @@ ALTER TABLE "Withdrawal" ADD CONSTRAINT "Withdrawal_workerId_fkey" FOREIGN KEY (
 -- ============================================================
 
 -- Table: AuditLog
-CREATE TABLE IF NOT EXISTS "AuditLog" (
+CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "adminId" TEXT NOT NULL,
     "action" "AuditAction" NOT NULL,
@@ -1356,18 +1254,18 @@ CREATE TABLE IF NOT EXISTS "AuditLog" (
 
 
 -- Indexes: AuditLog
-CREATE INDEX IF NOT EXISTS "AuditLog_adminId_idx" ON "AuditLog"("adminId");
-CREATE INDEX IF NOT EXISTS "AuditLog_action_idx" ON "AuditLog"("action");
-CREATE INDEX IF NOT EXISTS "AuditLog_targetType_targetId_idx" ON "AuditLog"("targetType", "targetId");
-CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx" ON "AuditLog"("createdAt" DESC);
-CREATE INDEX IF NOT EXISTS "AuditLog_result_idx" ON "AuditLog"("result");
+CREATE INDEX "AuditLog_adminId_idx" ON "AuditLog"("adminId");
+CREATE INDEX "AuditLog_action_idx" ON "AuditLog"("action");
+CREATE INDEX "AuditLog_targetType_targetId_idx" ON "AuditLog"("targetType", "targetId");
+CREATE INDEX "AuditLog_createdAt_idx" ON "AuditLog"("createdAt" DESC);
+CREATE INDEX "AuditLog_result_idx" ON "AuditLog"("result");
 
 -- Foreign keys: AuditLog
-ALTER TABLE "AuditLog" DROP CONSTRAINT IF EXISTS "AuditLog_adminId_fkey";
+-- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: Report
-CREATE TABLE IF NOT EXISTS "Report" (
+CREATE TABLE "Report" (
     "id" TEXT NOT NULL,
     "reporterId" TEXT NOT NULL,
     "targetType" "ReportType" NOT NULL,
@@ -1388,20 +1286,20 @@ CREATE TABLE IF NOT EXISTS "Report" (
 
 
 -- Indexes: Report
-CREATE UNIQUE INDEX IF NOT EXISTS "Report_reporterId_targetType_targetId_key" ON "Report"("reporterId", "targetType", "targetId");
-CREATE INDEX IF NOT EXISTS "Report_targetType_targetId_idx" ON "Report"("targetType", "targetId");
-CREATE INDEX IF NOT EXISTS "Report_status_idx" ON "Report"("status");
-CREATE INDEX IF NOT EXISTS "Report_reporterId_idx" ON "Report"("reporterId");
-CREATE INDEX IF NOT EXISTS "Report_createdAt_idx" ON "Report"("createdAt" DESC);
+CREATE UNIQUE INDEX "Report_reporterId_targetType_targetId_key" ON "Report"("reporterId", "targetType", "targetId");
+CREATE INDEX "Report_targetType_targetId_idx" ON "Report"("targetType", "targetId");
+CREATE INDEX "Report_status_idx" ON "Report"("status");
+CREATE INDEX "Report_reporterId_idx" ON "Report"("reporterId");
+CREATE INDEX "Report_createdAt_idx" ON "Report"("createdAt" DESC);
 
 -- Foreign keys: Report
-ALTER TABLE "Report" DROP CONSTRAINT IF EXISTS "Report_reporterId_fkey";
+-- AddForeignKey
 ALTER TABLE "Report" ADD CONSTRAINT "Report_reporterId_fkey" FOREIGN KEY ("reporterId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Report" DROP CONSTRAINT IF EXISTS "Report_reviewedById_fkey";
+-- AddForeignKey
 ALTER TABLE "Report" ADD CONSTRAINT "Report_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: AppSettings
-CREATE TABLE IF NOT EXISTS "AppSettings" (
+CREATE TABLE "AppSettings" (
     "id" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "value" TEXT NOT NULL,
@@ -1415,8 +1313,8 @@ CREATE TABLE IF NOT EXISTS "AppSettings" (
 
 
 -- Indexes: AppSettings
-CREATE UNIQUE INDEX IF NOT EXISTS "AppSettings_key_key" ON "AppSettings"("key");
-CREATE INDEX IF NOT EXISTS "AppSettings_key_idx" ON "AppSettings"("key");
+CREATE UNIQUE INDEX "AppSettings_key_key" ON "AppSettings"("key");
+CREATE INDEX "AppSettings_key_idx" ON "AppSettings"("key");
 
 
 -- ════════════════════════════════════════════════════════════
@@ -1429,7 +1327,7 @@ CREATE INDEX IF NOT EXISTS "AppSettings_key_idx" ON "AppSettings"("key");
 -- ============================================================
 
 -- Table: JobPost
-CREATE TABLE IF NOT EXISTS "JobPost" (
+CREATE TABLE "JobPost" (
     "id" TEXT NOT NULL,
     "hirerId" TEXT NOT NULL,
     "categoryId" TEXT NOT NULL,
@@ -1484,15 +1382,15 @@ CREATE TABLE IF NOT EXISTS "JobPost" (
 
 
 -- Foreign keys: JobPost
-ALTER TABLE "JobPost" DROP CONSTRAINT IF EXISTS "JobPost_hirerId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobPost" ADD CONSTRAINT "JobPost_hirerId_fkey" FOREIGN KEY ("hirerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "JobPost" DROP CONSTRAINT IF EXISTS "JobPost_categoryId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobPost" ADD CONSTRAINT "JobPost_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "JobPost" DROP CONSTRAINT IF EXISTS "JobPost_postedByAdminId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobPost" ADD CONSTRAINT "JobPost_postedByAdminId_fkey" FOREIGN KEY ("postedByAdminId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: JobCategory
-CREATE TABLE IF NOT EXISTS "JobCategory" (
+CREATE TABLE "JobCategory" (
     "id" TEXT NOT NULL,
     "jobId" TEXT NOT NULL,
     "categoryId" TEXT NOT NULL,
@@ -1502,16 +1400,16 @@ CREATE TABLE IF NOT EXISTS "JobCategory" (
 
 
 -- Indexes: JobCategory
-CREATE UNIQUE INDEX IF NOT EXISTS "JobCategory_jobId_categoryId_key" ON "JobCategory"("jobId", "categoryId");
+CREATE UNIQUE INDEX "JobCategory_jobId_categoryId_key" ON "JobCategory"("jobId", "categoryId");
 
 -- Foreign keys: JobCategory
-ALTER TABLE "JobCategory" DROP CONSTRAINT IF EXISTS "JobCategory_jobId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobCategory" ADD CONSTRAINT "JobCategory_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "JobPost"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "JobCategory" DROP CONSTRAINT IF EXISTS "JobCategory_categoryId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobCategory" ADD CONSTRAINT "JobCategory_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Table: JobApplication
-CREATE TABLE IF NOT EXISTS "JobApplication" (
+CREATE TABLE "JobApplication" (
     "id" TEXT NOT NULL,
     "jobPostId" TEXT NOT NULL,
     "workerId" TEXT NOT NULL,
@@ -1525,16 +1423,16 @@ CREATE TABLE IF NOT EXISTS "JobApplication" (
 
 
 -- Indexes: JobApplication
-CREATE UNIQUE INDEX IF NOT EXISTS "JobApplication_jobPostId_workerId_key" ON "JobApplication"("jobPostId", "workerId");
+CREATE UNIQUE INDEX "JobApplication_jobPostId_workerId_key" ON "JobApplication"("jobPostId", "workerId");
 
 -- Foreign keys: JobApplication
-ALTER TABLE "JobApplication" DROP CONSTRAINT IF EXISTS "JobApplication_jobPostId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobApplication" ADD CONSTRAINT "JobApplication_jobPostId_fkey" FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "JobApplication" DROP CONSTRAINT IF EXISTS "JobApplication_workerId_fkey";
+-- AddForeignKey
 ALTER TABLE "JobApplication" ADD CONSTRAINT "JobApplication_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: ExternalJobClick
-CREATE TABLE IF NOT EXISTS "ExternalJobClick" (
+CREATE TABLE "ExternalJobClick" (
     "id" TEXT NOT NULL,
     "jobPostId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -1546,15 +1444,15 @@ CREATE TABLE IF NOT EXISTS "ExternalJobClick" (
 
 
 -- Indexes: ExternalJobClick
-CREATE UNIQUE INDEX IF NOT EXISTS "ExternalJobClick_jobPostId_userId_type_key" ON "ExternalJobClick"("jobPostId", "userId", "type");
-CREATE INDEX IF NOT EXISTS "ExternalJobClick_jobPostId_idx" ON "ExternalJobClick"("jobPostId");
-CREATE INDEX IF NOT EXISTS "ExternalJobClick_userId_idx" ON "ExternalJobClick"("userId");
-CREATE INDEX IF NOT EXISTS "ExternalJobClick_type_idx" ON "ExternalJobClick"("type");
+CREATE UNIQUE INDEX "ExternalJobClick_jobPostId_userId_type_key" ON "ExternalJobClick"("jobPostId", "userId", "type");
+CREATE INDEX "ExternalJobClick_jobPostId_idx" ON "ExternalJobClick"("jobPostId");
+CREATE INDEX "ExternalJobClick_userId_idx" ON "ExternalJobClick"("userId");
+CREATE INDEX "ExternalJobClick_type_idx" ON "ExternalJobClick"("type");
 
 -- Foreign keys: ExternalJobClick
-ALTER TABLE "ExternalJobClick" DROP CONSTRAINT IF EXISTS "ExternalJobClick_jobPostId_fkey";
+-- AddForeignKey
 ALTER TABLE "ExternalJobClick" ADD CONSTRAINT "ExternalJobClick_jobPostId_fkey" FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "ExternalJobClick" DROP CONSTRAINT IF EXISTS "ExternalJobClick_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "ExternalJobClick" ADD CONSTRAINT "ExternalJobClick_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
@@ -1568,7 +1466,7 @@ ALTER TABLE "ExternalJobClick" ADD CONSTRAINT "ExternalJobClick_userId_fkey" FOR
 -- ============================================================
 
 -- Table: Dispute
-CREATE TABLE IF NOT EXISTS "Dispute" (
+CREATE TABLE "Dispute" (
     "id"        TEXT NOT NULL,
     "bookingId" TEXT NOT NULL,
 
@@ -1602,31 +1500,27 @@ CREATE TABLE IF NOT EXISTS "Dispute" (
 
 
 -- Indexes: Dispute
-CREATE INDEX IF NOT EXISTS "Dispute_bookingId_idx"   ON "Dispute"("bookingId");
-CREATE INDEX IF NOT EXISTS "Dispute_raisedById_idx"  ON "Dispute"("raisedById");
-CREATE INDEX IF NOT EXISTS "Dispute_againstId_idx"   ON "Dispute"("againstId");
-CREATE INDEX IF NOT EXISTS "Dispute_status_idx"      ON "Dispute"("status");
-CREATE INDEX IF NOT EXISTS "Dispute_createdAt_idx"   ON "Dispute"("createdAt" DESC);
+CREATE INDEX "Dispute_bookingId_idx"   ON "Dispute"("bookingId");
+CREATE INDEX "Dispute_raisedById_idx"  ON "Dispute"("raisedById");
+CREATE INDEX "Dispute_againstId_idx"   ON "Dispute"("againstId");
+CREATE INDEX "Dispute_status_idx"      ON "Dispute"("status");
+CREATE INDEX "Dispute_createdAt_idx"   ON "Dispute"("createdAt" DESC);
 
 -- Foreign keys: Dispute
-ALTER TABLE "Dispute" DROP CONSTRAINT IF EXISTS "Dispute_bookingId_fkey";
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_bookingId_fkey"
-    FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
+-- AddForeignKey
+ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "Dispute" DROP CONSTRAINT IF EXISTS "Dispute_raisedById_fkey";
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_raisedById_fkey"
-    FOREIGN KEY ("raisedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_raisedById_fkey" FOREIGN KEY ("raisedById") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Dispute" DROP CONSTRAINT IF EXISTS "Dispute_againstId_fkey";
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_againstId_fkey"
-    FOREIGN KEY ("againstId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_againstId_fkey" FOREIGN KEY ("againstId") REFERENCES "User"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "Dispute" DROP CONSTRAINT IF EXISTS "Dispute_resolvedById_fkey";
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_resolvedById_fkey"
-    FOREIGN KEY ("resolvedById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_resolvedById_fkey" FOREIGN KEY ("resolvedById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- NOTE: The FK from Refund.disputeId → Dispute(id) is declared in
@@ -1647,7 +1541,7 @@ ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_resolvedById_fkey"
 -- cannot be clawed back from the worker's available balance because the money
 -- was already withdrawn. Auto-deducted from subsequent payouts (FIFO) until
 -- CLEARED, or manually resolved by an admin (FORGIVEN / COLLECTION).
-CREATE TABLE IF NOT EXISTS "WorkerDebt" (
+CREATE TABLE "WorkerDebt" (
     "id"              TEXT NOT NULL,
     "workerId"        TEXT NOT NULL,
     "workerProfileId" TEXT NOT NULL,
@@ -1687,31 +1581,27 @@ CREATE TABLE IF NOT EXISTS "WorkerDebt" (
 
 
 -- Indexes: WorkerDebt
-CREATE INDEX IF NOT EXISTS "WorkerDebt_workerId_idx"        ON "WorkerDebt"("workerId");
-CREATE INDEX IF NOT EXISTS "WorkerDebt_workerProfileId_idx" ON "WorkerDebt"("workerProfileId");
-CREATE INDEX IF NOT EXISTS "WorkerDebt_status_idx"          ON "WorkerDebt"("status");
-CREATE INDEX IF NOT EXISTS "WorkerDebt_reason_idx"          ON "WorkerDebt"("reason");
-CREATE INDEX IF NOT EXISTS "WorkerDebt_createdAt_idx"       ON "WorkerDebt"("createdAt" DESC);
+CREATE INDEX "WorkerDebt_workerId_idx"        ON "WorkerDebt"("workerId");
+CREATE INDEX "WorkerDebt_workerProfileId_idx" ON "WorkerDebt"("workerProfileId");
+CREATE INDEX "WorkerDebt_status_idx"          ON "WorkerDebt"("status");
+CREATE INDEX "WorkerDebt_reason_idx"          ON "WorkerDebt"("reason");
+CREATE INDEX "WorkerDebt_createdAt_idx"       ON "WorkerDebt"("createdAt" DESC);
 
 -- Foreign keys: WorkerDebt
-ALTER TABLE "WorkerDebt" DROP CONSTRAINT IF EXISTS "WorkerDebt_workerId_fkey";
-ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_workerId_fkey"
-    FOREIGN KEY ("workerId") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_workerId_fkey" FOREIGN KEY ("workerId") REFERENCES "User"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerDebt" DROP CONSTRAINT IF EXISTS "WorkerDebt_workerProfileId_fkey";
-ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_workerProfileId_fkey"
-    FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_workerProfileId_fkey" FOREIGN KEY ("workerProfileId") REFERENCES "WorkerProfile"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerDebt" DROP CONSTRAINT IF EXISTS "WorkerDebt_forgivenById_fkey";
-ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_forgivenById_fkey"
-    FOREIGN KEY ("forgivenById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_forgivenById_fkey" FOREIGN KEY ("forgivenById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
-ALTER TABLE "WorkerDebt" DROP CONSTRAINT IF EXISTS "WorkerDebt_markedCollectionById_fkey";
-ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_markedCollectionById_fkey"
-    FOREIGN KEY ("markedCollectionById") REFERENCES "User"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_markedCollectionById_fkey" FOREIGN KEY ("markedCollectionById") REFERENCES "User"("id")
     ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- NOTE: WorkerDebt.refundId → Refund(id) FK lives in 99-final-fks.sql
@@ -1726,7 +1616,7 @@ ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_markedCollectionById_fkey"
 -- ============================================================
 
 -- Table: CampaignReferral
-CREATE TABLE IF NOT EXISTS "CampaignReferral" (
+CREATE TABLE "CampaignReferral" (
     "id" TEXT NOT NULL,
     "referrerId" TEXT NOT NULL,
     "referredId" TEXT NOT NULL,
@@ -1756,16 +1646,16 @@ CREATE TABLE IF NOT EXISTS "CampaignReferral" (
 
 
 -- Indexes: CampaignReferral
-CREATE UNIQUE INDEX IF NOT EXISTS "CampaignReferral_referredId_key" ON "CampaignReferral"("referredId");
+CREATE UNIQUE INDEX "CampaignReferral_referredId_key" ON "CampaignReferral"("referredId");
 
 -- Foreign keys: CampaignReferral
-ALTER TABLE "CampaignReferral" DROP CONSTRAINT IF EXISTS "CampaignReferral_referrerId_fkey";
+-- AddForeignKey
 ALTER TABLE "CampaignReferral" ADD CONSTRAINT "CampaignReferral_referrerId_fkey" FOREIGN KEY ("referrerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "CampaignReferral" DROP CONSTRAINT IF EXISTS "CampaignReferral_referredId_fkey";
+-- AddForeignKey
 ALTER TABLE "CampaignReferral" ADD CONSTRAINT "CampaignReferral_referredId_fkey" FOREIGN KEY ("referredId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: CampaignSubmission
-CREATE TABLE IF NOT EXISTS "CampaignSubmission" (
+CREATE TABLE "CampaignSubmission" (
     "id" TEXT NOT NULL,
     "referrerId" TEXT NOT NULL,
     "submissionDate" TEXT NOT NULL,
@@ -1787,14 +1677,14 @@ CREATE TABLE IF NOT EXISTS "CampaignSubmission" (
 
 
 -- Indexes: CampaignSubmission
-CREATE UNIQUE INDEX IF NOT EXISTS "CampaignSubmission_referrerId_submissionDate_key" ON "CampaignSubmission"("referrerId", "submissionDate");
+CREATE UNIQUE INDEX "CampaignSubmission_referrerId_submissionDate_key" ON "CampaignSubmission"("referrerId", "submissionDate");
 
 -- Foreign keys: CampaignSubmission
-ALTER TABLE "CampaignSubmission" DROP CONSTRAINT IF EXISTS "CampaignSubmission_referrerId_fkey";
+-- AddForeignKey
 ALTER TABLE "CampaignSubmission" ADD CONSTRAINT "CampaignSubmission_referrerId_fkey" FOREIGN KEY ("referrerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: CampaignTransaction
-CREATE TABLE IF NOT EXISTS "CampaignTransaction" (
+CREATE TABLE "CampaignTransaction" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -1811,11 +1701,11 @@ CREATE TABLE IF NOT EXISTS "CampaignTransaction" (
 
 
 -- Foreign keys: CampaignTransaction
-ALTER TABLE "CampaignTransaction" DROP CONSTRAINT IF EXISTS "CampaignTransaction_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "CampaignTransaction" ADD CONSTRAINT "CampaignTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: CampaignWithdrawal
-CREATE TABLE IF NOT EXISTS "CampaignWithdrawal" (
+CREATE TABLE "CampaignWithdrawal" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "amount" DOUBLE PRECISION NOT NULL,
@@ -1834,7 +1724,7 @@ CREATE TABLE IF NOT EXISTS "CampaignWithdrawal" (
 
 
 -- Foreign keys: CampaignWithdrawal
-ALTER TABLE "CampaignWithdrawal" DROP CONSTRAINT IF EXISTS "CampaignWithdrawal_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "CampaignWithdrawal" ADD CONSTRAINT "CampaignWithdrawal_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
@@ -1848,7 +1738,7 @@ ALTER TABLE "CampaignWithdrawal" ADD CONSTRAINT "CampaignWithdrawal_userId_fkey"
 -- ============================================================
 
 -- Table: Feedback
-CREATE TABLE IF NOT EXISTS "Feedback" (
+CREATE TABLE "Feedback" (
     "id" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "rating" INTEGER NOT NULL,
@@ -1875,9 +1765,9 @@ CREATE TABLE IF NOT EXISTS "Feedback" (
 
 
 -- Foreign keys: Feedback
-ALTER TABLE "Feedback" DROP CONSTRAINT IF EXISTS "Feedback_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "Feedback" ADD CONSTRAINT "Feedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "Feedback" DROP CONSTRAINT IF EXISTS "Feedback_reviewedBy_fkey";
+-- AddForeignKey
 ALTER TABLE "Feedback" ADD CONSTRAINT "Feedback_reviewedBy_fkey" FOREIGN KEY ("reviewedBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
@@ -1891,7 +1781,7 @@ ALTER TABLE "Feedback" ADD CONSTRAINT "Feedback_reviewedBy_fkey" FOREIGN KEY ("r
 -- ============================================================
 
 -- Table: Notification
-CREATE TABLE IF NOT EXISTS "Notification" (
+CREATE TABLE "Notification" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -1907,12 +1797,12 @@ CREATE TABLE IF NOT EXISTS "Notification" (
 
 
 -- Indexes: Notification
-CREATE INDEX IF NOT EXISTS "Notification_userId_idx" ON "Notification"("userId");
-CREATE INDEX IF NOT EXISTS "Notification_isRead_idx" ON "Notification"("isRead");
-CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt");
+CREATE INDEX "Notification_userId_idx" ON "Notification"("userId");
+CREATE INDEX "Notification_isRead_idx" ON "Notification"("isRead");
+CREATE INDEX "Notification_createdAt_idx" ON "Notification"("createdAt");
 
 -- Foreign keys: Notification
-ALTER TABLE "Notification" DROP CONSTRAINT IF EXISTS "Notification_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
@@ -1926,7 +1816,7 @@ ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY
 -- ============================================================
 
 -- Table: Post
-CREATE TABLE IF NOT EXISTS "Post" (
+CREATE TABLE "Post" (
     "id" TEXT NOT NULL,
     "authorId" TEXT NOT NULL,
     "content" TEXT NOT NULL,
@@ -1943,13 +1833,13 @@ CREATE TABLE IF NOT EXISTS "Post" (
 
 
 -- Foreign keys: Post
-ALTER TABLE "Post" DROP CONSTRAINT IF EXISTS "Post_authorId_fkey";
+-- AddForeignKey
 ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Post" DROP CONSTRAINT IF EXISTS "Post_repostOfId_fkey";
+-- AddForeignKey
 ALTER TABLE "Post" ADD CONSTRAINT "Post_repostOfId_fkey" FOREIGN KEY ("repostOfId") REFERENCES "Post"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: PostReaction
-CREATE TABLE IF NOT EXISTS "PostReaction" (
+CREATE TABLE "PostReaction" (
     "id" TEXT NOT NULL,
     "postId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -1961,16 +1851,16 @@ CREATE TABLE IF NOT EXISTS "PostReaction" (
 
 
 -- Indexes: PostReaction
-CREATE UNIQUE INDEX IF NOT EXISTS "PostReaction_postId_userId_key" ON "PostReaction"("postId", "userId");
+CREATE UNIQUE INDEX "PostReaction_postId_userId_key" ON "PostReaction"("postId", "userId");
 
 -- Foreign keys: PostReaction
-ALTER TABLE "PostReaction" DROP CONSTRAINT IF EXISTS "PostReaction_postId_fkey";
+-- AddForeignKey
 ALTER TABLE "PostReaction" ADD CONSTRAINT "PostReaction_postId_fkey" FOREIGN KEY ("postId") REFERENCES "Post"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "PostReaction" DROP CONSTRAINT IF EXISTS "PostReaction_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "PostReaction" ADD CONSTRAINT "PostReaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: PostComment
-CREATE TABLE IF NOT EXISTS "PostComment" (
+CREATE TABLE "PostComment" (
     "id" TEXT NOT NULL,
     "postId" TEXT NOT NULL,
     "authorId" TEXT NOT NULL,
@@ -1984,11 +1874,11 @@ CREATE TABLE IF NOT EXISTS "PostComment" (
 
 
 -- Foreign keys: PostComment
-ALTER TABLE "PostComment" DROP CONSTRAINT IF EXISTS "PostComment_postId_fkey";
+-- AddForeignKey
 ALTER TABLE "PostComment" ADD CONSTRAINT "PostComment_postId_fkey" FOREIGN KEY ("postId") REFERENCES "Post"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "PostComment" DROP CONSTRAINT IF EXISTS "PostComment_authorId_fkey";
+-- AddForeignKey
 ALTER TABLE "PostComment" ADD CONSTRAINT "PostComment_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "PostComment" DROP CONSTRAINT IF EXISTS "PostComment_parentId_fkey";
+-- AddForeignKey
 ALTER TABLE "PostComment" ADD CONSTRAINT "PostComment_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "PostComment"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
@@ -2002,7 +1892,7 @@ ALTER TABLE "PostComment" ADD CONSTRAINT "PostComment_parentId_fkey" FOREIGN KEY
 -- ============================================================
 
 -- Table: Referral
-CREATE TABLE IF NOT EXISTS "Referral" (
+CREATE TABLE "Referral" (
     "id" TEXT NOT NULL,
     "referrerId" TEXT NOT NULL,
     "referredId" TEXT NOT NULL,
@@ -2024,12 +1914,12 @@ CREATE TABLE IF NOT EXISTS "Referral" (
 
 
 -- Indexes: Referral
-CREATE UNIQUE INDEX IF NOT EXISTS "Referral_referredId_key" ON "Referral"("referredId");
+CREATE UNIQUE INDEX "Referral_referredId_key" ON "Referral"("referredId");
 
 -- Foreign keys: Referral
-ALTER TABLE "Referral" DROP CONSTRAINT IF EXISTS "Referral_referrerId_fkey";
+-- AddForeignKey
 ALTER TABLE "Referral" ADD CONSTRAINT "Referral_referrerId_fkey" FOREIGN KEY ("referrerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "Referral" DROP CONSTRAINT IF EXISTS "Referral_referredId_fkey";
+-- AddForeignKey
 ALTER TABLE "Referral" ADD CONSTRAINT "Referral_referredId_fkey" FOREIGN KEY ("referredId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 
@@ -2043,7 +1933,7 @@ ALTER TABLE "Referral" ADD CONSTRAINT "Referral_referredId_fkey" FOREIGN KEY ("r
 -- ============================================================
 
 -- Table: Subscription
-CREATE TABLE IF NOT EXISTS "Subscription" (
+CREATE TABLE "Subscription" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "tier" "SubscriptionTier" NOT NULL DEFAULT 'FREE',
@@ -2071,11 +1961,11 @@ CREATE TABLE IF NOT EXISTS "Subscription" (
 
 
 -- Foreign keys: Subscription
-ALTER TABLE "Subscription" DROP CONSTRAINT IF EXISTS "Subscription_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "Subscription" ADD CONSTRAINT "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: PromoCode
-CREATE TABLE IF NOT EXISTS "PromoCode" (
+CREATE TABLE "PromoCode" (
     "id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "description" TEXT,
@@ -2096,14 +1986,14 @@ CREATE TABLE IF NOT EXISTS "PromoCode" (
 
 
 -- Indexes: PromoCode
-CREATE UNIQUE INDEX IF NOT EXISTS "PromoCode_code_key" ON "PromoCode"("code");
+CREATE UNIQUE INDEX "PromoCode_code_key" ON "PromoCode"("code");
 
 -- Foreign keys: PromoCode
-ALTER TABLE "PromoCode" DROP CONSTRAINT IF EXISTS "PromoCode_createdById_fkey";
+-- AddForeignKey
 ALTER TABLE "PromoCode" ADD CONSTRAINT "PromoCode_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Table: PromoCodeUsage
-CREATE TABLE IF NOT EXISTS "PromoCodeUsage" (
+CREATE TABLE "PromoCodeUsage" (
     "id" TEXT NOT NULL,
     "promoCodeId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -2119,16 +2009,16 @@ CREATE TABLE IF NOT EXISTS "PromoCodeUsage" (
 
 
 -- Indexes: PromoCodeUsage
-CREATE UNIQUE INDEX IF NOT EXISTS "PromoCodeUsage_userId_promoCodeId_key" ON "PromoCodeUsage"("userId", "promoCodeId");
+CREATE UNIQUE INDEX "PromoCodeUsage_userId_promoCodeId_key" ON "PromoCodeUsage"("userId", "promoCodeId");
 
 -- Foreign keys: PromoCodeUsage
-ALTER TABLE "PromoCodeUsage" DROP CONSTRAINT IF EXISTS "PromoCodeUsage_promoCodeId_fkey";
+-- AddForeignKey
 ALTER TABLE "PromoCodeUsage" ADD CONSTRAINT "PromoCodeUsage_promoCodeId_fkey" FOREIGN KEY ("promoCodeId") REFERENCES "PromoCode"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "PromoCodeUsage" DROP CONSTRAINT IF EXISTS "PromoCodeUsage_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "PromoCodeUsage" ADD CONSTRAINT "PromoCodeUsage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Table: FeaturedListing
-CREATE TABLE IF NOT EXISTS "FeaturedListing" (
+CREATE TABLE "FeaturedListing" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "categoryId" TEXT,
@@ -2149,12 +2039,12 @@ CREATE TABLE IF NOT EXISTS "FeaturedListing" (
 
 
 -- Indexes: FeaturedListing
-CREATE UNIQUE INDEX IF NOT EXISTS "FeaturedListing_reference_key" ON "FeaturedListing"("reference");
+CREATE UNIQUE INDEX "FeaturedListing_reference_key" ON "FeaturedListing"("reference");
 
 -- Foreign keys: FeaturedListing
-ALTER TABLE "FeaturedListing" DROP CONSTRAINT IF EXISTS "FeaturedListing_userId_fkey";
+-- AddForeignKey
 ALTER TABLE "FeaturedListing" ADD CONSTRAINT "FeaturedListing_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "FeaturedListing" DROP CONSTRAINT IF EXISTS "FeaturedListing_categoryId_fkey";
+-- AddForeignKey
 ALTER TABLE "FeaturedListing" ADD CONSTRAINT "FeaturedListing_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
@@ -2168,7 +2058,7 @@ ALTER TABLE "FeaturedListing" ADD CONSTRAINT "FeaturedListing_categoryId_fkey" F
 -- ============================================================
 
 -- Table: survey_responses
-CREATE TABLE IF NOT EXISTS "survey_responses" (
+CREATE TABLE "survey_responses" (
     "id" TEXT NOT NULL,
     "role" TEXT,
     "industry" TEXT,
@@ -2194,9 +2084,9 @@ CREATE TABLE IF NOT EXISTS "survey_responses" (
 
 
 -- Indexes: survey_responses
-CREATE INDEX IF NOT EXISTS "survey_responses_email_idx" ON "survey_responses"("email");
-CREATE INDEX IF NOT EXISTS "survey_responses_created_at_idx" ON "survey_responses"("created_at");
-CREATE INDEX IF NOT EXISTS "survey_responses_status_idx" ON "survey_responses"("status");
+CREATE INDEX "survey_responses_email_idx" ON "survey_responses"("email");
+CREATE INDEX "survey_responses_created_at_idx" ON "survey_responses"("created_at");
+CREATE INDEX "survey_responses_status_idx" ON "survey_responses"("status");
 
 
 -- ════════════════════════════════════════════════════════════
@@ -2209,7 +2099,7 @@ CREATE INDEX IF NOT EXISTS "survey_responses_status_idx" ON "survey_responses"("
 -- ============================================================
 
 -- Table: waitlist_entries
-CREATE TABLE IF NOT EXISTS "waitlist_entries" (
+CREATE TABLE "waitlist_entries" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "full_name" TEXT,
@@ -2245,17 +2135,17 @@ CREATE TABLE IF NOT EXISTS "waitlist_entries" (
 
 
 -- Indexes: waitlist_entries
-CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_entries_email_key" ON "waitlist_entries"("email");
-CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_entries_referral_code_key" ON "waitlist_entries"("referral_code");
-CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_entries_token_key" ON "waitlist_entries"("token");
-CREATE INDEX IF NOT EXISTS "waitlist_entries_email_idx" ON "waitlist_entries"("email");
-CREATE INDEX IF NOT EXISTS "waitlist_entries_status_idx" ON "waitlist_entries"("status");
-CREATE INDEX IF NOT EXISTS "waitlist_entries_country_idx" ON "waitlist_entries"("country");
-CREATE INDEX IF NOT EXISTS "waitlist_entries_device_type_idx" ON "waitlist_entries"("device_type");
-CREATE INDEX IF NOT EXISTS "waitlist_entries_created_at_idx" ON "waitlist_entries"("created_at");
+CREATE UNIQUE INDEX "waitlist_entries_email_key" ON "waitlist_entries"("email");
+CREATE UNIQUE INDEX "waitlist_entries_referral_code_key" ON "waitlist_entries"("referral_code");
+CREATE UNIQUE INDEX "waitlist_entries_token_key" ON "waitlist_entries"("token");
+CREATE INDEX "waitlist_entries_email_idx" ON "waitlist_entries"("email");
+CREATE INDEX "waitlist_entries_status_idx" ON "waitlist_entries"("status");
+CREATE INDEX "waitlist_entries_country_idx" ON "waitlist_entries"("country");
+CREATE INDEX "waitlist_entries_device_type_idx" ON "waitlist_entries"("device_type");
+CREATE INDEX "waitlist_entries_created_at_idx" ON "waitlist_entries"("created_at");
 
 -- Table: waitlist_campaigns
-CREATE TABLE IF NOT EXISTS "waitlist_campaigns" (
+CREATE TABLE "waitlist_campaigns" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "subject" TEXT NOT NULL,
@@ -2276,11 +2166,11 @@ CREATE TABLE IF NOT EXISTS "waitlist_campaigns" (
 
 
 -- Indexes: waitlist_campaigns
-CREATE INDEX IF NOT EXISTS "waitlist_campaigns_status_idx" ON "waitlist_campaigns"("status");
-CREATE INDEX IF NOT EXISTS "waitlist_campaigns_sent_at_idx" ON "waitlist_campaigns"("sent_at");
+CREATE INDEX "waitlist_campaigns_status_idx" ON "waitlist_campaigns"("status");
+CREATE INDEX "waitlist_campaigns_sent_at_idx" ON "waitlist_campaigns"("sent_at");
 
 -- Table: waitlist_email_logs
-CREATE TABLE IF NOT EXISTS "waitlist_email_logs" (
+CREATE TABLE "waitlist_email_logs" (
     "id" TEXT NOT NULL,
     "waitlist_id" TEXT NOT NULL,
     "campaign_id" TEXT,
@@ -2299,10 +2189,10 @@ CREATE TABLE IF NOT EXISTS "waitlist_email_logs" (
 
 
 -- Indexes: waitlist_email_logs
-CREATE INDEX IF NOT EXISTS "waitlist_email_logs_waitlist_id_idx" ON "waitlist_email_logs"("waitlist_id");
-CREATE INDEX IF NOT EXISTS "waitlist_email_logs_campaign_id_idx" ON "waitlist_email_logs"("campaign_id");
-CREATE INDEX IF NOT EXISTS "waitlist_email_logs_type_idx" ON "waitlist_email_logs"("type");
-CREATE INDEX IF NOT EXISTS "waitlist_email_logs_sent_at_idx" ON "waitlist_email_logs"("sent_at");
+CREATE INDEX "waitlist_email_logs_waitlist_id_idx" ON "waitlist_email_logs"("waitlist_id");
+CREATE INDEX "waitlist_email_logs_campaign_id_idx" ON "waitlist_email_logs"("campaign_id");
+CREATE INDEX "waitlist_email_logs_type_idx" ON "waitlist_email_logs"("type");
+CREATE INDEX "waitlist_email_logs_sent_at_idx" ON "waitlist_email_logs"("sent_at");
 
 
 -- ════════════════════════════════════════════════════════════
@@ -2323,9 +2213,8 @@ CREATE INDEX IF NOT EXISTS "waitlist_email_logs_sent_at_idx" ON "waitlist_email_
 -- SavedJob → JobPost
 -- (SavedJob is defined in 02-user.sql, JobPost in 10-job.sql)
 -- ────────────────────────────────────────────────────────────
-ALTER TABLE "SavedJob" DROP CONSTRAINT IF EXISTS "SavedJob_jobPostId_fkey";
-ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_jobPostId_fkey"
-  FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id")
+-- AddForeignKey
+ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_jobPostId_fkey" FOREIGN KEY ("jobPostId") REFERENCES "JobPost"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ────────────────────────────────────────────────────────────
@@ -2333,9 +2222,8 @@ ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_jobPostId_fkey"
 -- (both defined in 14-campaign.sql, but CampaignReferral is
 --  created first inside that file)
 -- ────────────────────────────────────────────────────────────
-ALTER TABLE "CampaignReferral" DROP CONSTRAINT IF EXISTS "CampaignReferral_submissionId_fkey";
-ALTER TABLE "CampaignReferral" ADD CONSTRAINT "CampaignReferral_submissionId_fkey"
-  FOREIGN KEY ("submissionId") REFERENCES "CampaignSubmission"("id")
+-- AddForeignKey
+ALTER TABLE "CampaignReferral" ADD CONSTRAINT "CampaignReferral_submissionId_fkey" FOREIGN KEY ("submissionId") REFERENCES "CampaignSubmission"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ────────────────────────────────────────────────────────────
@@ -2343,9 +2231,8 @@ ALTER TABLE "CampaignReferral" ADD CONSTRAINT "CampaignReferral_submissionId_fke
 -- (Refund defined in 07-refund.sql, Dispute in 11-dispute.sql —
 --  Refund comes first alphabetically and structurally)
 -- ────────────────────────────────────────────────────────────
-ALTER TABLE "Refund" DROP CONSTRAINT IF EXISTS "Refund_disputeId_fkey";
-ALTER TABLE "Refund" ADD CONSTRAINT "Refund_disputeId_fkey"
-  FOREIGN KEY ("disputeId") REFERENCES "Dispute"("id")
+-- AddForeignKey
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_disputeId_fkey" FOREIGN KEY ("disputeId") REFERENCES "Dispute"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- ────────────────────────────────────────────────────────────
@@ -2354,7 +2241,6 @@ ALTER TABLE "Refund" ADD CONSTRAINT "Refund_disputeId_fkey"
 --  WorkerDebt references Refund, so the FK must be added after both
 --  tables exist)
 -- ────────────────────────────────────────────────────────────
-ALTER TABLE "WorkerDebt" DROP CONSTRAINT IF EXISTS "WorkerDebt_refundId_fkey";
-ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_refundId_fkey"
-  FOREIGN KEY ("refundId") REFERENCES "Refund"("id")
+-- AddForeignKey
+ALTER TABLE "WorkerDebt" ADD CONSTRAINT "WorkerDebt_refundId_fkey" FOREIGN KEY ("refundId") REFERENCES "Refund"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;

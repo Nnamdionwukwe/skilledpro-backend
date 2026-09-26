@@ -1,3 +1,4 @@
+// src/controllers/insurance.controller.js
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { uniqueRef } from "../utils/helpers.js";
@@ -71,12 +72,6 @@ export const PLANS = [
   },
 ];
 
-// ── Replace these two functions in src/controllers/insurance.controller.js ──
-// Remove the Stripe import and getStripe() entirely from the file.
-// Add this import at the top instead:
-//   import { FEE_CONFIG } from "../config/fees.js";
-//   import { uniqueRef } from "../utils/helpers.js";
-
 // POST /api/insurance/checkout
 export const createInsuranceCheckout = async (req, res) => {
   try {
@@ -86,19 +81,13 @@ export const createInsuranceCheckout = async (req, res) => {
     const plan = PLANS.find((p) => p.id === planId);
     if (!plan) return sendError(res, "Invalid plan", 404);
 
-    // if (bookingId) {
-    //   const booking = await prisma.booking.findUnique({
-    //     where: { id: bookingId },
-    //   });
-    //   if (!booking) return sendError(res, "Booking not found", 404);
-    //   if (booking.hirerId !== req.user.id)
-    //     return sendError(res, "Not your booking", 403);
-    // }
-
+    // ── Determine currency — use booking currency if tied to a booking,
+    //    otherwise default to NGN (Flutterwave handles FX to USD) ──────────
+    let currency = "NGN";
     if (bookingId) {
       const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        select: { hirerId: true, currency: true }, // ← get both at once
+        select: { hirerId: true, currency: true },
       });
       if (!booking) return sendError(res, "Booking not found", 404);
       if (booking.hirerId !== req.user.id)
@@ -108,22 +97,9 @@ export const createInsuranceCheckout = async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-    // ── Determine currency — use booking currency if tied to a booking,
-    //    otherwise default to NGN (Paystack) or USD (Flutterwave) ──────────
-    let currency = "NGN";
-    if (bookingId) {
-      const booking = await prisma.booking.findUnique({
-        where: { id: bookingId },
-        select: { currency: true },
-      });
-      currency = booking?.currency ?? "NGN";
-    }
-
     // ── Convert plan price to local currency if needed ────────────────────
-    // Plans are priced in USD; for NGN use a rough rate or store NGN prices
-    // For simplicity we charge in USD via Flutterwave which handles FX.
-    // Switch currency to "USD" so FLW handles conversion — or add NGN prices
-    // to PLANS if you want native NGN pricing.
+    // Plans are priced in USD; for NGN we charge in USD via Flutterwave
+    // which handles FX conversion.
     const chargeCurrency = currency === "NGN" ? "USD" : currency;
     const amount = plan.price; // already in USD
 

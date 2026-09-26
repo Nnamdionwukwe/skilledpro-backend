@@ -1,7 +1,9 @@
 -- ============================================================
 -- SkilledProz - All Enums
--- Generated: Sun Sep 13 21:11:53 WAT 2026
 -- Depends on: 00-init.sql
+-- Last updated: 2026-09-26 (added BookingSource, REFUND_*, SURVEY_*,
+--                          DISPUTE_*, WORKER_DEBT_* audit actions,
+--                          plus REFUND + SURVEY audit targets)
 -- ============================================================
 
 DO $$ BEGIN
@@ -12,6 +14,12 @@ END $$;
 -- CreateEnum
 DO $$ BEGIN
   CREATE TYPE "BookingStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'DISPUTED');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "BookingSource" AS ENUM ('DIRECT', 'JOB_POST');
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
@@ -95,13 +103,66 @@ END $$;
 
 -- CreateEnum
 DO $$ BEGIN
-  CREATE TYPE "AuditAction" AS ENUM ('USER_BANNED', 'USER_UNBANNED', 'USER_DELETED', 'USER_ROLE_CHANGED', 'USER_VERIFIED', 'USER_VERIFICATION_REJECTED', 'USER_SUSPENDED', 'PAYMENT_RELEASED', 'PAYMENT_REFUNDED', 'PAYMENT_MANUAL_VERIFIED', 'PAYMENT_MANUAL_REJECTED', 'WITHDRAWAL_APPROVED', 'WITHDRAWAL_REJECTED', 'REPORT_REVIEWED', 'REPORT_RESOLVED', 'REPORT_DISMISSED', 'REPORT_BULK_DISMISSED', 'CATEGORY_CREATED', 'CATEGORY_UPDATED', 'CATEGORY_DELETED', 'REVIEW_DELETED', 'JOB_DELETED', 'JOB_STATUS_CHANGED', 'POST_DELETED', 'COMMENT_DELETED', 'FEATURED_REMOVED', 'BOOKING_STATUS_CHANGED', 'DISPUTE_RESOLVED', 'CAMPAIGN_SUBMISSION_REVIEWED', 'CAMPAIGN_WITHDRAWAL_APPROVED', 'CAMPAIGN_WITHDRAWAL_REJECTED', 'REFERRAL_PAYOUT_PROCESSED', 'REFERRAL_FLAGGED', 'SUBSCRIPTION_CANCELLED', 'NOTIFICATION_BROADCAST', 'ADMIN_LOGIN', 'SETTINGS_CHANGED', 'JOB_CREATED', 'JOB_UPDATED');
+  CREATE TYPE "AuditAction" AS ENUM (
+    -- ── User management ──────────────────────────────────────────────────────
+    'USER_BANNED', 'USER_UNBANNED', 'USER_DELETED', 'USER_ROLE_CHANGED',
+    'USER_VERIFIED', 'USER_VERIFICATION_REJECTED', 'USER_SUSPENDED',
+    -- ── Payment management ───────────────────────────────────────────────────
+    'PAYMENT_RELEASED', 'PAYMENT_REFUNDED',
+    'PAYMENT_MANUAL_VERIFIED', 'PAYMENT_MANUAL_REJECTED',
+    -- ── Withdrawal management ────────────────────────────────────────────────
+    'WITHDRAWAL_APPROVED', 'WITHDRAWAL_REJECTED',
+    -- ── Worker debt management ───────────────────────────────────────────────
+    'WORKER_DEBT_CREATED', 'WORKER_DEBT_DEDUCTED',
+    'WORKER_DEBT_FORGIVEN', 'WORKER_DEBT_MARKED_COLLECTION',
+    -- ── Refund management (added: admin.refund.controller.js) ───────────────
+    'REFUND_APPROVED', 'REFUND_REJECTED', 'REFUND_REVERSED',
+    'REFUND_BULK_APPROVED', 'REFUND_BULK_REJECTED',
+    -- ── Report management ────────────────────────────────────────────────────
+    'REPORT_REVIEWED', 'REPORT_RESOLVED', 'REPORT_DISMISSED', 'REPORT_BULK_DISMISSED',
+    -- ── Content management ───────────────────────────────────────────────────
+    'CATEGORY_CREATED', 'CATEGORY_UPDATED', 'CATEGORY_DELETED',
+    'REVIEW_DELETED', 'JOB_DELETED', 'JOB_STATUS_CHANGED',
+    'POST_DELETED', 'COMMENT_DELETED', 'FEATURED_REMOVED',
+    -- ── Booking & disputes ───────────────────────────────────────────────────
+    'BOOKING_STATUS_CHANGED',
+    'DISPUTE_RESOLVED',       -- legacy — kept for backwards compat
+    'DISPUTE_RAISED',
+    'DISPUTE_RESOLVED_REFUND',
+    'DISPUTE_RESOLVED_RELEASE',
+    'DISPUTE_CANCELLED',
+    -- ── Campaign ─────────────────────────────────────────────────────────────
+    'CAMPAIGN_SUBMISSION_REVIEWED',
+    'CAMPAIGN_WITHDRAWAL_APPROVED', 'CAMPAIGN_WITHDRAWAL_REJECTED',
+    -- ── Referral ─────────────────────────────────────────────────────────────
+    'REFERRAL_PAYOUT_PROCESSED', 'REFERRAL_FLAGGED',
+    -- ── Subscription ─────────────────────────────────────────────────────────
+    'SUBSCRIPTION_CANCELLED',
+    -- ── Notifications ────────────────────────────────────────────────────────
+    'NOTIFICATION_BROADCAST',
+    -- ── Survey moderation (added: survey.controller.js) ─────────────────────
+    'SURVEY_VIEWED', 'SURVEY_STATUS_UPDATED', 'SURVEY_BULK_DELETED',
+    -- ── System ───────────────────────────────────────────────────────────────
+    'ADMIN_LOGIN', 'SETTINGS_CHANGED',
+    -- ── Job helpers ──────────────────────────────────────────────────────────
+    'JOB_CREATED', 'JOB_UPDATED'
+  );
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 -- CreateEnum
 DO $$ BEGIN
-  CREATE TYPE "AuditTargetType" AS ENUM ('USER', 'PAYMENT', 'WITHDRAWAL', 'BOOKING', 'JOB_POST', 'POST', 'COMMENT', 'REVIEW', 'CATEGORY', 'REPORT', 'CAMPAIGN_SUBMISSION', 'CAMPAIGN_WITHDRAWAL', 'REFERRAL', 'SUBSCRIPTION', 'FEATURED_LISTING', 'DISPUTE', 'SYSTEM');
+  CREATE TYPE "AuditTargetType" AS ENUM (
+    'USER', 'PAYMENT', 'WITHDRAWAL', 'BOOKING', 'JOB_POST', 'POST',
+    'COMMENT', 'REVIEW', 'CATEGORY', 'REPORT',
+    'CAMPAIGN_SUBMISSION', 'CAMPAIGN_WITHDRAWAL',
+    'REFERRAL', 'SUBSCRIPTION', 'FEATURED_LISTING',
+    'DISPUTE', 'SYSTEM',
+    -- Added: refund controller
+    'REFUND',
+    -- Added: survey controller
+    'SURVEY'
+  );
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
@@ -189,67 +250,20 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
--- CreateTable
-CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "phone" TEXT,
-    "password" TEXT NOT NULL,
-    "role" "Role" NOT NULL,
-    "firstName" TEXT NOT NULL,
-    "lastName" TEXT NOT NULL,
-    "avatar" TEXT,
-    "bio" TEXT,
-    "country" TEXT,
-    "city" TEXT,
-    "state" TEXT,
-    "address" TEXT,
-    "latitude" DOUBLE PRECISION,
-    "longitude" DOUBLE PRECISION,
-    "currency" TEXT NOT NULL DEFAULT 'USD',
-    "language" TEXT NOT NULL DEFAULT 'en',
-    "isEmailVerified" BOOLEAN NOT NULL DEFAULT false,
-    "isPhoneVerified" BOOLEAN NOT NULL DEFAULT false,
-    "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "isBanned" BOOLEAN NOT NULL DEFAULT false,
-    "emailVerifyToken" TEXT,
-    "passwordResetToken" TEXT,
-    "passwordResetExpiry" TIMESTAMP(3),
-    "refreshToken" TEXT,
-    "lastSeen" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-    "theme" TEXT DEFAULT 'system',
-    "notifBookings" BOOLEAN NOT NULL DEFAULT true,
-    "notifMessages" BOOLEAN NOT NULL DEFAULT true,
-    "notifPayments" BOOLEAN NOT NULL DEFAULT true,
-    "notifReviews" BOOLEAN NOT NULL DEFAULT true,
-    "notifMarketing" BOOLEAN NOT NULL DEFAULT false,
-    "profileVisible" BOOLEAN NOT NULL DEFAULT true,
-    "showPhone" BOOLEAN NOT NULL DEFAULT false,
-    "showLocation" BOOLEAN NOT NULL DEFAULT true,
-    "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false,
-    "dashboardCurrency" TEXT DEFAULT 'USD',
-    "paymentCurrency" TEXT DEFAULT 'USD',
-    "showEmail" BOOLEAN NOT NULL DEFAULT false,
-    "showGender" BOOLEAN NOT NULL DEFAULT false,
-    "defaultEstUnit" TEXT,
-    "defaultEstValue" TEXT,
-    "gender" TEXT,
-    "referralCode" TEXT,
-    "referredById" TEXT,
-    "walletBalance" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "walletLifetimeTotal" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "referralTier" "ReferralTier" NOT NULL DEFAULT 'BRONZE',
-    "totalReferrals" INTEGER NOT NULL DEFAULT 0,
-    "successfulReferrals" INTEGER NOT NULL DEFAULT 0,
-    "campaignWalletBalance" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "campaignWalletLifetimeTotal" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "withdrawalPin" TEXT,
-    "withdrawalPinSet" BOOLEAN NOT NULL DEFAULT false,
-    "withdrawalPinAttempts" INTEGER NOT NULL DEFAULT 0,
-    "withdrawalPinLockedUntil" TIMESTAMP(3),
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "DisputeStatus" AS ENUM ('PENDING_REVIEW', 'RESOLVED_REFUND', 'RESOLVED_RELEASE', 'CANCELLED');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
 
-    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
-);
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "DisputeResolution" AS ENUM ('REFUND', 'RELEASE');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
 
+-- CreateEnum
+DO $$ BEGIN
+  CREATE TYPE "DisputeRaisedBy" AS ENUM ('HIRER', 'WORKER');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;

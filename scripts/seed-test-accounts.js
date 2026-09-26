@@ -1,6 +1,6 @@
 // scripts/seed-test-accounts.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Seeds 5 test accounts into Railway PostgreSQL:
+// Seeds 5 test accounts into Postgres:
 //
 //   Role    Name              Email                           Password
 //   ──────  ────────────────  ──────────────────────────────  ──────────────
@@ -11,11 +11,12 @@
 //   HIRER   Ngozi Adeyemi     ngozi@skilledproz.test          Hirer1234!
 //
 // Also seeds:
-//   • WorkerProfile + categories for both workers
+//   • Category records (Plumbing, Web Development, Electrical, Cleaning, Carpentry)
+//   • WorkerProfile + category links for both workers
 //   • HirerProfile for both hirers
 //   • 1 completed booking (Chidi → Emeka, plumbing)
 //   • 1 active booking (Ngozi → Amaka, web dev)
-//   • 1 payment in escrow
+//   • 1 payment in escrow + 1 released payment
 //   • 1 review from Chidi on Emeka
 //   • Sample notifications for each user
 //   • Referral codes for all 5 accounts
@@ -48,6 +49,18 @@ function genCode(len = 8) {
 function ref(prefix) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATIC CATEGORIES
+// These are seeded first so worker-category links + bookings can reference them.
+// ─────────────────────────────────────────────────────────────────────────────
+const CATEGORIES = [
+  { name: "Plumbing", slug: "plumbing", icon: "🔧" },
+  { name: "Web Development", slug: "web-development", icon: "💻" },
+  { name: "Electrical", slug: "electrical", icon: "⚡" },
+  { name: "Cleaning", slug: "cleaning", icon: "🧹" },
+  { name: "Carpentry", slug: "carpentry", icon: "🪚" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ACCOUNT DEFINITIONS
@@ -239,6 +252,21 @@ async function run() {
   try {
     await client.query("BEGIN");
 
+    // ── 0. Categories (must run BEFORE worker categories + bookings) ──────────
+    // ── FIX: previously missing; caused worker-category links + bookings to be skipped
+    console.log("\n[0/7] Seeding categories…");
+    for (const c of CATEGORIES) {
+      await client.query(
+        `
+        INSERT INTO "Category" ("id","name","slug","icon","createdAt","isUserSubmitted")
+        VALUES ($1,$2,$3,$4,NOW(),false)
+        ON CONFLICT ("slug") DO NOTHING
+      `,
+        [uuid(), c.name, c.slug, c.icon],
+      );
+      console.log(`  ✓  ${c.icon} ${c.name}`);
+    }
+
     // ── 1. Create all 5 users ─────────────────────────────────────────────────
     console.log("\n[1/7] Creating user accounts…");
     for (const [key, u] of Object.entries(ACCOUNTS)) {
@@ -332,8 +360,8 @@ async function run() {
     if (emekaProfileId && plumbingCatId) {
       await client.query(
         `
-        INSERT INTO "WorkerCategory" ("id","workerProfileId","categoryId","isPrimary","createdAt")
-        VALUES ($1,$2,$3,true,NOW())
+        INSERT INTO "WorkerCategory" ("id","workerProfileId","categoryId","isPrimary")
+        VALUES ($1,$2,$3,true)
         ON CONFLICT ("workerProfileId","categoryId") DO NOTHING
       `,
         [uuid(), emekaProfileId, plumbingCatId],
@@ -346,8 +374,8 @@ async function run() {
     if (amakaProfileId && webDevCatId) {
       await client.query(
         `
-        INSERT INTO "WorkerCategory" ("id","workerProfileId","categoryId","isPrimary","createdAt")
-        VALUES ($1,$2,$3,true,NOW())
+        INSERT INTO "WorkerCategory" ("id","workerProfileId","categoryId","isPrimary")
+        VALUES ($1,$2,$3,true)
         ON CONFLICT ("workerProfileId","categoryId") DO NOTHING
       `,
         [uuid(), amakaProfileId, webDevCatId],
@@ -462,6 +490,8 @@ async function run() {
     }
 
     // ── 6. Review ─────────────────────────────────────────────────────────────
+    // NOTE: `Review.type` + `Review.updatedAt` are supported by the schema
+    //       after our patches, so this insert works on the fresh DB.
     console.log("\n[6/7] Creating sample review…");
     if (booking1Id) {
       await client.query(
@@ -482,6 +512,9 @@ async function run() {
     }
 
     // ── 7. Notifications ──────────────────────────────────────────────────────
+    // ── FIX: removed "updatedAt" column from INSERT — the Notification model
+    //         does not have it (only `createdAt`). This was the cause of the
+    //         previous run's rollback.
     console.log("\n[7/7] Creating welcome notifications…");
     const notifs = [
       {
@@ -519,8 +552,8 @@ async function run() {
     for (const n of notifs) {
       await client.query(
         `
-        INSERT INTO "Notification" ("id","userId","title","body","type","isRead","createdAt","updatedAt")
-        VALUES ($1,$2,$3,$4,$5,false,NOW(),NOW())
+        INSERT INTO "Notification" ("id","userId","title","body","type","isRead","createdAt")
+        VALUES ($1,$2,$3,$4,$5,false,NOW())
         ON CONFLICT DO NOTHING
       `,
         [uuid(), n.userId, n.title, n.body, n.type],
