@@ -11,4 +11,4 @@ node_modules/
 /src/generated/prisma
 
 # Uploads
-uploads/
+uploads/logs/

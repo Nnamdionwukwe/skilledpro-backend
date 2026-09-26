@@ -407,6 +407,15 @@ model User {
   hirerVerificationsReviewed  HirerProfile[]  @relation("HirerVerifReviewedBy")
   bgChecksPerformed           WorkerProfile[] @relation("BgCheckedBy")
   certificationsVerified      Certification[] @relation("CertVerifiedBy")
+
+  // ── Analytics ────────────────────────────────────────────────────────────
+  userEvents         UserEvent[]
+  userSessions       UserSession[]
+  pageViews          PageView[]
+  interactionEvents  InteractionEvent[]
+  featureUsageDaily  FeatureUsageDaily[]
+  profileInsight     UserProfileInsight?
+  segmentMemberships UserSegmentMembership[]
 }
 
 model Referral {
@@ -1772,4 +1781,197 @@ model AppSettings {
   updatedAt   DateTime @updatedAt
 
   @@index([key])
+}
+
+model UserEvent {
+  id           String   @id @default(uuid())
+  userId       String? // null for anonymous
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  anonymousId  String? // cookie-set ID, survives pre-login
+  sessionId    String
+  eventName    String // "page.view", "button.click", "booking.created", etc.
+  eventProps   Json? // event-specific payload
+  pagePath     String?
+  pageRef      String? // normalized route name, e.g. "/bookings/[id]"
+  referrer     String?
+  userAgent    String?
+  ipAddress    String?
+  deviceType   String? // "mobile" | "tablet" | "desktop"
+  os           String?
+  browser      String?
+  country      String?
+  city         String?
+  locale       String?
+  screenWidth  Int?
+  screenHeight Int?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([anonymousId])
+  @@index([sessionId])
+  @@index([eventName, createdAt])
+  @@index([pageRef, createdAt])
+}
+
+model UserSession {
+  id          String    @id @default(uuid())
+  sessionId   String    @unique // UUID from frontend
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  anonymousId String?
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  lastPingAt  DateTime  @default(now())
+  durationMs  Int?
+  pageViews   Int       @default(0)
+  eventsCount Int       @default(0)
+  entryPage   String?
+  exitPage    String?
+  referrer    String?
+  deviceType  String?
+  os          String?
+  browser     String?
+  country     String?
+  city        String?
+  locale      String?
+  ipAddress   String?
+  userAgent   String?
+  bounce      Boolean   @default(false) // true if < 10s and 1 page
+
+  @@index([userId, startedAt])
+  @@index([anonymousId])
+  @@index([startedAt])
+  @@index([lastPingAt])
+}
+
+model PageView {
+  id               String    @id @default(uuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId        String
+  pagePath         String // "/bookings/abc-123"
+  pageRef          String // "/bookings/[id]" — normalized for aggregation
+  title            String?
+  enteredAt        DateTime  @default(now())
+  leftAt           DateTime?
+  durationMs       Int?
+  scrollDepthPct   Int? // 0-100
+  interactionCount Int       @default(0)
+  referrer         String? // where they came from (previous page or external)
+  isExitPage       Boolean   @default(false)
+
+  @@index([userId, enteredAt])
+  @@index([sessionId])
+  @@index([pageRef, enteredAt])
+}
+
+model InteractionEvent {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId   String
+  pageViewId  String?
+  elementId   String
+  elementType String
+  action      String
+  value       String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([elementId, createdAt])
+  @@index([sessionId])
+}
+
+model FeatureUsageDaily {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  featureKey  String // "booking.create" | "chat.send" | "search.use"
+  usageCount  Int      @default(0)
+  totalTimeMs Int      @default(0)
+  lastUsedAt  DateTime @default(now())
+
+  @@unique([userId, date, featureKey])
+  @@index([userId, date])
+  @@index([featureKey, date])
+}
+
+model UserProfileInsight {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Activity
+  totalSessions       Int       @default(0)
+  totalPageViews      Int       @default(0)
+  totalEventsCount    Int       @default(0)
+  totalTimeOnPlatform Int       @default(0) // ms
+  lastActiveAt        DateTime?
+
+  // Feature adoption
+  featuresUsed       Json? // { "chat": 42, "booking": 12, "search": 118 }
+  topFeatures        Json? // ["search", "booking", "chat"]
+  featureAdoptionPct Float @default(0) // 0-100 of features they've used
+
+  // Domain signals
+  jobsAppliedCount Int @default(0)
+  jobsPostedCount  Int @default(0)
+  bookingsAsHirer  Int @default(0)
+  bookingsAsWorker Int @default(0)
+  messagesSent     Int @default(0)
+  reviewsGiven     Int @default(0)
+  reviewsReceived  Int @default(0)
+
+  // Preferences (inferred, not declared)
+  preferredCategories Json? // [{ categoryId, weight }, ...]
+  preferredCities     Json?
+  preferredPriceRange Json? // { min, max, currency }
+  preferredTimeOfDay  Json? // { morning: 42, afternoon: 30, ... }
+
+  // Engagement quality
+  avgSessionDurationMs Int   @default(0)
+  bounceRate           Float @default(0)
+  engagementScore      Int   @default(0) // 0-100 computed metric
+
+  // Targeting
+  segments  String[] // ["power_user", "job_seeker", "early_adopter"]
+  interests String[] // ["plumbing", "web_dev"]
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([engagementScore])
+  @@index([lastActiveAt])
+}
+
+model UserSegment {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  rule        Json
+  isActive    Boolean  @default(true)
+  memberCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships UserSegmentMembership[]
+
+  @@index([key])
+}
+
+model UserSegmentMembership {
+  id         String      @id @default(uuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  segmentId  String
+  segment    UserSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  assignedAt DateTime    @default(now())
+  expiresAt  DateTime?
+
+  @@unique([userId, segmentId])
+  @@index([userId])
+  @@index([segmentId])
 }

@@ -43,6 +43,8 @@ import refundRoutes from "./routes/refund.routes.js";
 import healthRouter from "./routes/health.routes.js";
 import adminDebtRoutes from "./routes/admin.debt.routes.js";
 import workerRefundRoutes from "./routes/worker.refund.routes.js";
+import analyticsRoutes from "./routes/analytics.routes.js";
+import adminAnalyticsRoutes from "./routes/adminAnalytics.routes.js";
 
 // ── Cron service imports ─────────────────────────────────────────────────────
 import "./services/expiry.service.js"; // auto-starts on import
@@ -206,6 +208,8 @@ app.use("/api/admin", adminLogsRoutes);
 app.use("/api/refunds", refundRoutes);
 app.use("/api/admin/worker-debts", adminDebtRoutes);
 app.use("/api/worker/refunds", workerRefundRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/admin/analytics", adminAnalyticsRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
