@@ -65,15 +65,30 @@ CREATE TABLE IF NOT EXISTS "User" (
     "withdrawalPinAttempts" INTEGER NOT NULL DEFAULT 0,
     "withdrawalPinLockedUntil" TIMESTAMP(3),
 
+    -- ── Google OAuth (added: required by auth.controller.js googleSignIn / googleCallback) ──
+    "googleId"     TEXT,
+    "authProvider" TEXT    NOT NULL DEFAULT 'LOCAL',   -- 'LOCAL' | 'GOOGLE'
+    "avatarCustom" BOOLEAN NOT NULL DEFAULT false,     -- true once user sets their own avatar
+    "nameCustom"   BOOLEAN NOT NULL DEFAULT false,     -- true once user sets their own name
+
+    -- ── Account lifecycle (added: required by auth.controller.js login / logoutAll) ──
+    "isPaused"            BOOLEAN NOT NULL DEFAULT false,  -- "Take a break" state
+    "pausedAt"            TIMESTAMP(3),
+    "deletionScheduledAt" TIMESTAMP(3),                    -- set when user requests permanent delete
+    "deletionReason"      TEXT,
+    "deletionRequestedAt" TIMESTAMP(3),
+
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
 
 -- Indexes: User
-CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
-CREATE UNIQUE INDEX IF NOT EXISTS "User_phone_key" ON "User"("phone");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key"        ON "User"("email");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_phone_key"        ON "User"("phone");
 CREATE UNIQUE INDEX IF NOT EXISTS "User_referralCode_key" ON "User"("referralCode");
+CREATE UNIQUE INDEX IF NOT EXISTS "User_googleId_key"     ON "User"("googleId");
 
 -- Foreign keys: User
-ALTER TABLE "User" ADD CONSTRAINT "User_referredById_fkey" FOREIGN KEY ("referredById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
+ALTER TABLE "User" ADD CONSTRAINT "User_referredById_fkey"
+  FOREIGN KEY ("referredById") REFERENCES "User"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;

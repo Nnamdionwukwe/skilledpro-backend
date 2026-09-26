@@ -462,6 +462,13 @@ export const convertReferral = async (
       Date.now() + REFERRAL_CONFIG.REWARD_EXPIRY_DAYS * 86_400_000,
     );
 
+    // FIX: FeaturedListing.reference is required + @unique.
+    // Generate it once outside the transaction so the whole reward is
+    // atomic — if any step throws, nothing is written.
+    const perk = REFEREE_PERKS[referred.role];
+    const needsBoost = referred.role === "WORKER" && perk.featuredBoostDays > 0;
+    const boostRef = needsBoost ? uniqueRef("BOOST") : null;
+
     await prisma.$transaction(async (tx) => {
       await tx.referral.update({
         where: { id: referral.id },
@@ -494,30 +501,28 @@ export const convertReferral = async (
           meta: {
             tier: currentTier,
             referredRole: referred.role,
-            feePhase: FEE_CONFIG.phase, // ← NEW: tracks which phase paid this
-            firstBookingAmount: firstBookingAmount || null, // ← NEW: for audit trail
+            feePhase: FEE_CONFIG.phase,
+            firstBookingAmount: firstBookingAmount || null,
             expiresAt: rewardExpiry,
           },
         },
       });
 
-      const perk = REFEREE_PERKS[referred.role];
-      if (referred.role === "WORKER" && perk.featuredBoostDays > 0) {
+      if (needsBoost) {
         const boostExpiry = new Date(
           Date.now() + perk.featuredBoostDays * 86_400_000,
         );
-        await tx.featuredListing
-          .create({
-            data: {
-              userId: referred.id,
-              type: "REFERRAL_BOOST",
-              price: 0,
-              isPaid: true,
-              expiresAt: boostExpiry,
-              source: "REFERRAL",
-            },
-          })
-          .catch(() => {});
+        await tx.featuredListing.create({
+          data: {
+            userId: referred.id,
+            type: "REFERRAL_BOOST",
+            price: 0,
+            isPaid: true,
+            expiresAt: boostExpiry,
+            reference: boostRef,
+            source: "REFERRAL",
+          },
+        });
       }
 
       await tx.notification.createMany({
@@ -547,7 +552,7 @@ export const convertReferral = async (
       });
     });
 
-    return { success: true, earnedBonus };
+    return { success: true, earnedBonus, boostRef };
   } catch (err) {
     console.error("convertReferral error:", err);
     return null;
@@ -910,6 +915,13 @@ export const withdrawReferralEarnings = async (req, res) => {
     }
 
     // ── 6. Debit wallet and create pending withdrawal ────────────────────
+    // FIX:
+    //   1. Withdrawal model uses `details Json`, NOT `meta`.
+    //   2. Withdrawal.reference is required + @unique — must supply one.
+    // Both errors were previously swallowed by .catch(() => {}) which meant
+    // the withdrawal row was never created and admin had no record to approve.
+    const withdrawalRef = uniqueRef("WD");
+
     await prisma.$transaction([
       prisma.user.update({
         where: { id: req.user.id },
@@ -926,23 +938,23 @@ export const withdrawReferralEarnings = async (req, res) => {
         },
       }),
       // Also create a system withdrawal request (reuses existing Withdrawal model)
-      prisma.withdrawal
-        .create({
-          data: {
-            workerId: req.user.id,
-            amount: withdrawAmount,
-            currency: REFERRAL_CONFIG.CURRENCY,
-            method: "BANK_TRANSFER",
-            destination: accountNumber,
-            status: "PENDING",
-            meta: JSON.stringify({
-              source: "REFERRAL_WALLET",
-              bankName,
-              accountName,
-            }),
+      prisma.withdrawal.create({
+        data: {
+          workerId: req.user.id,
+          amount: withdrawAmount,
+          currency: REFERRAL_CONFIG.CURRENCY,
+          method: "BANK_TRANSFER",
+          destination: accountNumber,
+          reference: withdrawalRef,
+          status: "PENDING",
+          details: {
+            source: "REFERRAL_WALLET",
+            bankName,
+            accountNumber,
+            accountName,
           },
-        })
-        .catch(() => {}), // graceful fallback if Withdrawal model differs
+        },
+      }),
     ]);
 
     await prisma.notification.create({
@@ -966,6 +978,7 @@ export const withdrawReferralEarnings = async (req, res) => {
         currency: REFERRAL_CONFIG.CURRENCY,
         bankName,
         accountNumber,
+        reference: withdrawalRef,
       },
     });
   } catch (err) {

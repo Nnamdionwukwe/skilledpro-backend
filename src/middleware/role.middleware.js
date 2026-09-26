@@ -1,13 +1,14 @@
-import { errorResponse } from "../utils/response.js";
+// src/middleware/role.middleware.js
+import { sendError } from "../utils/response.js";
 
 export const requireRole = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
-      return errorResponse(res, "Not authenticated", 401);
+      return sendError(res, "Not authenticated", 401);
     }
 
     if (!roles.includes(req.user.role)) {
-      return errorResponse(
+      return sendError(
         res,
         `Access denied. Required role: ${roles.join(" or ")}`,
         403,

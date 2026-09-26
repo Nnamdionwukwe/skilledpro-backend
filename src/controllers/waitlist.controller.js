@@ -8,7 +8,7 @@ import {
 } from "../services/email.service.js";
 import crypto from "crypto";
 import geoip from "geoip-lite";
-import UAParser from "ua-parser-js";
+import { UAParser } from "ua-parser-js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

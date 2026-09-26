@@ -2,6 +2,8 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { logAdminAction } from "../utils/auditLog.js";
+import { sendSurveyResponseEmail } from "../services/email.service.js";
 
 // Response wrapper
 const response = {
@@ -316,11 +318,11 @@ export const getSurveyResponseById = async (req, res) => {
       return response.error(res, "Survey response not found", 404);
     }
 
-    await auditLog({
+    await logAdminAction({
       req,
       adminId: req.user?.id,
       action: "SURVEY_VIEWED",
-      targetType: "survey",
+      targetType: "SURVEY", // ← enum value is uppercase
       targetId: id,
       description: `Survey response ${id} viewed`,
     });
@@ -353,13 +355,15 @@ export const updateSurveyStatus = async (req, res) => {
       data: { status, updatedAt: new Date() },
     });
 
-    await auditLog({
+    await logAdminAction({
       req,
       adminId: req.user?.id,
       action: "SURVEY_STATUS_UPDATED",
-      targetType: "survey",
+      targetType: "SURVEY", // ← enum value is uppercase
       targetId: id,
       description: `Survey status changed from ${existing.status} to ${status}`,
+      before: { status: existing.status },
+      after: { status },
       meta: { oldStatus: existing.status, newStatus: status, notes },
     });
 
@@ -390,11 +394,11 @@ export const bulkDeleteSurveyResponses = async (req, res) => {
       where: { id: { in: ids } },
     });
 
-    await auditLog({
+    await logAdminAction({
       req,
       adminId: req.user?.id,
       action: "SURVEY_BULK_DELETED",
-      targetType: "survey",
+      targetType: "SURVEY", // ← enum value is uppercase
       description: `Bulk deleted ${result.count} survey responses`,
       meta: { deletedCount: result.count, ids },
     });

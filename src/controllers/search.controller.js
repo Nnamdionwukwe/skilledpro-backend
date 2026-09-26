@@ -1,6 +1,18 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import {
+  paginate,
+  paginationMeta,
+  fullName,
+  formatCurrency,
+  truncate,
+  slugify,
+  uniqueRef,
+  parseJSON,
+  extractIP,
+  timeAgo,
+  safeUser,
+} from "../utils/helpers.js";
 const EARTH_RADIUS_KM = 6371;
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -44,6 +56,20 @@ export const globalSearch = async (req, res) => {
     const results = {};
 
     if (!type || type === "workers") {
+      // FIX: previously, when both minRate and maxRate were provided, the
+      // second spread silently overwrote the first `hourlyRate` key — so the
+      // lower bound was dropped and users got results below their minimum.
+      // Now we build the hourlyRate filter as a single merged object.
+      const rateFilter =
+        minRate || maxRate
+          ? {
+              hourlyRate: {
+                ...(minRate ? { gte: parseFloat(minRate) } : {}),
+                ...(maxRate ? { lte: parseFloat(maxRate) } : {}),
+              },
+            }
+          : {};
+
       const workerWhere = {
         isAvailable: available === "false" ? undefined : true,
         OR: [
@@ -71,8 +97,7 @@ export const globalSearch = async (req, res) => {
           }),
           ...(gender && { gender: gender }),
         },
-        ...(minRate && { hourlyRate: { gte: parseFloat(minRate) } }),
-        ...(maxRate && { hourlyRate: { lte: parseFloat(maxRate) } }),
+        ...rateFilter,
         ...(rating && { avgRating: { gte: parseFloat(rating) } }),
         ...(verification && { verificationStatus: verification.toUpperCase() }),
         ...(category && {
