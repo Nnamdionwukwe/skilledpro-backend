@@ -183,6 +183,13 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/disputes", disputeRoutes);
+
+// ── Analytics — MUST be mounted BEFORE /api/admin so the more-specific
+//    /api/admin/analytics/* paths win over the older /admin/analytics/*
+//    handlers inside adminRoutes. ──
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/admin/analytics", adminAnalyticsRoutes);
+
 app.use("/api/admin", adminRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/jobs", jobRoutes);
@@ -208,8 +215,6 @@ app.use("/api/admin", adminLogsRoutes);
 app.use("/api/refunds", refundRoutes);
 app.use("/api/admin/worker-debts", adminDebtRoutes);
 app.use("/api/worker/refunds", workerRefundRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/admin/analytics", adminAnalyticsRoutes);
 
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);

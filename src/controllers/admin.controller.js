@@ -3336,3 +3336,40 @@ export const adminGetInsuranceStats = async (req, res) => {
     return sendError(res, "Failed to fetch insurance stats");
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/analytics/send-test-digest
+// Fires the daily-digest email immediately to the configured recipient.
+// Same pipeline as the cron — safe to run any time.
+// ─────────────────────────────────────────────────────────────────────────────
+export const sendTestDigest = asyncHandler(async (req, res) => {
+  const { buildDailyDigest } = await import("../services/digest.service.js");
+  const { renderDailyDigest } = await import("../templates/dailyDigest.js");
+  const { sendEmail } = await import("../utils/email.js");
+
+  const RECIPIENT = "skilledprozmarketplace@gmail.com";
+
+  const data = await buildDailyDigest();
+  const html = renderDailyDigest(data);
+
+  const result = await sendEmail({
+    to: RECIPIENT,
+    subject: `[TEST] SkilledProz Daily Digest — ${data.windowLabel}`,
+    html,
+  });
+
+  if (!result.success) {
+    return sendError(res, `Digest send failed: ${result.error}`, 500);
+  }
+
+  return sendResponse(res, {
+    message: `Test digest sent to ${RECIPIENT}`,
+    data: {
+      recipient: RECIPIENT,
+      messageId: result.messageId,
+      currenciesActive: Object.keys(data.revenue.byCurrency),
+      users: data.users.newYesterday,
+      bookings: data.bookings.newYesterday,
+    },
+  });
+});

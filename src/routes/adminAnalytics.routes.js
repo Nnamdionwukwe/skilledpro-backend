@@ -13,7 +13,15 @@ router.get("/users", ctrl.listUserInsights);
 router.get("/user/:userId", ctrl.getUserCoverage);
 router.get("/live", ctrl.getLiveEvents);
 router.get("/funnel", ctrl.getFunnel);
+router.get("/funnel-builder", ctrl.getFunnelBuilder);
+router.get("/top-workers", ctrl.getTopWorkers);
+router.get("/payment-funnel", ctrl.getPaymentFunnel);
+router.get("/category-demand", ctrl.getCategoryDemand);
 
+// ── Daily digest — fire a test send on demand ────────────────────────────
+router.post("/send-test-digest", ctrl.sendTestDigest);
+
+// ── Segments CRUD ────────────────────────────────────────────────────────
 router.get("/segments", ctrl.listSegments);
 router.post("/segments", ctrl.createSegment);
 router.patch("/segments/:key", ctrl.updateSegment);

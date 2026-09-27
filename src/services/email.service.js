@@ -75,7 +75,14 @@ export function verifyEmailTransporter() {
 
 // ── Helper to build frontend URLs ──────────────────────────────────────────
 const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:5173";
-const CONTACT_EMAIL = "skilledprozmarketplace@gmail.com";
+
+// ── Platform mailboxes ─────────────────────────────────────────────────────
+// Single source of truth for every address used across the email templates.
+const MAILBOX = {
+  support: "support@skilledproz.com", // security, SOS, verification, receipts
+  info: "info@skilledproz.com", // general enquiries, marketing
+  contact: "contact@skilledproz.com", // public contact form link in the footer
+};
 
 function buildUrl(path) {
   return `${FRONTEND_URL}${path}`;
@@ -91,10 +98,11 @@ const ICONS = {
   star: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   globe: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F0F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
   handshake: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 11L12 6 7 11M12 6V18M12 18L7 13M12 18L17 13"/></svg>`,
+  search: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F0F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
 };
 
 // ── Base template wrapper ─────────────────────────────────────────────────────
-function baseTemplate({ title, preheader, body }) {
+export function baseTemplate({ title, preheader, body }) {
   const logoHtml = logoBase64
     ? `<img src="${logoBase64}" alt="SkilledProz" style="max-width:180px;height:auto;display:block;margin:0 auto;" />`
     : `<h1 style="color:#ffffff;font-size:26px;font-weight:700;letter-spacing:-0.5px;margin:0;">Skilled<span style="color:#F59E0B;">Proz</span></h1>`;
@@ -280,7 +288,7 @@ function baseTemplate({ title, preheader, body }) {
         <a href="${buildUrl("/contact")}">Contact</a>
       </p>
       <p style="font-size:11px;color:#bbb;margin-top:8px;">
-        Questions? Email us at <a href="mailto:${CONTACT_EMAIL}" style="color:#0F0F6E;">${CONTACT_EMAIL}</a>
+        Questions? Email us at <a href="mailto:${MAILBOX.support}" style="color:#0F0F6E;">${MAILBOX.support}</a>
       </p>
     </div>
   </div>
@@ -289,13 +297,14 @@ function baseTemplate({ title, preheader, body }) {
 }
 
 // ── Core send function ─────────────────────────────────────────────────────
-export async function sendEmail({ to, subject, html }) {
+export async function sendEmail({ to, subject, html, replyTo }) {
   const fromAddress = (process.env.EMAIL_FROM || "").trim();
   if (!fromAddress) {
     console.error("❌ EMAIL_FROM env var is not set");
     return { success: false, error: "EMAIL_FROM not configured" };
   }
   const from = `SkilledProz <${fromAddress}>`;
+  const replyToAddress = replyTo || MAILBOX.support;
 
   try {
     if (useResend) {
@@ -304,6 +313,7 @@ export async function sendEmail({ to, subject, html }) {
         to,
         subject,
         html,
+        reply_to: replyToAddress,
       });
       if (error) {
         throw new Error(
@@ -316,7 +326,13 @@ export async function sendEmail({ to, subject, html }) {
       return { success: true, messageId: data?.id };
     }
 
-    const info = await getTransporter().sendMail({ from, to, subject, html });
+    const info = await getTransporter().sendMail({
+      from,
+      to,
+      subject,
+      html,
+      replyTo: replyToAddress,
+    });
     console.log(`📧 Email sent to ${to} — ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -352,7 +368,12 @@ export async function sendWaitlistConfirmationEmail({ to, name }) {
       </div>
     `,
   });
-  return sendEmail({ to, subject: "You're on the SkilledProz waitlist", html });
+  return sendEmail({
+    to,
+    subject: "You're on the SkilledProz waitlist",
+    html,
+    replyTo: MAILBOX.info,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1387,7 +1408,12 @@ export async function sendWaitlistBroadcastEmail({
       </div>
     `,
   });
-  return sendEmail({ to, subject, html });
+  return sendEmail({
+    to,
+    subject,
+    html,
+    replyTo: MAILBOX.info,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1410,7 +1436,12 @@ export async function sendWaitlistBenefitUnlockedEmail({ to, name, benefit }) {
       </div>
     `,
   });
-  return sendEmail({ to, subject: `🎁 You Unlocked: ${benefit}`, html });
+  return sendEmail({
+    to,
+    subject: `🎁 You Unlocked: ${benefit}`,
+    html,
+    replyTo: MAILBOX.info,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1442,6 +1473,7 @@ export async function sendWaitlistLaunchEmail({ to, name }) {
     to,
     subject: "🚀 SkilledProz is LIVE! Claim Your Benefits",
     html,
+    replyTo: MAILBOX.info,
   });
 }
 
@@ -1537,5 +1569,6 @@ export async function sendSurveyResponseEmail({ to, name, role, industry }) {
     to,
     subject: "🙏 We received your survey — Thank you!",
     html,
+    replyTo: MAILBOX.info,
   });
 }
