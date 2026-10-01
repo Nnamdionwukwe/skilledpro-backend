@@ -132,6 +132,7 @@ export const getWorkerProfile = async (req, res) => {
             gender: true,
             language: true,
             createdAt: true,
+            lastSeen: true,
             profileVisible: true,
             showPhone: true,
             showLocation: true,
@@ -164,6 +165,7 @@ export const getWorkerProfile = async (req, res) => {
       avatar: worker.user.avatar,
       language: worker.user.language,
       createdAt: worker.user.createdAt,
+      lastSeen: worker.user.lastSeen,
       city: isOwnProfile || worker.user.showLocation ? worker.user.city : null,
       country:
         isOwnProfile || worker.user.showLocation ? worker.user.country : null,
