@@ -16,6 +16,44 @@ import {
   timeAgo,
 } from "../utils/helpers.js";
 
+/**
+ * Compute a worker's response rate.
+ *
+ * "Responded" = the booking ever left PENDING status (ACCEPTED, IN_PROGRESS,
+ * COMPLETED, CANCELLED, REJECTED, DISPUTED all count as a response).
+ *
+ * Only bookings created more than 24h ago are counted — recent ones might
+ * still be waiting for the worker's first action, and we don't want to
+ * penalise them for that.
+ */
+async function computeResponseRate(workerId) {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // All bookings the worker received, older than 24h
+    const [totalRequests, respondedRequests] = await Promise.all([
+      prisma.booking.count({
+        where: {
+          workerId,
+          createdAt: { lte: cutoff },
+        },
+      }),
+      prisma.booking.count({
+        where: {
+          workerId,
+          createdAt: { lte: cutoff },
+          status: { not: "PENDING" },
+        },
+      }),
+    ]);
+
+    if (totalRequests === 0) return 0; // no history → 0 (or you could return null)
+    return Math.round((respondedRequests / totalRequests) * 100);
+  } catch {
+    return 0;
+  }
+}
+
 export const searchWorkers = async (req, res) => {
   try {
     const {
@@ -157,6 +195,9 @@ export const getWorkerProfile = async (req, res) => {
 
     const isOwnProfile = req.user?.id === userId;
 
+    // ── Live response rate (the DB column is never written to) ────────────
+    const liveResponseRate = await computeResponseRate(userId);
+
     // ── Privacy-filtered user ──────────────────────────────────────────────
     const filteredUser = {
       id: worker.user.id,
@@ -204,6 +245,7 @@ export const getWorkerProfile = async (req, res) => {
       data: {
         worker: {
           ...worker,
+          responseRate: liveResponseRate,
           user: filteredUser,
         },
       },
@@ -601,6 +643,7 @@ export const getWorkerDashboard = async (req, res) => {
       completedBookings,
       cancelledBookings,
       disputedBookings,
+      liveResponseRate,
     ] = await Promise.all([
       prisma.booking.count({ where: { workerId: userId } }),
       prisma.booking.count({ where: { workerId: userId, status: "PENDING" } }),
@@ -614,6 +657,7 @@ export const getWorkerDashboard = async (req, res) => {
         where: { workerId: userId, status: "CANCELLED" },
       }),
       prisma.booking.count({ where: { workerId: userId, status: "DISPUTED" } }),
+      computeResponseRate(userId),
     ]);
 
     const recentBookings = await prisma.booking.findMany({
@@ -777,7 +821,7 @@ export const getWorkerDashboard = async (req, res) => {
           engagement: {
             avgRating: worker.avgRating,
             totalReviews: worker.totalReviews,
-            responseRate: worker.responseRate,
+            responseRate: liveResponseRate,
             completedJobs: worker.completedJobs,
             unreadMessages,
             unreadNotifications,
