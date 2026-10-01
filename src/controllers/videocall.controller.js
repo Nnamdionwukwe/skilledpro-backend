@@ -249,3 +249,52 @@ export const getCallUrl = async (req, res) => {
     return sendError(res, "Failed to fetch call URL");
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/video-calls/incoming
+//
+// Global poll endpoint used by the app-wide IncomingCallBanner.
+// Returns the single most recent PENDING call where the current user is
+// the receiver, or { call: null } if there's nothing ringing.
+//
+// Kept intentionally narrow — no joins beyond booking, no callUrl build
+// until there's actually a call, so it's cheap to poll every 5s.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getIncomingCall = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const call = await prisma.videoCall.findFirst({
+      where: {
+        receiverId: userId,
+        status: "PENDING",
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            service: { select: { title: true } },
+          },
+        },
+      },
+    });
+
+    if (!call) {
+      return sendResponse(res, { data: { call: null, callUrl: null } });
+    }
+
+    return sendResponse(res, {
+      data: {
+        call,
+        callUrl: buildCallUrl(call.roomId),
+        bookingId: call.bookingId,
+        callerName: call.booking?.service?.title
+          ? `Regarding: ${call.booking.service.title}`
+          : "Video consultation",
+      },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to fetch incoming call");
+  }
+};

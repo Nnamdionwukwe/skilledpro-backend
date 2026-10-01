@@ -19,6 +19,8 @@ const router = Router();
 // All video call routes require authentication — both parties must be logged in
 router.use(protect);
 
+router.get("/incoming", requireAuth, getIncomingCall);
+
 // POST /api/video-calls/:bookingId/initiate   — caller starts the call
 router.post("/:bookingId/initiate", validateInitiateVideoCall, initiateCall);
 
