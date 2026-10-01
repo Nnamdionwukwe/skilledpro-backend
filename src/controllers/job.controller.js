@@ -1065,7 +1065,33 @@ export const getHirerPublicProfile = async (req, res) => {
     const isOwnProfile = req.user?.id === userId;
     const u = hirerProfile.user;
 
+    // ── Live stats — same shape as the private profile endpoint ──────────
+    const [bookingStats, paymentStats, reviewStats] = await Promise.all([
+      prisma.booking.aggregate({
+        where: { hirerId: userId },
+        _count: { id: true },
+      }),
+      prisma.payment.aggregate({
+        where: { booking: { hirerId: userId }, status: "RELEASED" },
+        _sum: { amount: true },
+      }),
+      prisma.review.aggregate({
+        where: { receiverId: userId },
+        _avg: { rating: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const liveStats = {
+      totalHires: bookingStats._count.id ?? 0,
+      totalSpent: paymentStats._sum.amount ?? 0,
+      avgRating: Math.round((reviewStats._avg.rating ?? 0) * 10) / 10,
+      totalReviews: reviewStats._count.id ?? 0,
+      openJobs: jobPosts.length,
+    };
+
     // Build privacy-filtered user object
+    // Phone visibility is strictly controlled by the user's showPhone toggle.
     const filteredUser = {
       id: u.id,
       firstName: u.firstName,
@@ -1085,34 +1111,22 @@ export const getHirerPublicProfile = async (req, res) => {
       workerProfile: u.workerProfile,
     };
 
-    const reviewStats = await prisma.review.aggregate({
-      where: { receiverId: userId },
-      _avg: { rating: true },
-      _count: { id: true },
-    });
-
     return sendResponse(res, {
       data: {
         profile: {
           ...hirerProfile,
           user: filteredUser,
-          // ── Public stats (already columns on HirerProfile) ────────────
-          totalSpent: hirerProfile.totalSpent,
-          totalHires: hirerProfile.totalHires,
-          avgRating: hirerProfile.avgRating,
+          // ── Override stale DB columns with live aggregates ────────────
+          totalSpent: liveStats.totalSpent,
+          totalHires: liveStats.totalHires,
+          avgRating: liveStats.avgRating,
           companyName: hirerProfile.companyName,
           companySize: hirerProfile.companySize,
           website: hirerProfile.website,
         },
         jobPosts,
         reviews,
-        stats: {
-          avgRating: Math.round((reviewStats._avg.rating || 0) * 10) / 10,
-          totalReviews: reviewStats._count.id,
-          totalHires: hirerProfile.totalHires,
-          totalSpent: hirerProfile.totalSpent,
-          openJobs: jobPosts.length,
-        },
+        stats: liveStats,
       },
     });
   } catch (err) {
