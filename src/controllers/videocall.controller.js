@@ -1,8 +1,14 @@
 import { randomUUID } from "crypto";
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { paginate, paginationMeta, fullName, formatCurrency, truncate, slugify, uniqueRef, parseJSON, extractIP, timeAgo, safeUser } from "../utils/helpers.js";
+import { buildCallUrl } from "../services/videoCall.service.js";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/video-calls/:bookingId/initiate
+// Initiator asks for a room. If a room doesn't exist yet, create one.
+// If it exists but ended, reuse it (fresh session).
+// Returns the roomId AND the full call URL for both web and mobile clients.
+// ─────────────────────────────────────────────────────────────────────────────
 export const initiateCall = async (req, res) => {
   try {
     const { bookingId } = req.params;
@@ -21,7 +27,6 @@ export const initiateCall = async (req, res) => {
       booking.hirerId === req.user.id || booking.workerId === req.user.id;
     if (!isInvolved) return sendError(res, "Forbidden", 403);
 
-    // Only allow calls on PENDING or ACCEPTED bookings (pre-job consultation)
     if (!["PENDING", "ACCEPTED", "IN_PROGRESS"].includes(booking.status)) {
       return sendError(
         res,
@@ -33,7 +38,7 @@ export const initiateCall = async (req, res) => {
     const receiverId =
       req.user.id === booking.hirerId ? booking.workerId : booking.hirerId;
 
-    // Reuse existing room if call already exists
+    // ── Reuse existing room if call already exists for this booking ──────
     let call = await prisma.videoCall.findUnique({ where: { bookingId } });
 
     if (!call) {
@@ -42,12 +47,13 @@ export const initiateCall = async (req, res) => {
           bookingId,
           initiatorId: req.user.id,
           receiverId,
-          roomId: `room-${randomUUID()}`,
+          roomId: `skp-${randomUUID().slice(0, 12)}`, // short, URL-safe
           status: "PENDING",
         },
       });
-    } else if (call.status === "ENDED") {
-      // Allow re-initiating a new call session
+    } else if (call.status === "ENDED" || call.status === "DECLINED") {
+      // Re-open the room for a fresh session — same room ID, so the URL
+      // stays stable and any bookmarks/history entries keep working.
       call = await prisma.videoCall.update({
         where: { bookingId },
         data: {
@@ -60,7 +66,9 @@ export const initiateCall = async (req, res) => {
       });
     }
 
-    // Notify receiver
+    const callUrl = buildCallUrl(call.roomId);
+
+    // ── Notify receiver ─────────────────────────────────────────────────
     const callerName =
       req.user.id === booking.hirerId
         ? `${booking.hirer.firstName} ${booking.hirer.lastName}`
@@ -72,14 +80,23 @@ export const initiateCall = async (req, res) => {
         title: "📹 Incoming Video Call",
         body: `${callerName} is calling you for booking "${booking.title}"`,
         type: "VIDEO_CALL_INCOMING",
-        data: { bookingId, roomId: call.roomId, callId: call.id },
+        data: {
+          bookingId,
+          roomId: call.roomId,
+          callId: call.id,
+          callUrl, // ← mobile + web both read this
+        },
       },
     });
 
     return sendResponse(res, {
       status: 201,
       message: "Call initiated",
-      data: { call, roomId: call.roomId },
+      data: {
+        call,
+        roomId: call.roomId,
+        callUrl, // ← the URL both clients navigate to
+      },
     });
   } catch (err) {
     console.error("initiateCall error:", err.message);
@@ -87,7 +104,9 @@ export const initiateCall = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/video-calls/:bookingId/accept
+// ─────────────────────────────────────────────────────────────────────────────
 export const acceptCall = async (req, res) => {
   try {
     const call = await prisma.videoCall.findUnique({
@@ -102,26 +121,34 @@ export const acceptCall = async (req, res) => {
       data: { status: "ACTIVE", startedAt: new Date() },
     });
 
+    const callUrl = buildCallUrl(updated.roomId);
+
     await prisma.notification.create({
       data: {
         userId: call.initiatorId,
         title: "📹 Call Accepted",
         body: "The other party accepted your video call.",
         type: "VIDEO_CALL_ACCEPTED",
-        data: { bookingId: req.params.bookingId, roomId: call.roomId },
+        data: {
+          bookingId: req.params.bookingId,
+          roomId: call.roomId,
+          callUrl,
+        },
       },
     });
 
     return sendResponse(res, {
       message: "Call accepted",
-      data: { call: updated },
+      data: { call: updated, callUrl },
     });
   } catch (err) {
     return sendError(res, "Failed to accept call");
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/video-calls/:bookingId/decline
+// ─────────────────────────────────────────────────────────────────────────────
 export const declineCall = async (req, res) => {
   try {
     const call = await prisma.videoCall.findUnique({
@@ -150,7 +177,9 @@ export const declineCall = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/video-calls/:bookingId/end
+// ─────────────────────────────────────────────────────────────────────────────
 export const endCall = async (req, res) => {
   try {
     const call = await prisma.videoCall.findUnique({
@@ -172,14 +201,51 @@ export const endCall = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/video-calls/:bookingId
+// Returns current call state AND the URL clients should navigate to.
+// ─────────────────────────────────────────────────────────────────────────────
 export const getCallStatus = async (req, res) => {
   try {
     const call = await prisma.videoCall.findUnique({
       where: { bookingId: req.params.bookingId },
     });
-    return sendResponse(res, { data: { call } });
+
+    if (!call) {
+      return sendResponse(res, { data: { call: null, callUrl: null } });
+    }
+
+    return sendResponse(res, {
+      data: {
+        call,
+        callUrl: buildCallUrl(call.roomId),
+      },
+    });
   } catch (err) {
     return sendError(res, "Failed to fetch call");
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/video-calls/:bookingId/token
+// Returns just the URL (and room id) without touching state.
+// Mobile app uses this to refresh the URL before opening the WebView.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getCallUrl = async (req, res) => {
+  try {
+    const call = await prisma.videoCall.findUnique({
+      where: { bookingId: req.params.bookingId },
+    });
+    if (!call) return sendError(res, "Call not found", 404);
+
+    return sendResponse(res, {
+      data: {
+        roomId: call.roomId,
+        callUrl: buildCallUrl(call.roomId),
+        status: call.status,
+      },
+    });
+  } catch (err) {
+    return sendError(res, "Failed to fetch call URL");
   }
 };

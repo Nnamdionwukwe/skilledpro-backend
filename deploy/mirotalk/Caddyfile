@@ -1,0 +1,48 @@
+# deploy/mirotalk/Caddyfile
+
+#
+
+# Reference config. On the VPS, the /etc/caddy/Caddyfile is what actually
+
+# runs. This file is a copy that lives in the repo so future-you knows
+
+# what the Caddy config for video calls should look like.
+
+#
+
+# If Caddy is already serving api.skilledproz.com on the VPS, just add
+
+# the `call.skilledproz.com { ... }` block below to the existing file.
+
+call.skilledproz.com { # Caddy automatically requests + renews a Let's Encrypt SSL cert # for this domain. No manual certbot needed.
+
+    # Proxy to the MiroTalk P2P container running on localhost:3000.
+    reverse_proxy 127.0.0.1:3000 {
+        # Forward real client IP so MiroTalk logs show the actual user.
+        header_up X-Real-IP {remote_host}
+
+        # WebSocket upgrade support for signaling traffic.
+        header_up Connection {>Connection}
+        header_up Upgrade {>Upgrade}
+    }
+
+    # Security headers.
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Referrer-Policy no-referrer-when-downgrade
+        # Permissions-Policy: MiroTalk needs camera + mic.
+        Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
+    }
+
+    # Optional: only allow same-origin iframe embedding.
+    # If you want to embed the call inside a full-screen modal in your
+    # React app, SAMEORIGIN above is what allows it. Change to `DENY`
+    # if you'd rather always open the call in a new tab.
+
+    log {
+        output file /var/log/caddy/call.skilledproz.access.log
+        format json
+    }
+
+}

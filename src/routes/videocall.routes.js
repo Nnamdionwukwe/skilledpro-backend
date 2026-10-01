@@ -7,6 +7,7 @@ import {
   declineCall,
   endCall,
   getCallStatus,
+  getCallUrl,
 } from "../controllers/videocall.controller.js";
 import {
   validateInitiateVideoCall,
@@ -40,5 +41,7 @@ router.patch("/:bookingId/end", ...validateUUIDParam("bookingId"), endCall);
 
 // GET  /api/video-calls/:bookingId            — poll call status
 router.get("/:bookingId", ...validateUUIDParam("bookingId"), getCallStatus);
+
+router.post("/:bookingId/token", protect, getCallUrl);
 
 export default router;

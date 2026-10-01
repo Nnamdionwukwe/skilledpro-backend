@@ -1,0 +1,52 @@
+# deploy/mirotalk/docker-compose.yml
+#
+# MiroTalk P2P — self-hosted WebRTC video calling for SkilledProz
+#
+# Runs on the same VPS as the backend. Nginx terminates TLS on
+# call.skilledproz.com and proxies to this container on 127.0.0.1:3000.
+#
+# Zero per-minute fees. Media flows P2P; server only brokers signaling.
+#
+# Deploy:
+#   sudo mkdir -p /opt/mirotalk
+#   sudo cp docker-compose.yml /opt/mirotalk/
+#   cd /opt/mirotalk && sudo docker compose up -d
+#
+# Logs:
+#   sudo docker compose logs -f
+#
+# Update:
+#   sudo docker compose pull && sudo docker compose up -d
+
+services:
+  mirotalk-p2p:
+    image: mirotalk/p2p:latest
+    container_name: mirotalk-p2p
+    restart: unless-stopped
+
+    ports:
+      # Bind ONLY to localhost. Nginx proxies public HTTPS traffic.
+      # Never expose this port directly to the internet.
+      - "127.0.0.1:3000:3000"
+
+    environment:
+      # Public hostname used for logging + ICE candidates.
+      - HOST=call.skilledproz.com
+      # The internal port MiroTalk binds to inside the container.
+      # MUST be 3000 — Node.js can't bind to port 443 without root.
+      # Nginx handles the public HTTPS on 443; it proxies to this port.
+      - PORT=3000
+      # Public Google STUN for NAT traversal (free, covers ~85% of calls).
+      - STUN_SERVER=stun:stun.l.google.com:19302
+
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
