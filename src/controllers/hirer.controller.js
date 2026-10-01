@@ -104,6 +104,25 @@ export const getHirerProfile = async (req, res) => {
             country: true,
             city: true,
             createdAt: true,
+            // ── Verification fields for public profile badges ─────────
+            hirerProfile: {
+              select: {
+                verificationStatus: true,
+                verificationType: true,
+                companyName: true,
+                companySize: true,
+                website: true,
+                totalSpent: true,
+                totalHires: true,
+                avgRating: true,
+              },
+            },
+            workerProfile: {
+              select: {
+                verificationStatus: true,
+                backgroundCheck: true,
+              },
+            },
           },
         },
       },
