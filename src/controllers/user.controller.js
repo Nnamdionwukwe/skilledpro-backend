@@ -16,6 +16,37 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+/**
+ * Compute a worker's response rate.
+ *
+ * "Responded" = the booking ever left PENDING status.
+ * Only bookings older than 24h are counted, so recent pending ones
+ * don't unfairly penalise the worker.
+ */
+async function computeResponseRate(workerId) {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const [totalRequests, respondedRequests] = await Promise.all([
+      prisma.booking.count({
+        where: { workerId, createdAt: { lte: cutoff } },
+      }),
+      prisma.booking.count({
+        where: {
+          workerId,
+          createdAt: { lte: cutoff },
+          status: { not: "PENDING" },
+        },
+      }),
+    ]);
+
+    if (totalRequests === 0) return 0;
+    return Math.round((respondedRequests / totalRequests) * 100);
+  } catch {
+    return 0;
+  }
+}
+
 // user.controller.js — getProfile, change only the hirerProfile line in the select
 export const getProfile = async (req, res) => {
   try {
@@ -73,6 +104,17 @@ export const getProfile = async (req, res) => {
         totalSpent: paymentStats._sum.amount ?? 0,
         avgRating: reviewStats._avg.rating ?? 0,
         totalReviews: reviewStats._count.id ?? 0,
+      };
+    }
+
+    // ── Augment worker with live response rate ──────────────────────────
+    // The WorkerProfile.responseRate column is never written to. Compute
+    // it on the fly so the number always reflects reality.
+    if (user.role === "WORKER" && user.workerProfile) {
+      const liveResponseRate = await computeResponseRate(user.id);
+      user.workerProfile = {
+        ...user.workerProfile,
+        responseRate: liveResponseRate,
       };
     }
 
