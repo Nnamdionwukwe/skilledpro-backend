@@ -1006,11 +1006,25 @@ export const getHirerPublicProfile = async (req, res) => {
               gender: true,
               language: true,
               createdAt: true,
+              lastSeen: true,
               profileVisible: true,
               showPhone: true,
               showLocation: true,
               showEmail: true,
               showGender: true,
+              // ── Verification fields for public profile badges ─────────
+              hirerProfile: {
+                select: {
+                  verificationStatus: true,
+                  verificationType: true,
+                },
+              },
+              workerProfile: {
+                select: {
+                  verificationStatus: true,
+                  backgroundCheck: true,
+                },
+              },
             },
           },
         },
@@ -1059,12 +1073,16 @@ export const getHirerPublicProfile = async (req, res) => {
       avatar: u.avatar,
       language: u.language,
       createdAt: u.createdAt,
+      lastSeen: u.lastSeen,
       city: isOwnProfile || u.showLocation ? u.city : null,
       country: isOwnProfile || u.showLocation ? u.country : null,
       state: isOwnProfile || u.showLocation ? u.state : null,
       phone: isOwnProfile || u.showPhone ? u.phone : null,
       email: isOwnProfile || u.showEmail ? u.email : null,
       gender: isOwnProfile || u.showGender ? u.gender : null,
+      // ── Verification fields — always public (they're trust signals) ──
+      hirerProfile: u.hirerProfile,
+      workerProfile: u.workerProfile,
     };
 
     const reviewStats = await prisma.review.aggregate({
@@ -1075,13 +1093,24 @@ export const getHirerPublicProfile = async (req, res) => {
 
     return sendResponse(res, {
       data: {
-        profile: { ...hirerProfile, user: filteredUser },
+        profile: {
+          ...hirerProfile,
+          user: filteredUser,
+          // ── Public stats (already columns on HirerProfile) ────────────
+          totalSpent: hirerProfile.totalSpent,
+          totalHires: hirerProfile.totalHires,
+          avgRating: hirerProfile.avgRating,
+          companyName: hirerProfile.companyName,
+          companySize: hirerProfile.companySize,
+          website: hirerProfile.website,
+        },
         jobPosts,
         reviews,
         stats: {
           avgRating: Math.round((reviewStats._avg.rating || 0) * 10) / 10,
           totalReviews: reviewStats._count.id,
           totalHires: hirerProfile.totalHires,
+          totalSpent: hirerProfile.totalSpent,
           openJobs: jobPosts.length,
         },
       },
