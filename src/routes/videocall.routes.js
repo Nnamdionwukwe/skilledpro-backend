@@ -8,6 +8,7 @@ import {
   endCall,
   getCallStatus,
   getCallUrl,
+  getIncomingCall, // ← NEW: global incoming-call poll
 } from "../controllers/videocall.controller.js";
 import {
   validateInitiateVideoCall,
@@ -19,7 +20,16 @@ const router = Router();
 // All video call routes require authentication — both parties must be logged in
 router.use(protect);
 
-router.get("/incoming", requireAuth, getIncomingCall);
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/video-calls/incoming
+//
+// Global poll used by the app-wide IncomingCallBanner. Must be declared
+// BEFORE the /:bookingId routes, otherwise Express matches "incoming" as a
+// booking ID and hits validateUUIDParam (which would reject it as invalid).
+//
+// No explicit `protect` needed — router.use(protect) above already covers it.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/incoming", getIncomingCall);
 
 // POST /api/video-calls/:bookingId/initiate   — caller starts the call
 router.post("/:bookingId/initiate", validateInitiateVideoCall, initiateCall);
@@ -44,6 +54,7 @@ router.patch("/:bookingId/end", ...validateUUIDParam("bookingId"), endCall);
 // GET  /api/video-calls/:bookingId            — poll call status
 router.get("/:bookingId", ...validateUUIDParam("bookingId"), getCallStatus);
 
-router.post("/:bookingId/token", protect, getCallUrl);
+// POST /api/video-calls/:bookingId/token      — get a fresh room URL
+router.post("/:bookingId/token", getCallUrl);
 
 export default router;

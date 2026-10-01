@@ -249,7 +249,6 @@ export const getCallUrl = async (req, res) => {
     return sendError(res, "Failed to fetch call URL");
   }
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/video-calls/incoming
 //
@@ -257,8 +256,8 @@ export const getCallUrl = async (req, res) => {
 // Returns the single most recent PENDING call where the current user is
 // the receiver, or { call: null } if there's nothing ringing.
 //
-// Kept intentionally narrow — no joins beyond booking, no callUrl build
-// until there's actually a call, so it's cheap to poll every 5s.
+// Uses Booking.title (scalar) — the schema has no `service` relation,
+// it has `category`. The booking's own title is the human-friendly label.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getIncomingCall = async (req, res) => {
   try {
@@ -274,7 +273,7 @@ export const getIncomingCall = async (req, res) => {
         booking: {
           select: {
             id: true,
-            service: { select: { title: true } },
+            title: true,
           },
         },
       },
@@ -289,12 +288,13 @@ export const getIncomingCall = async (req, res) => {
         call,
         callUrl: buildCallUrl(call.roomId),
         bookingId: call.bookingId,
-        callerName: call.booking?.service?.title
-          ? `Regarding: ${call.booking.service.title}`
+        callerName: call.booking?.title
+          ? `Regarding: ${call.booking.title}`
           : "Video consultation",
       },
     });
   } catch (err) {
+    console.error("getIncomingCall error:", err.message);
     return sendError(res, "Failed to fetch incoming call");
   }
 };
