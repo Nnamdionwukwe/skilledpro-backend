@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import registerVoiceCallSocket from "./socket/voiceCallSocket.js";
+import registerVoiceCallSocket from "./voiceCallSocket.js";
 
 let io;
 
