@@ -1322,6 +1322,8 @@ model VoiceCall {
   roomId String  @unique
   status String  @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
 
+   callType String @default("voice")   // ← NEW: "voice" | "video"
+
   startedAt DateTime?
   endedAt   DateTime?
   createdAt DateTime  @default(now())

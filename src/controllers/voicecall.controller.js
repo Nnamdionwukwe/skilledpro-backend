@@ -47,10 +47,12 @@ async function loadConversationForUser(conversationId, userId) {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/voice-calls/:conversationId/initiate
 // ─────────────────────────────────────────────────────────────────────────────
+// In initiateVoiceCall — read callType from body
 export const initiateVoiceCall = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.id;
+    const callType = req.body?.callType === "video" ? "video" : "voice";
 
     const { conversation, error, status } = await loadConversationForUser(
       conversationId,
@@ -64,7 +66,6 @@ export const initiateVoiceCall = async (req, res) => {
     }
     const receiverId = other.userId;
 
-    // ── Reuse or reopen existing call ─────────────────────────────────────
     let call = await prisma.voiceCall.findUnique({
       where: { conversationId },
     });
@@ -77,6 +78,7 @@ export const initiateVoiceCall = async (req, res) => {
           receiverId,
           roomId: buildVoiceRoomId(randomUUID()),
           status: "PENDING",
+          callType, // ← store it
         },
       });
     } else if (call.status === "ENDED" || call.status === "DECLINED") {
@@ -88,39 +90,54 @@ export const initiateVoiceCall = async (req, res) => {
           receiverId,
           startedAt: null,
           endedAt: null,
+          callType, // ← update on reopen
         },
       });
     } else if (call.status === "ACTIVE") {
-      // Already active — return the current state so both clients can join
       return sendResponse(res, {
         data: {
           call,
-          callUrl: buildVoiceCallUrl(call.roomId),
-          callType: "voice",
+          callUrl: buildVoiceCallUrl(call.roomId, call.callType),
+          callType: call.callType,
         },
       });
+    } else {
+      // PENDING — caller might have switched type
+      if (call.callType !== callType) {
+        call = await prisma.voiceCall.update({
+          where: { conversationId },
+          data: { callType, initiatorId: userId, receiverId },
+        });
+      }
     }
 
-    const callUrl = buildVoiceCallUrl(call.roomId);
+    const callUrl = buildVoiceCallUrl(call.roomId, call.callType);
 
-    // ── Fire-and-forget notification for the receiver ─────────────────────
+    // Notification
     const callerName =
       `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim() ||
       "Someone";
+    const notifTitle =
+      call.callType === "video"
+        ? "📹 Incoming Video Call"
+        : "🎙️ Incoming Voice Call";
 
     await prisma.notification
       .create({
         data: {
           userId: receiverId,
-          title: "🎙️ Incoming Voice Call",
+          title: notifTitle,
           body: `${callerName} is calling you`,
-          type: "VOICE_CALL_INCOMING",
+          type:
+            call.callType === "video"
+              ? "VIDEO_CALL_INCOMING"
+              : "VOICE_CALL_INCOMING",
           data: {
             conversationId,
             callId: call.id,
             roomId: call.roomId,
             callUrl,
-            callType: "voice",
+            callType: call.callType,
           },
         },
       })
@@ -128,15 +145,17 @@ export const initiateVoiceCall = async (req, res) => {
 
     return sendResponse(res, {
       status: 201,
-      message: "Voice call initiated",
-      data: { call, roomId: call.roomId, callUrl, callType: "voice" },
+      message:
+        call.callType === "video"
+          ? "Video call initiated"
+          : "Voice call initiated",
+      data: { call, roomId: call.roomId, callUrl, callType: call.callType },
     });
   } catch (err) {
     console.error("initiateVoiceCall error:", err.message);
-    return sendError(res, "Failed to initiate voice call");
+    return sendError(res, "Failed to initiate call");
   }
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/voice-calls/:conversationId/accept
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +278,14 @@ export const endVoiceCall = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/voice-calls/:conversationId
+//
+// Returns the current call state for a conversation, plus a fully-built
+// MiroTalk URL. The URL is generated based on the call's `callType`:
+//   • "voice" → audio-only params (audio=1, video=0)
+//   • "video" → video-enabled params (audio=1, video=1)
+//
+// When no call exists, returns { call: null, callUrl: null, callType: null }
+// so the frontend can hide the panel/banner without special-casing.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getVoiceCallStatus = async (req, res) => {
   try {
@@ -269,14 +296,16 @@ export const getVoiceCallStatus = async (req, res) => {
     });
 
     if (!call) {
-      return sendResponse(res, { data: { call: null, callUrl: null } });
+      return sendResponse(res, {
+        data: { call: null, callUrl: null, callType: null },
+      });
     }
 
     return sendResponse(res, {
       data: {
         call,
-        callUrl: buildVoiceCallUrl(call.roomId),
-        callType: "voice",
+        callUrl: buildVoiceCallUrl(call.roomId, call.callType),
+        callType: call.callType,
       },
     });
   } catch (err) {
