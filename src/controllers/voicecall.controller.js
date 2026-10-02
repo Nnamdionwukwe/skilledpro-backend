@@ -22,9 +22,6 @@
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: verify the current user is a member of the conversation.
-// ─────────────────────────────────────────────────────────────────────────────
 async function loadConversationForUser(conversationId, userId) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -47,13 +44,6 @@ async function loadConversationForUser(conversationId, userId) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/voice-calls/:conversationId/initiate
-//
-// Body: { callType?: "voice" | "video" }   (defaults to "voice")
-//
-// Only ONE VoiceCall row exists per conversation. Calling initiate again
-// after a call has ENDED/DECLINED reopens the same row. If the caller
-// switches type (voice ↔ video) while PENDING, the row's callType is
-// updated in place.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateVoiceCall = async (req, res) => {
   try {
@@ -73,7 +63,6 @@ export const initiateVoiceCall = async (req, res) => {
     }
     const receiverId = other.userId;
 
-    // ── Reuse or reopen the existing call row ─────────────────────────────
     let call = await prisma.voiceCall.findUnique({
       where: { conversationId },
     });
@@ -101,19 +90,16 @@ export const initiateVoiceCall = async (req, res) => {
         },
       });
     } else if (call.status === "ACTIVE") {
-      // Already active — return current state.
       return sendResponse(res, {
         data: { call, callType: call.callType },
       });
     } else if (call.callType !== callType) {
-      // PENDING, caller switched type (voice ↔ video).
       call = await prisma.voiceCall.update({
         where: { conversationId },
         data: { callType, initiatorId: userId, receiverId },
       });
     }
 
-    // ── Notification to the receiver ──────────────────────────────────────
     const callerName =
       `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim() ||
       "Someone";
@@ -314,9 +300,6 @@ export const getVoiceCallStatus = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/voice-calls/incoming
-//
-// Global poll for the incoming-call banners. Returns the most recent PENDING
-// call the current user is the receiver of, with the initiator's display info.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getIncomingVoiceCall = async (req, res) => {
   try {
