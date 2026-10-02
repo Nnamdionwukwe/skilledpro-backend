@@ -23,6 +23,8 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+import { asyncHandler } from "../middleware/error.middleware.js";
+
 import NodeCache from "node-cache";
 const statsCache = new NodeCache({ stdTTL: 60 }); // 60 seconds TTL
 const dashboardCache = new NodeCache({ stdTTL: 30 }); // 30 seconds TTL
