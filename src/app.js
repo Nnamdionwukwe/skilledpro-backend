@@ -76,6 +76,8 @@ const app = express();
 // ─── Trust proxy ────────────────────────────────────────────────────────────
 app.set("trust proxy", 1);
 
+app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
 // ─── Start cron jobs (once per process) ─────────────────────────────────────
 startDebtCron();
 startDeletionCron();
