@@ -416,6 +416,9 @@ model User {
   featureUsageDaily  FeatureUsageDaily[]
   profileInsight     UserProfileInsight?
   segmentMemberships UserSegmentMembership[]
+
+    voiceCallsInitiated VoiceCall[]      @relation("VoiceCallsInitiated")
+  voiceCallsReceived  VoiceCall[]      @relation("VoiceCallsReceived")
 }
 
 model Referral {
@@ -991,8 +994,9 @@ model Conversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users    ConversationUser[]
-  messages Message[]
+  users     ConversationUser[]
+  messages  Message[]
+  voiceCall VoiceCall?
 }
 
 model ConversationUser {
@@ -1292,6 +1296,38 @@ model VideoCall {
   startedAt   DateTime?
   endedAt     DateTime?
   createdAt   DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VoiceCall — audio-only calls initiated from the messages tab.
+//
+// Unlike VideoCall (which is anchored to a booking), VoiceCall is anchored to
+// a Conversation. Two users chatting in /messages can start a voice call
+// without needing a booking in common.
+//
+// Reuses the same MiroTalk instance on Hetzner (call.skilledproz.com).
+// Room IDs are prefixed `skp-voice-<uuid>` to distinguish from video calls.
+// ─────────────────────────────────────────────────────────────────────────────
+model VoiceCall {
+  id             String       @id @default(uuid())
+  conversationId String       @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  initiatorId String
+  initiator   User   @relation("VoiceCallsInitiated", fields: [initiatorId], references: [id])
+
+  receiverId String
+  receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
+
+  roomId String  @unique
+  status String  @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([receiverId, status])
+  @@index([initiatorId])
 }
 
 enum JobType {
