@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
+import registerVoiceCallSocket from "./socket/voiceCallSocket.js";
 
 let io;
 
@@ -30,6 +31,8 @@ export const initSocket = (httpServer) => {
       next(new Error("Invalid token"));
     }
   });
+
+  registerVoiceCallSocket(io);
 
   io.on("connection", (socket) => {
     console.log(`🔌 User connected: ${socket.userId}`);

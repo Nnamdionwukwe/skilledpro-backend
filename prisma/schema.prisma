@@ -1319,10 +1319,8 @@ model VoiceCall {
   receiverId String
   receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
 
-  roomId String  @unique
-  status String  @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
-
-   callType String @default("voice")   // ← NEW: "voice" | "video"
+  status   String  @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+  callType String  @default("voice")   // "voice" | "video"
 
   startedAt DateTime?
   endedAt   DateTime?
