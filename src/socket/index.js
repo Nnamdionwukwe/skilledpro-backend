@@ -22,12 +22,28 @@ export const initSocket = (httpServer) => {
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.split(" ")[1];
-    if (!token) return next(new Error("Authentication required"));
+
+    console.log("[socket auth] connection attempt", {
+      hasToken: !!token,
+      tokenPreview: token ? token.slice(0, 30) + "..." : null,
+      namespace: socket.nsp?.name,
+    });
+
+    if (!token) {
+      console.warn("[socket auth] REJECT: no token");
+      return next(new Error("Authentication required"));
+    }
+
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.id;
+      console.log("[socket auth] ACCEPT: userId =", decoded.id);
       next();
-    } catch {
+    } catch (err) {
+      console.warn("[socket auth] REJECT:", err.message, {
+        tokenLength: token.length,
+        tokenPreview: token.slice(0, 30) + "...",
+      });
       next(new Error("Invalid token"));
     }
   });
