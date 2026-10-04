@@ -31,11 +31,19 @@ export default function registerVoiceCallSocket(io) {
   const nsp = io.of("/voice-calls");
 
   nsp.on("connection", (socket) => {
-    const userId = socket.user?.id;
+    // NOTE: the auth middleware in src/socket/index.js attaches the user id
+    // as `socket.userId` (not `socket.user`). Support both shapes just in case.
+    const userId = socket.userId || socket.user?.id;
+
     if (!userId) {
+      console.error(
+        "[voice-calls] connection without userId — check auth middleware",
+      );
       socket.disconnect(true);
       return;
     }
+
+    console.log(`[voice-calls] 🔌 connected: ${userId} (${socket.id})`);
 
     let activeConversation = null;
 
@@ -59,6 +67,10 @@ export default function registerVoiceCallSocket(io) {
         socket.join(room);
         activeConversation = conversationId;
 
+        console.log(
+          `[voice-calls] ${userId} joined room ${room} (socket ${socket.id})`,
+        );
+
         // Notify the other peer (if already in the room) that we joined.
         socket.to(room).emit("voice:peer-joined", { userId });
 
@@ -76,6 +88,7 @@ export default function registerVoiceCallSocket(io) {
       socket.to(room).emit("voice:peer-left", { userId });
       socket.leave(room);
       if (activeConversation === conversationId) activeConversation = null;
+      console.log(`[voice-calls] ${userId} left room ${room}`);
     });
 
     // ── Signaling relays ──────────────────────────────────────────────────
@@ -107,7 +120,10 @@ export default function registerVoiceCallSocket(io) {
     });
 
     // ── Cleanup on disconnect ─────────────────────────────────────────────
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
+      console.log(
+        `[voice-calls] 🔴 disconnected: ${userId} (${socket.id}) — ${reason}`,
+      );
       if (activeConversation) {
         socket
           .to(`voice:${activeConversation}`)
