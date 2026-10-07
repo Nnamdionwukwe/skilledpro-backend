@@ -45,11 +45,15 @@ async function loadConversationForUser(conversationId, userId) {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/voice-calls/:conversationId/initiate
 //
-// Whoever calls this endpoint becomes the initiator, PERIOD. Every initiate
-// overwrites initiatorId/receiverId so we never carry a stale caller from a
-// previous test/turn. The only exception is when the SAME caller re-triggers
-// a call that's already ACTIVE with them as the initiator — we return the
-// current state so the client can proceed.
+// Whoever calls this endpoint becomes the initiator. Every initiate that
+// arrives while the row is NOT active overwrites initiatorId/receiverId so
+// we never carry a stale caller from a previous test.
+//
+// RACE SAFETY: if the row is already ACTIVE, we return it as-is and never
+// touch initiatorId/status. This prevents racing initiate calls (from a
+// double-tap, a StrictMode remount, or a delayed retry) from resetting an
+// in-progress call back to PENDING, which would tear down the WebRTC peer
+// connection on both sides.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateVoiceCall = async (req, res) => {
   try {
@@ -73,15 +77,13 @@ export const initiateVoiceCall = async (req, res) => {
       where: { conversationId },
     });
 
-    // Same caller, same type, already connected → return as-is. Otherwise
-    // ALWAYS reset to a fresh PENDING call owned by the current caller.
-    const isSameActiveCall =
-      call &&
-      call.status === "ACTIVE" &&
-      call.initiatorId === userId &&
-      call.callType === callType;
-
-    if (isSameActiveCall) {
+    // ── RACE GUARD ────────────────────────────────────────────────────────
+    // If the row is already ACTIVE, DO NOT reopen it. Return as-is.
+    // This handles:
+    //   • Double-tap on the 📞 button (two initiate POSTs almost at once)
+    //   • React StrictMode double-mount in dev
+    //   • Any delayed/retried initiate after accept
+    if (call && call.status === "ACTIVE") {
       return sendResponse(res, {
         data: { call, callType: call.callType },
       });
@@ -98,11 +100,9 @@ export const initiateVoiceCall = async (req, res) => {
         },
       });
     } else {
-      // Reopen / reassign. This covers:
-      //   • ENDED or DECLINED → new call
-      //   • PENDING → caller switched (or switched callType)
-      //   • ACTIVE but the OTHER party was the initiator → caller is
-      //     re-initiating, so ownership flips to them
+      // ENDED / DECLINED / PENDING → reopen or reassign with the current
+      // caller. This is the ONLY place initiatorId gets written for an
+      // existing row.
       call = await prisma.voiceCall.update({
         where: { conversationId },
         data: {
