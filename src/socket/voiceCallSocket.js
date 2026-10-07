@@ -8,6 +8,11 @@
 // The server is a dumb relay — it forwards SDP offers/answers and ICE
 // candidates between the two peers. It never sees or touches the media.
 //
+// CRITICAL: Socket.IO middleware registered with `io.use()` only runs on the
+// DEFAULT namespace. Namespaces created with `io.of("/name")` have their own
+// middleware chain. We attach socketAuthMiddleware explicitly with
+// `nsp.use(socketAuthMiddleware)` so `socket.userId` is populated here too.
+//
 // Client → server events:
 //   voice:join   { conversationId }   → join the room, get { ok: true }
 //   voice:leave  { conversationId }   → leave the room
@@ -24,20 +29,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import prisma from "../config/database.js";
+import socketAuthMiddleware from "./authMiddleware.js";
 
 export default function registerVoiceCallSocket(io) {
-  // Dedicated namespace. Socket.IO will call our auth middleware for it too
-  // (see the io.use() registration in server.js).
   const nsp = io.of("/voice-calls");
 
+  // Attach the same JWT auth middleware to this namespace. Without this,
+  // `socket.userId` is undefined and every connection is disconnected on
+  // arrival (which was the silent bug causing calls to fail).
+  nsp.use(socketAuthMiddleware);
+
   nsp.on("connection", (socket) => {
-    // NOTE: the auth middleware in src/socket/index.js attaches the user id
-    // as `socket.userId` (not `socket.user`). Support both shapes just in case.
-    const userId = socket.userId || socket.user?.id;
+    // socket.userId is set by the auth middleware above.
+    const userId = socket.userId;
 
     if (!userId) {
+      // Should never happen now — middleware guarantees userId.
       console.error(
-        "[voice-calls] connection without userId — check auth middleware",
+        "[voice-calls] connection without userId — auth middleware failed",
       );
       socket.disconnect(true);
       return;
@@ -92,9 +101,6 @@ export default function registerVoiceCallSocket(io) {
     });
 
     // ── Signaling relays ──────────────────────────────────────────────────
-    // We don't validate the payload beyond a shape check — the recipient's
-    // browser will reject malformed SDP/ICE.
-
     socket.on("voice:offer", ({ conversationId, sdp } = {}) => {
       if (!conversationId || !sdp) return;
       socket.to(`voice:${conversationId}`).emit("voice:offer", {

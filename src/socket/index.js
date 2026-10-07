@@ -1,6 +1,20 @@
+// src/socket/index.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Socket.IO bootstrap.
+//
+// Registers:
+//   • Auth middleware on the default namespace
+//   • The /voice-calls namespace (which attaches the same auth middleware)
+//   • Chat/message handlers on the default namespace
+//
+// NOTE: `io.use(mw)` only applies to the DEFAULT namespace. Custom namespaces
+// (created with `io.of(...)`) need their own `.use(mw)` call. The voice
+// namespace handles this inside registerVoiceCallSocket().
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
 import registerVoiceCallSocket from "./voiceCallSocket.js";
+import socketAuthMiddleware from "./authMiddleware.js";
 
 let io;
 
@@ -18,38 +32,14 @@ export const initSocket = (httpServer) => {
     },
   });
 
-  io.use((socket, next) => {
-    const token =
-      socket.handshake.auth?.token ||
-      socket.handshake.headers?.authorization?.split(" ")[1];
+  // Auth middleware for the default namespace ("/").
+  io.use(socketAuthMiddleware);
 
-    console.log("[socket auth] connection attempt", {
-      hasToken: !!token,
-      tokenPreview: token ? token.slice(0, 30) + "..." : null,
-      namespace: socket.nsp?.name,
-    });
-
-    if (!token) {
-      console.warn("[socket auth] REJECT: no token");
-      return next(new Error("Authentication required"));
-    }
-
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      socket.userId = decoded.id;
-      console.log("[socket auth] ACCEPT: userId =", decoded.id);
-      next();
-    } catch (err) {
-      console.warn("[socket auth] REJECT:", err.message, {
-        tokenLength: token.length,
-        tokenPreview: token.slice(0, 30) + "...",
-      });
-      next(new Error("Invalid token"));
-    }
-  });
-
+  // Register the /voice-calls namespace. It attaches the same auth
+  // middleware internally via nsp.use(socketAuthMiddleware).
   registerVoiceCallSocket(io);
 
+  // ── Default namespace: chat / messaging ─────────────────────────────
   io.on("connection", (socket) => {
     console.log(`🔌 User connected: ${socket.userId}`);
     socket.join(`user:${socket.userId}`);
