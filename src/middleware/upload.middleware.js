@@ -2,21 +2,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Multer + Cloudinary upload middleware.
 //
-// Cloudinary treats PDFs as "raw" resources (not "image"), which matters
-// because:
-//   • Image resources are served as <img>-loadable blobs and browsers can't
-//     render them as PDFs.
-//   • Raw resources get Content-Type: application/pdf, so both <iframe> and
-//     direct navigation render them correctly.
+// Cloudinary treats PDFs as "raw" resources (not "image"). To make browsers
+// render them inline via <iframe>, we MUST force the format to ".pdf" so
+// Cloudinary serves Content-Type: application/pdf. Without this, raw URLs
+// have no extension, get served as application/octet-stream, and download
+// instead of rendering.
 //
-// We set resource_type per file:
-//   • application/pdf           → "raw"
-//   • video/*                   → "video"
-//   • image/*                   → "image"
-//   • anything else             → "auto" (fallback)
-//
-// Allowed formats are also enforced via `allowed_formats`, and a fileFilter
-// rejects unsupported MIME types before we hit Cloudinary.
+// Resource type routing:
+//   • application/pdf  → "raw"  + format:"pdf"
+//   • video/*          → "video"
+//   • image/*          → "image"
+//   • anything else    → "auto" (fallback)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import multer from "multer";
@@ -51,7 +47,17 @@ function allowedFormatsFor(mimetype) {
   if (mimetype === "application/pdf") return DOC_FORMATS;
   if (mimetype?.startsWith("video/")) return VIDEO_FORMATS;
   if (mimetype?.startsWith("image/")) return IMAGE_FORMATS;
-  return undefined; // let Cloudinary decide for anything else
+  return undefined;
+}
+
+/**
+ * Returns the forced format for a given mimetype. Only set for PDFs so
+ * Cloudinary appends ".pdf" to the delivered URL — this is what makes the
+ * browser use Content-Type: application/pdf and render inline.
+ */
+function forcedFormatFor(mimetype) {
+  if (mimetype === "application/pdf") return "pdf";
+  return undefined;
 }
 
 const MIME_ALLOWLIST = [
@@ -80,15 +86,21 @@ const makeStorage = () =>
     cloudinary,
     params: (_req, file) => {
       const resourceType = cloudinaryResourceType(file.mimetype);
-      return {
+      const params = {
         folder: "skilledpro",
         resource_type: resourceType,
         allowed_formats: allowedFormatsFor(file.mimetype),
-        // Preserve the original filename so admins see meaningful names in
-        // Cloudinary's console.
         use_filename: true,
         unique_filename: true,
       };
+
+      // ── CRITICAL: force the format for PDFs so the delivered URL ends
+      // in ".pdf". This is what makes the browser render the file inline
+      // instead of downloading it as application/octet-stream.
+      const forced = forcedFormatFor(file.mimetype);
+      if (forced) params.format = forced;
+
+      return params;
     },
   });
 
@@ -110,28 +122,18 @@ const fileFilter = (_req, file, cb) => {
 // LEGACY EXPORTS — same names, same signatures
 // ═════════════════════════════════════════════════════════════════════════════
 
-/**
- * LEGACY: accepts any single file (any field name).
- * Populates req.files[] — use normaliseFile to also set req.file.
- */
 export const uploadSingle = multer({
   storage: makeStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter,
 }).any();
 
-/**
- * LEGACY: accepts up to 15 files under field name "files".
- */
 export const uploadMultiple = multer({
   storage: makeStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter,
 }).array("files", 15);
 
-/**
- * LEGACY: normalise req.files[0] → req.file.
- */
 export const normaliseFile = (req, _res, next) => {
   if (!req.file && req.files && req.files.length > 0) {
     req.file = req.files[0];
@@ -140,7 +142,7 @@ export const normaliseFile = (req, _res, next) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// NEW EXPORTS — same as before, now with the file filter
+// NEW EXPORTS
 // ═════════════════════════════════════════════════════════════════════════════
 
 /** Video — single file, field name "file", 100MB */
@@ -164,9 +166,7 @@ export const uploadCertification = multer({
   fileFilter,
 }).single("document");
 
-/**
- * Campaign screenshot — single image, field name "screenshot", 5MB.
- */
+/** Campaign screenshot — single image, field name "screenshot", 5MB */
 export const uploadScreenshot = multer({
   storage: makeStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
