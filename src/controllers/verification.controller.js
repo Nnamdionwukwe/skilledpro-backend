@@ -93,6 +93,35 @@ const HIRER_LIST_INCLUDE = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Ensure a Cloudinary raw URL ends with ".pdf" so browsers and Google Docs
+ * Viewer both recognise it as a PDF.
+ *
+ * Cloudinary raw-upload URLs sometimes come back without an extension
+ * (e.g. /raw/upload/v123/skilledpro/abc). When that happens Cloudinary
+ * serves the file with Content-Type: application/octet-stream, which makes
+ * browsers download it and makes Google Docs Viewer show "No preview
+ * available". Appending ".pdf" forces Content-Type: application/pdf, so the
+ * PDF renders inline.
+ *
+ * Non-raw URLs (images, videos) are returned untouched.
+ */
+function ensurePdfExtension(url) {
+  if (!url || typeof url !== "string") return url;
+
+  const [path, query] = url.split("?");
+  const lower = path.toLowerCase();
+
+  // Already ends in .pdf — leave it alone.
+  if (lower.endsWith(".pdf")) return url;
+
+  // Only touch Cloudinary raw URLs (which is where PDFs land).
+  if (!lower.includes("/raw/upload/")) return url;
+
+  // Append ".pdf" to the path, then re-attach the query if there was one.
+  return `${path}.pdf${query ? `?${query}` : ""}`;
+}
+
+/**
  * Fallback: if a worker submitted before the schema migration (metadata
  * lives in a Notification row instead of the new columns), surface it here.
  * Returns null if nothing is found.
@@ -198,7 +227,7 @@ export const submitIdVerification = async (req, res) => {
     if (worker.verificationStatus === "VERIFIED")
       return sendError(res, "Your profile is already verified", 400);
 
-    const documentUrl = req.file.path;
+    const documentUrl = ensurePdfExtension(req.file.path);
 
     const updated = await prisma.workerProfile.update({
       where: { userId: req.user.id },
@@ -277,7 +306,9 @@ export const submitCertification = async (req, res) => {
     });
     if (!worker) return sendError(res, "Worker profile not found", 404);
 
-    const documentUrl = req.file?.path || null;
+    const documentUrl = req.file?.path
+      ? ensurePdfExtension(req.file.path)
+      : null;
     const cert = await prisma.certification.create({
       data: {
         workerProfileId: worker.id,
@@ -444,7 +475,7 @@ export const submitHirerVerification = async (req, res) => {
         409,
       );
 
-    const documentUrl = req.file.path;
+    const documentUrl = ensurePdfExtension(req.file.path);
 
     const updated = await prisma.hirerProfile.update({
       where: { userId: req.user.id },
