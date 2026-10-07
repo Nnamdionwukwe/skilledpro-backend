@@ -53,27 +53,50 @@ import {
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Multer error wrapper
+//
+// multer + CloudinaryStorage throws on fileFilter rejections and on any
+// Cloudinary upload error. Without a try/catch the error propagates as a 500.
+// We convert it into a clean JSON 400 with the actual message so the frontend
+// can show the user what went wrong (e.g. "Unsupported file type: …").
+// ─────────────────────────────────────────────────────────────────────────────
+function handleUpload(middleware) {
+  return (req, res, next) => {
+    middleware(req, res, (err) => {
+      if (err) {
+        const msg = err?.message || "File upload failed";
+        return res.status(400).json({ success: false, message: msg });
+      }
+      next();
+    });
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // USER — WORKER
 // ─────────────────────────────────────────────────────────────────────────────
 router.get("/status", protect, requireRole("WORKER"), getVerificationStatus);
+
 router.post(
   "/submit-id",
   protect,
   requireRole("WORKER"),
-  uploadSingle,
+  handleUpload(uploadSingle),
   normaliseFile,
   validateSubmitIdVerification,
   submitIdVerification,
 );
+
 router.post(
   "/submit-certification",
   protect,
   requireRole("WORKER"),
-  uploadSingle,
+  handleUpload(uploadSingle),
   normaliseFile,
   validateSubmitCertification,
   submitCertification,
 );
+
 router.delete(
   "/certifications/:certId",
   protect,
@@ -91,11 +114,12 @@ router.get(
   requireRole("HIRER"),
   getHirerVerificationStatus,
 );
+
 router.post(
   "/hirer/submit",
   protect,
   requireRole("HIRER"),
-  uploadSingle,
+  handleUpload(uploadSingle),
   normaliseFile,
   validateSubmitHirerVerification,
   submitHirerVerification,
@@ -171,7 +195,7 @@ router.patch(
   updateBackgroundCheck,
 );
 
-// Worker detail — after all static /admin/workers/* actions
+// Worker detail
 router.get(
   "/admin/workers/:userId",
   protect,
@@ -221,7 +245,7 @@ router.patch(
   revokeHirerVerification,
 );
 
-// Hirer detail — after all static /admin/hirers/* actions
+// Hirer detail
 router.get(
   "/admin/hirers/:userId",
   protect,
