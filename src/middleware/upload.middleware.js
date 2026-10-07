@@ -2,23 +2,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Multer + Cloudinary upload middleware.
 //
-// Cloudinary treats PDFs as "raw" resources (not "image"). To make browsers
-// render them inline via <iframe>, we MUST force the format to ".pdf" so
-// Cloudinary serves Content-Type: application/pdf. Without this, raw URLs
-// have no extension, get served as application/octet-stream, and download
-// instead of rendering.
+// Cloudinary treats PDFs as "raw" resources (not "image"). Raw resources
+// don't support delivery transformations — including the `format` param.
+// Setting `format: "pdf"` on a raw upload produces a URL that LOOKS like it
+// ends in .pdf, but the underlying resource is stored without an extension
+// and Cloudinary returns 404 when you try to fetch it.
 //
-// Resource type routing:
-//   • application/pdf  → "raw"  + format:"pdf"
-//   • video/*          → "video"
-//   • image/*          → "image"
-//   • anything else    → "auto" (fallback)
+// The correct approach: preserve the ORIGINAL file extension by NOT using
+// `unique_filename` (which strips the extension) and letting `use_filename`
+// keep the full name. Cloudinary then stores the raw file at
+// `.../raw/upload/.../file_abc123.pdf` and the URL works.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
 import dotenv from "dotenv";
+import path from "path";
 
 dotenv.config();
 
@@ -50,16 +50,6 @@ function allowedFormatsFor(mimetype) {
   return undefined;
 }
 
-/**
- * Returns the forced format for a given mimetype. Only set for PDFs so
- * Cloudinary appends ".pdf" to the delivered URL — this is what makes the
- * browser use Content-Type: application/pdf and render inline.
- */
-function forcedFormatFor(mimetype) {
-  if (mimetype === "application/pdf") return "pdf";
-  return undefined;
-}
-
 const MIME_ALLOWLIST = [
   // Images
   "image/jpeg",
@@ -80,25 +70,54 @@ const MIME_ALLOWLIST = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared Cloudinary storage factory
+//
+// IMPORTANT: for raw resources we do NOT set `format` and we do NOT use
+// `unique_filename` (which strips the extension). Instead we generate our
+// own unique public_id that PRESERVES the original extension. That is what
+// makes the delivered URL end in ".pdf" AND actually resolve to real bytes.
 // ─────────────────────────────────────────────────────────────────────────────
 const makeStorage = () =>
   new CloudinaryStorage({
     cloudinary,
     params: (_req, file) => {
       const resourceType = cloudinaryResourceType(file.mimetype);
+
+      // Preserve the extension for raw resources (PDFs, docs) by building
+      // the public_id from the original filename. For images/videos we can
+      // use Cloudinary's normal handling.
+      const originalExt = path.extname(file.originalname || "").toLowerCase();
+      const baseName = path
+        .basename(file.originalname || "file", originalExt)
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .slice(0, 60);
+
+      // Random suffix so two uploads with the same filename don't collide.
+      const uniqueSuffix =
+        Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+      // For raw resources, keep the extension in the public_id so the
+      // delivered URL ends in ".pdf". For other resource types, use
+      // Cloudinary's default unique_filename behavior.
+      const isRaw = resourceType === "raw";
+
       const params = {
         folder: "skilledpro",
         resource_type: resourceType,
         allowed_formats: allowedFormatsFor(file.mimetype),
-        use_filename: true,
-        unique_filename: true,
+        // Do NOT use_filename:true here — Cloudinary collapses the folder
+        // path when use_filename + unique_filename are combined in some
+        // versions of multer-storage-cloudinary. We build our own name.
+        use_filename: false,
+        unique_filename: false,
       };
 
-      // ── CRITICAL: force the format for PDFs so the delivered URL ends
-      // in ".pdf". This is what makes the browser render the file inline
-      // instead of downloading it as application/octet-stream.
-      const forced = forcedFormatFor(file.mimetype);
-      if (forced) params.format = forced;
+      if (isRaw) {
+        // Public id WITHOUT the folder — the storage adapter prepends it.
+        // Preserve the extension (.pdf) so Cloudinary stores the file
+        // literally at <folder>/<base>_<suffix>.pdf
+        params.public_id = `${baseName}_${uniqueSuffix}${originalExt || ".pdf"}`;
+        // Do NOT set params.format for raw — it breaks delivery.
+      }
 
       return params;
     },
