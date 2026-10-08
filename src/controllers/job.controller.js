@@ -36,84 +36,37 @@ export const createJobPost = async (req, res) => {
       // ── Job meta ─────────────────────────────────────────────────────────
       jobType = "FULL_TIME",
       scheduledAt,
-      startDate,
+
+      // ── Schedule / duration ──────────────────────────────────────────────
       estimatedHours,
       estimatedUnit,
       estimatedValue,
 
-      // ── Payment / duration ───────────────────────────────────────────────
-      budgetType = "FIXED",
+      // ── Payment ──────────────────────────────────────────────────────────
       budget,
       currency,
-      durationType = "HOURS",
-      durationValue,
+      budgetType = "FIXED",
 
-      // ── Extras (already supported) ───────────────────────────────────────
+      // ── Extras ───────────────────────────────────────────────────────────
       skills = [],
       notes,
 
-      // ── NEW: External-style display fields ───────────────────────────────
-      companyName,
-      salaryText,
-
-      // ── NEW: Application channels ────────────────────────────────────────
-      applicationUrl,
-      applicationEmail,
-      applicationWhatsApp,
-      applicationPhone,
-
-      // ── NEW: Requirements / responsibilities ─────────────────────────────
-      minQualification,
-      experienceLevel,
-      experienceLength,
-      languageRequirement,
-      workingHours,
-      applicantLocation,
-      responsibilities,
-      requirements,
-
-      // ── NEW: Salary range ────────────────────────────────────────────────
-      salaryAmount,
-      salaryMin,
-      salaryMax,
-      salaryCurrency,
-      salaryPeriod,
-
-      // ── NEW: Misc ────────────────────────────────────────────────────────
-      educationLevel,
-      sourcePlatform,
-      expiryDate,
-
-      // ── NEW: Multi-category (optional, prefer over `categoryId` if present) ──
-      categoryIds,
+      // ── Work conditions (NEW) ────────────────────────────────────────────
+      providesAccommodation = false,
+      providesMeals = false,
     } = req.body;
 
-    // Resolve date — supports both scheduledAt and startDate
-    const resolvedDate = scheduledAt || startDate;
-
-    // ── Validation ────────────────────────────────────────────────────────────
+    // ── Validation ──────────────────────────────────────────────────────────
     const missing = [];
     if (!categoryId) missing.push("categoryId");
     if (!title) missing.push("title");
     if (!description) missing.push("description");
-    if (!resolvedDate) missing.push("startDate");
-
-    // Budget: prefer explicit budget; if salary range is provided, budget becomes optional
-    const hasExplicitBudget =
-      budget !== undefined && budget !== null && budget !== "";
-    const hasSalaryRange =
-      (salaryAmount !== undefined &&
-        salaryAmount !== null &&
-        salaryAmount !== "") ||
-      (salaryMin !== undefined && salaryMin !== null && salaryMin !== "") ||
-      (salaryMax !== undefined && salaryMax !== null && salaryMax !== "");
-
-    if (!hasExplicitBudget && !hasSalaryRange) {
-      missing.push("budget (or salaryAmount / salaryMin / salaryMax)");
-    } else if (hasExplicitBudget && isNaN(parseFloat(budget))) {
+    if (!scheduledAt) missing.push("scheduledAt");
+    if (budget === undefined || budget === null || budget === "") {
+      missing.push("budget");
+    } else if (isNaN(parseFloat(budget))) {
       missing.push("budget (must be a number)");
     }
-
     if (locationType !== "REMOTE" && !address) missing.push("address");
 
     if (missing.length) {
@@ -128,69 +81,57 @@ export const createJobPost = async (req, res) => {
       );
     }
 
-    // Validate date is parseable
-    const parsedDate = new Date(resolvedDate);
+    // ── Date validation ─────────────────────────────────────────────────────
+    const parsedDate = new Date(scheduledAt);
     if (isNaN(parsedDate.getTime())) {
-      console.error("createJobPost invalid date:", { resolvedDate });
+      console.error("createJobPost invalid date:", { scheduledAt });
       return sendError(
         res,
-        "Invalid start date. Please use YYYY-MM-DD format (e.g. 2025-09-01)",
+        "Invalid scheduled date. Please pick a valid date and time.",
         400,
       );
     }
 
-    // Validate at least one application method for external-style jobs
-    // (only enforced when isExternal-style fields are supplied)
-    const isExternalStyle = !!(
-      applicationUrl ||
-      applicationEmail ||
-      applicationWhatsApp ||
-      applicationPhone ||
-      companyName ||
-      salaryText
-    );
-    if (
-      isExternalStyle &&
-      !applicationUrl &&
-      !applicationEmail &&
-      !applicationWhatsApp &&
-      !applicationPhone
-    ) {
+    // ── Validate the budget type is one of the enums Prisma accepts ─────────
+    const ALLOWED_BUDGET_TYPES = [
+      "FIXED",
+      "HOURLY",
+      "DAILY",
+      "WEEKLY",
+      "MONTHLY",
+      "YEARLY",
+      "CUSTOM",
+    ];
+    if (!ALLOWED_BUDGET_TYPES.includes(budgetType)) {
       return sendError(
         res,
-        "At least one application method (URL, Email, WhatsApp, or Phone) is required for external-style jobs",
+        `Invalid budgetType. Must be one of: ${ALLOWED_BUDGET_TYPES.join(", ")}`,
         400,
       );
     }
 
+    // ── Validate category exists ────────────────────────────────────────────
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
     });
     if (!category) return sendError(res, "Category not found", 404);
 
-    // Resolve the budget value: explicit budget takes precedence
-    const resolvedBudget = hasExplicitBudget
-      ? parseFloat(budget)
-      : parseFloat(salaryAmount ?? salaryMin ?? salaryMax ?? 0);
-
-    // Resolve currency (budget currency OR salary currency OR default)
-    const resolvedCurrency = currency || salaryCurrency || "NGN";
-
+    // ── Create ──────────────────────────────────────────────────────────────
     const jobPost = await prisma.jobPost.create({
       data: {
-        // ── Core ──────────────────────────────────────────────────────────
+        // Core
         hirerId: req.user.id,
         categoryId,
         title,
         description,
 
-        // ── Location ──────────────────────────────────────────────────────
+        // Location
         locationType,
         address: locationType !== "REMOTE" ? address : null,
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
 
-        // ── Job meta ──────────────────────────────────────────────────────
+        // Job meta
         jobType,
         scheduledAt: parsedDate,
         estimatedHours:
@@ -207,64 +148,18 @@ export const createJobPost = async (req, res) => {
             ? String(estimatedValue)
             : null,
 
-        // ── Payment / duration ────────────────────────────────────────────
+        // Payment
         budgetType,
-        budget: resolvedBudget,
-        currency: resolvedCurrency,
-        durationType,
-        durationValue:
-          durationValue !== undefined &&
-          durationValue !== null &&
-          durationValue !== ""
-            ? String(durationValue)
-            : null,
+        budget: parseFloat(budget),
+        currency: currency || "NGN",
 
-        // ── Extras ────────────────────────────────────────────────────────
+        // Extras
         skills: Array.isArray(skills) ? skills : [],
         notes: notes || null,
 
-        // ── NEW: External-style display fields ────────────────────────────
-        companyName: companyName || null,
-        salaryText: salaryText || null,
-        sourcePlatform: sourcePlatform || null,
-
-        // ── NEW: Application channels ─────────────────────────────────────
-        applicationUrl: applicationUrl || null,
-        applicationEmail: applicationEmail || null,
-        applicationWhatsApp: applicationWhatsApp || null,
-        applicationPhone: applicationPhone || null,
-
-        // ── NEW: Requirements / responsibilities ──────────────────────────
-        minQualification: minQualification || null,
-        experienceLevel: experienceLevel || null,
-        experienceLength: experienceLength || null,
-        languageRequirement: languageRequirement || "English",
-        workingHours: workingHours || null,
-        applicantLocation: applicantLocation || null,
-        responsibilities: responsibilities || null,
-        requirements: requirements || null,
-
-        // ── NEW: Salary range ─────────────────────────────────────────────
-        salaryAmount:
-          salaryAmount !== undefined &&
-          salaryAmount !== null &&
-          salaryAmount !== ""
-            ? parseFloat(salaryAmount)
-            : null,
-        salaryMin:
-          salaryMin !== undefined && salaryMin !== null && salaryMin !== ""
-            ? parseFloat(salaryMin)
-            : null,
-        salaryMax:
-          salaryMax !== undefined && salaryMax !== null && salaryMax !== ""
-            ? parseFloat(salaryMax)
-            : null,
-        salaryCurrency: salaryCurrency || null,
-        salaryPeriod: salaryPeriod || null,
-
-        // ── NEW: Misc ─────────────────────────────────────────────────────
-        educationLevel: educationLevel || null,
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        // Work conditions
+        providesAccommodation: Boolean(providesAccommodation),
+        providesMeals: Boolean(providesMeals),
       },
       include: {
         hirer: {
@@ -276,35 +171,7 @@ export const createJobPost = async (req, res) => {
       },
     });
 
-    // ── NEW: Link additional categories (many-to-many) ────────────────────────
-    if (Array.isArray(categoryIds) && categoryIds.length > 0) {
-      // Filter out categoryId itself to avoid duplicate unique constraint
-      const extraIds = categoryIds.filter((id) => id !== categoryId);
-      if (extraIds.length > 0) {
-        await prisma.jobCategory.createMany({
-          data: extraIds.map((cid) => ({
-            jobId: jobPost.id,
-            categoryId: cid,
-          })),
-          skipDuplicates: true,
-        });
-      }
-    }
-
-    // Re-fetch with categories populated
-    const fullJobPost = await prisma.jobPost.findUnique({
-      where: { id: jobPost.id },
-      include: {
-        hirer: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
-        },
-        category: true,
-        categories: { include: { category: true } },
-        _count: { select: { applications: true } },
-      },
-    });
-
-    // ── Notify matching workers (fire-and-forget) ─────────────────────────────
+    // ── Notify matching workers (fire-and-forget) ──────────────────────────
     prisma.workerCategory
       .findMany({
         where: { categoryId, workerProfile: { isAvailable: true } },
@@ -330,20 +197,20 @@ export const createJobPost = async (req, res) => {
           if (!u || u.id === req.user.id) return;
           notifyNewJobMatch(
             u.id,
-            fullJobPost.title,
-            fullJobPost.id,
+            jobPost.title,
+            jobPost.id,
             category.name,
           ).catch(() => {});
           if (u.notifBookings) {
             sendNewJobMatchEmail({
               to: u.email,
               workerName: u.firstName,
-              jobTitle: fullJobPost.title,
-              jobId: fullJobPost.id,
+              jobTitle: jobPost.title,
+              jobId: jobPost.id,
               categoryName: category.name,
-              budget: fullJobPost.budget,
-              currency: fullJobPost.currency,
-              address: fullJobPost.address,
+              budget: jobPost.budget,
+              currency: jobPost.currency,
+              address: jobPost.address,
             }).catch(() => {});
           }
         });
@@ -353,7 +220,7 @@ export const createJobPost = async (req, res) => {
     return sendResponse(res, {
       status: 201,
       message: "Job posted successfully",
-      data: { jobPost: fullJobPost },
+      data: { jobPost },
     });
   } catch (err) {
     console.error("createJobPost error:", err);
