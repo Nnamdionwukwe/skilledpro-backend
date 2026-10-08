@@ -1351,3 +1351,85 @@ export const updateJobPost = async (req, res) => {
     return sendError(res, "Failed to update job");
   }
 };
+
+// src/controllers/job.controller.js
+export const unacceptApplication = async (req, res) => {
+  try {
+    const { id: jobPostId, appId: applicationId } = req.params;
+
+    const jobPost = await prisma.jobPost.findUnique({
+      where: { id: jobPostId },
+    });
+    if (!jobPost) return sendError(res, "Job post not found", 404);
+    if (jobPost.hirerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+
+    const application = await prisma.jobApplication.findUnique({
+      where: { id: applicationId },
+      include: {
+        worker: { select: { id: true, firstName: true, lastName: true } },
+        jobPost: { select: { title: true } },
+      },
+    });
+    if (!application) return sendError(res, "Application not found", 404);
+    if (application.jobPostId !== jobPostId)
+      return sendError(res, "Application does not belong to this job", 400);
+    if (application.status !== "ACCEPTED")
+      return sendError(
+        res,
+        "Only accepted applications can be unaccepted",
+        400,
+      );
+
+    // Cancel any booking created from this application, if one exists.
+    const booking = await prisma.booking.findFirst({
+      where: {
+        jobPostId,
+        workerId: application.workerId,
+        status: { notIn: ["CANCELLED", "COMPLETED"] },
+      },
+    });
+
+    if (booking) {
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: "CANCELLED",
+          cancelReason: "Hirer unaccepted the worker for this job",
+        },
+      });
+    }
+
+    // Reset the application to PENDING and reopen the job.
+    const updated = await prisma.jobApplication.update({
+      where: { id: applicationId },
+      data: { status: "PENDING" },
+    });
+
+    await prisma.jobPost.update({
+      where: { id: jobPostId },
+      data: { status: "OPEN" },
+    });
+
+    // Notify the worker.
+    await prisma.notification.create({
+      data: {
+        userId: application.workerId,
+        title: "Application Reopened",
+        body: booking
+          ? `The booking for "${application.jobPost.title}" was cancelled. Your application is back in review.`
+          : `Your application for "${application.jobPost.title}" is back under review.`,
+        type: "APPLICATION_STATUS",
+        data: { jobPostId, applicationId, status: "PENDING" },
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Application returned to pending review",
+      data: { application: updated, cancelledBookingId: booking?.id || null },
+    });
+  } catch (err) {
+    console.error("unacceptApplication error:", err);
+    return sendError(res, "Failed to unaccept application");
+  }
+};

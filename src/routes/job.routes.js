@@ -20,6 +20,7 @@ import {
   getSavedJobs,
   saveJob,
   unsaveJob,
+  unacceptApplication,
 } from "../controllers/job.controller.js";
 import {
   validateCreateJob,
@@ -66,6 +67,15 @@ router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
 
 // Hirer: create job post
 router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
+
+// src/routes/job.routes.js
+router.patch(
+  "/:id/applications/:appId/unaccept",
+  requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  ...validateUUIDParam("appId"),
+  unacceptApplication,
+);
 
 // Hirer: update existing job post
 router.put(
