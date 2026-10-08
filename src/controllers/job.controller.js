@@ -754,17 +754,29 @@ export const getJobApplications = async (req, res) => {
 };
 
 // ── PATCH /api/jobs/:id/applications/:appId/status ───────────────────────────
-// Protected (HIRER) — accept or reject an application
+// Protected (HIRER) — change an application's status.
+//
+// Accepted values:
+//   ACCEPTED → application accepted, job marked FILLED, worker notified
+//   REJECTED → application rejected, worker notified, job unchanged
+//   PENDING  → application reopened, job set back to OPEN, worker notified
+//              (also used by the dedicated /unaccept route, but supported
+//               here as a fallback for clients that only know about /status)
 export const updateApplicationStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    // ── FIX: route param is `appId`, not `applicationId` ──
     const { id: jobPostId, appId: applicationId } = req.params;
 
-    if (!["ACCEPTED", "REJECTED"].includes(status)) {
-      return sendError(res, "Status must be ACCEPTED or REJECTED", 400);
+    // ── 1. Validate status value ──
+    if (!["PENDING", "ACCEPTED", "REJECTED"].includes(status)) {
+      return sendError(
+        res,
+        "Status must be PENDING, ACCEPTED, or REJECTED",
+        400,
+      );
     }
 
+    // ── 2. Authorize the hirer owns this job ──
     const jobPost = await prisma.jobPost.findUnique({
       where: { id: jobPostId },
     });
@@ -772,50 +784,90 @@ export const updateApplicationStatus = async (req, res) => {
     if (jobPost.hirerId !== req.user.id)
       return sendError(res, "Forbidden", 403);
 
-    // ── Guard: ensure the application exists and belongs to this job ──
+    // ── 3. Guard: application exists and belongs to this job ──
     const existing = await prisma.jobApplication.findUnique({
       where: { id: applicationId },
-      select: { id: true, jobPostId: true },
+      select: { id: true, jobPostId: true, status: true, workerId: true },
     });
     if (!existing) return sendError(res, "Application not found", 404);
     if (existing.jobPostId !== jobPostId)
       return sendError(res, "Application does not belong to this job", 400);
 
+    // ── 4. Update the application ──
     const application = await prisma.jobApplication.update({
       where: { id: applicationId },
       data: { status },
       include: {
         worker: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
         },
-        jobPost: { select: { title: true } },
+        jobPost: { select: { id: true, title: true } },
       },
     });
 
-    // Notify worker of decision
+    // ── 5. Notify the worker with status-appropriate copy ──
+    const notifTitle = {
+      ACCEPTED: "Application Accepted! 🎉",
+      REJECTED: "Application Update",
+      PENDING: "Application Reopened",
+    }[status];
+
+    const notifBody = {
+      ACCEPTED: `Your application for "${application.jobPost.title}" was accepted!`,
+      REJECTED: `Your application for "${application.jobPost.title}" was not selected this time.`,
+      PENDING: `Your application for "${application.jobPost.title}" has been reopened for review.`,
+    }[status];
+
     await prisma.notification.create({
       data: {
         userId: application.workerId,
-        title:
-          status === "ACCEPTED"
-            ? "Application Accepted! 🎉"
-            : "Application Update",
-        body:
-          status === "ACCEPTED"
-            ? `Your application for "${application.jobPost.title}" was accepted!`
-            : `Your application for "${application.jobPost.title}" was not selected this time.`,
+        title: notifTitle,
+        body: notifBody,
         type: "APPLICATION_STATUS",
         data: { jobPostId, applicationId, status },
       },
     });
 
-    // If accepted, mark job as filled
+    // ── 6. Job status transitions ──
     if (status === "ACCEPTED") {
+      // Job is now filled — no other worker can be accepted.
       await prisma.jobPost.update({
         where: { id: jobPostId },
         data: { status: "FILLED" },
       });
+    } else if (status === "PENDING") {
+      // Reset — reopen the job so the hirer can pick someone else.
+      // If a booking existed for this worker, cancel it too.
+      const activeBooking = await prisma.booking.findFirst({
+        where: {
+          jobPostId,
+          workerId: application.workerId,
+          status: { notIn: ["CANCELLED", "COMPLETED"] },
+        },
+        select: { id: true },
+      });
+
+      if (activeBooking) {
+        await prisma.booking.update({
+          where: { id: activeBooking.id },
+          data: {
+            status: "CANCELLED",
+            cancelReason: "Hirer unaccepted the worker for this job",
+          },
+        });
+      }
+
+      await prisma.jobPost.update({
+        where: { id: jobPostId },
+        data: { status: "OPEN" },
+      });
     }
+    // REJECTED: no job-status change.
 
     return sendResponse(res, {
       message: `Application ${status.toLowerCase()}`,
@@ -1352,11 +1404,24 @@ export const updateJobPost = async (req, res) => {
   }
 };
 
-// src/controllers/job.controller.js
+// ── PATCH /api/jobs/:id/applications/:appId/unaccept ──────────────────────────
+// Protected (HIRER) — undo an acceptance for a specific application.
+//
+// This is the "clean" version of the reopen flow:
+//   1. Guards that the application is currently ACCEPTED.
+//   2. Cancels any active booking created from this application.
+//   3. Resets the application status to PENDING.
+//   4. Reopens the job (status → OPEN).
+//   5. Notifies the worker.
+//
+// Prefer this route over PATCH /status with body { status: "PENDING" } —
+// its semantics are explicit ("undo an acceptance") and the guard prevents
+// misuse.
 export const unacceptApplication = async (req, res) => {
   try {
     const { id: jobPostId, appId: applicationId } = req.params;
 
+    // ── 1. Authorize the hirer owns this job ──
     const jobPost = await prisma.jobPost.findUnique({
       where: { id: jobPostId },
     });
@@ -1364,35 +1429,41 @@ export const unacceptApplication = async (req, res) => {
     if (jobPost.hirerId !== req.user.id)
       return sendError(res, "Forbidden", 403);
 
+    // ── 2. Load the application ──
     const application = await prisma.jobApplication.findUnique({
       where: { id: applicationId },
       include: {
         worker: { select: { id: true, firstName: true, lastName: true } },
-        jobPost: { select: { title: true } },
+        jobPost: { select: { id: true, title: true } },
       },
     });
     if (!application) return sendError(res, "Application not found", 404);
     if (application.jobPostId !== jobPostId)
       return sendError(res, "Application does not belong to this job", 400);
-    if (application.status !== "ACCEPTED")
+
+    // ── 3. State guard — only ACCEPTED applications can be unaccepted ──
+    if (application.status !== "ACCEPTED") {
       return sendError(
         res,
         "Only accepted applications can be unaccepted",
         400,
       );
+    }
 
-    // Cancel any booking created from this application, if one exists.
-    const booking = await prisma.booking.findFirst({
+    // ── 4. Cancel any active booking created from this application ──
+    const activeBooking = await prisma.booking.findFirst({
       where: {
         jobPostId,
         workerId: application.workerId,
         status: { notIn: ["CANCELLED", "COMPLETED"] },
       },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
     });
 
-    if (booking) {
+    if (activeBooking) {
       await prisma.booking.update({
-        where: { id: booking.id },
+        where: { id: activeBooking.id },
         data: {
           status: "CANCELLED",
           cancelReason: "Hirer unaccepted the worker for this job",
@@ -1400,33 +1471,42 @@ export const unacceptApplication = async (req, res) => {
       });
     }
 
-    // Reset the application to PENDING and reopen the job.
+    // ── 5. Reset the application to PENDING ──
     const updated = await prisma.jobApplication.update({
       where: { id: applicationId },
       data: { status: "PENDING" },
     });
 
+    // ── 6. Reopen the job ──
     await prisma.jobPost.update({
       where: { id: jobPostId },
       data: { status: "OPEN" },
     });
 
-    // Notify the worker.
+    // ── 7. Notify the worker ──
     await prisma.notification.create({
       data: {
         userId: application.workerId,
         title: "Application Reopened",
-        body: booking
-          ? `The booking for "${application.jobPost.title}" was cancelled. Your application is back in review.`
+        body: activeBooking
+          ? `The booking for "${application.jobPost.title}" was cancelled. Your application is back under review.`
           : `Your application for "${application.jobPost.title}" is back under review.`,
         type: "APPLICATION_STATUS",
-        data: { jobPostId, applicationId, status: "PENDING" },
+        data: {
+          jobPostId,
+          applicationId,
+          status: "PENDING",
+          cancelledBookingId: activeBooking?.id || null,
+        },
       },
     });
 
     return sendResponse(res, {
       message: "Application returned to pending review",
-      data: { application: updated, cancelledBookingId: booking?.id || null },
+      data: {
+        application: updated,
+        cancelledBookingId: activeBooking?.id || null,
+      },
     });
   } catch (err) {
     console.error("unacceptApplication error:", err);
