@@ -602,12 +602,20 @@ export const updateJobPostStatus = async (req, res) => {
 };
 
 // ── POST /api/jobs/:id/apply ───────────────────────────────────────────────────
-// Protected (WORKER) — apply to a job post
+// Protected (WORKER) — apply to a job post.
+//
+// Re-application rules:
+//   - No previous application          → create a new one (PENDING).
+//   - Previous status PENDING          → reject: already applied.
+//   - Previous status ACCEPTED         → reject: already accepted.
+//   - Previous status REJECTED         → allow: reset the row to PENDING
+//                                        with the new message (upsert).
 export const applyToJob = async (req, res) => {
   try {
     const { message } = req.body;
     const jobPostId = req.params.id;
 
+    // ── 1. Load the job with the hirer + category it belongs to ──
     const jobPost = await prisma.jobPost.findUnique({
       where: { id: jobPostId },
       include: {
@@ -619,29 +627,60 @@ export const applyToJob = async (req, res) => {
     });
 
     if (!jobPost) return sendError(res, "Job post not found", 404);
-    if (jobPost.status !== "OPEN")
+    if (jobPost.status !== "OPEN") {
       return sendError(
         res,
         "This job is no longer accepting applications",
         400,
       );
-    if (jobPost.hirerId === req.user.id)
+    }
+    if (jobPost.hirerId === req.user.id) {
       return sendError(res, "You cannot apply to your own job", 400);
+    }
 
-    // Check duplicate application
+    // ── 2. Existing application check ──
+    // A worker can re-apply only when their previous application was
+    // REJECTED. PENDING → already applied. ACCEPTED → already accepted.
     const existing = await prisma.jobApplication.findFirst({
       where: { jobPostId, workerId: req.user.id },
+      select: { id: true, status: true },
     });
-    if (existing)
-      return sendError(res, "You have already applied to this job", 409);
 
+    if (existing) {
+      if (existing.status === "PENDING") {
+        return sendError(res, "You have already applied to this job", 409);
+      }
+      if (existing.status === "ACCEPTED") {
+        return sendError(
+          res,
+          "Your application for this job has already been accepted",
+          409,
+        );
+      }
+      // status === "REJECTED" → fall through and allow the re-apply.
+    }
+
+    // ── 3. Load the worker (for the email + notification copy) ──
     const worker = await prisma.user.findUnique({
       where: { id: req.user.id },
-      include: { workerProfile: { select: { title: true, avgRating: true } } },
+      include: {
+        workerProfile: { select: { title: true, avgRating: true } },
+      },
     });
 
-    const application = await prisma.jobApplication.create({
-      data: {
+    // ── 4. Upsert: create, or reset an existing REJECTED row to PENDING ──
+    const application = await prisma.jobApplication.upsert({
+      where: {
+        jobPostId_workerId: {
+          jobPostId,
+          workerId: req.user.id,
+        },
+      },
+      update: {
+        status: "PENDING",
+        message: message || null,
+      },
+      create: {
         jobPostId,
         workerId: req.user.id,
         message: message || null,
@@ -662,22 +701,29 @@ export const applyToJob = async (req, res) => {
       },
     });
 
-    // ── In-app notification for hirer ──────────────────────────────────────────
+    // ── 5. In-app notification for the hirer ──
+    // Distinguish a re-application from a first-time one so the hirer
+    // knows to look again at a worker they've already seen.
+    const isReapply = !!existing; // we only reach here when status was REJECTED
+
     await prisma.notification.create({
       data: {
         userId: jobPost.hirerId,
-        title: "New Job Application",
-        body: `${worker.firstName} ${worker.lastName} applied for "${jobPost.title}"`,
+        title: isReapply ? "Re-application Received" : "New Job Application",
+        body: isReapply
+          ? `${worker.firstName} ${worker.lastName} re-applied for "${jobPost.title}"`
+          : `${worker.firstName} ${worker.lastName} applied for "${jobPost.title}"`,
         type: "JOB_APPLICATION",
         data: {
           jobPostId,
           applicationId: application.id,
           workerId: req.user.id,
+          isReapply,
         },
       },
     });
 
-    // ── Email notification for hirer ───────────────────────────────────────────
+    // ── 6. Email notification for the hirer ──
     try {
       await sendJobApplicationEmail({
         to: jobPost.hirer.email,
@@ -689,18 +735,22 @@ export const applyToJob = async (req, res) => {
         jobId: jobPostId,
         applicationId: application.id,
         message: message || "",
+        isReapply, // optional — pass through if the email template uses it
       });
     } catch (emailErr) {
       console.error("Failed to send application email:", emailErr.message);
     }
 
+    // ── 7. Respond ──
     return sendResponse(res, {
-      status: 201,
-      message: "Application submitted successfully",
-      data: { application },
+      status: isReapply ? 200 : 201,
+      message: isReapply
+        ? "Application resubmitted successfully"
+        : "Application submitted successfully",
+      data: { application, isReapply },
     });
   } catch (err) {
-    console.error(err);
+    console.error("applyToJob error:", err);
     return sendError(res, "Failed to submit application");
   }
 };
