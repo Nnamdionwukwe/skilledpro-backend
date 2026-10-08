@@ -13,6 +13,7 @@ import {
   getJobPost,
   updateJobPostStatus,
   getJobApplications,
+  updateJobPost,
   updateApplicationStatus,
   applyToJob,
   // Saved jobs (NEW)
@@ -64,6 +65,15 @@ router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
 
 // Hirer: create job post
 router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
+
+// Hirer: update job post  ← NEW
+router.put(
+  "/:id",
+  requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  validateCreateJob, // reuse the same validation as create
+  updateJobPost,
+);
 
 // Hirer: change status
 router.patch(

@@ -1146,3 +1146,208 @@ export const unsaveJob = async (req, res) => {
     return sendError(res, "Failed to unsave job");
   }
 };
+
+// ── PUT /api/jobs/:id ─────────────────────────────────────────────────────────
+// Protected (HIRER) — update an existing job post.
+// Only the owning hirer may edit, and only while the job is still OPEN.
+export const updateJobPost = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      // ── Core ──
+      categoryId,
+      title,
+      description,
+
+      // ── Location ──
+      locationType = "REMOTE",
+      address,
+      latitude,
+      longitude,
+
+      // ── Job meta ──
+      jobType = "FULL_TIME",
+      scheduledAt,
+
+      // ── Schedule / duration ──
+      estimatedHours,
+      estimatedUnit,
+      estimatedValue,
+
+      // ── Payment ──
+      budget,
+      currency,
+      budgetType = "FIXED",
+
+      // ── Extras ──
+      skills = [],
+      notes,
+
+      // ── Work conditions ──
+      providesAccommodation = false,
+      providesMeals = false,
+
+      // ── Language + qualifications ──
+      languageRequirement = "en",
+      qualifications = [],
+    } = req.body;
+
+    // ── 1. Load the existing job (needed for ownership + status checks) ──
+    const existing = await prisma.jobPost.findUnique({
+      where: { id },
+    });
+    if (!existing) return sendError(res, "Job post not found", 404);
+
+    // ── 2. Ownership check ──
+    if (existing.hirerId !== req.user.id) {
+      return sendError(res, "You can only edit your own job posts", 403);
+    }
+
+    // ── 3. Status check — only OPEN jobs are editable ──
+    if (existing.status !== "OPEN") {
+      return sendError(
+        res,
+        "Only open jobs can be edited. Reopen the job first.",
+        409,
+      );
+    }
+
+    // ── 4. Validation (mirrors createJobPost) ──
+    const missing = [];
+    if (!categoryId) missing.push("categoryId");
+    if (!title) missing.push("title");
+    if (!description) missing.push("description");
+    if (!scheduledAt) missing.push("scheduledAt");
+    if (budget === undefined || budget === null || budget === "") {
+      missing.push("budget");
+    } else if (isNaN(parseFloat(budget))) {
+      missing.push("budget (must be a number)");
+    }
+    if (locationType !== "REMOTE" && !address) missing.push("address");
+
+    if (missing.length) {
+      return sendError(
+        res,
+        `Missing required fields: ${missing.join(", ")}`,
+        400,
+      );
+    }
+
+    // ── 5. Date validation ──
+    const parsedDate = new Date(scheduledAt);
+    if (isNaN(parsedDate.getTime())) {
+      return sendError(
+        res,
+        "Invalid scheduled date. Please pick a valid date and time.",
+        400,
+      );
+    }
+
+    // ── 6. Budget type validation ──
+    const ALLOWED_BUDGET_TYPES = [
+      "FIXED",
+      "HOURLY",
+      "DAILY",
+      "WEEKLY",
+      "MONTHLY",
+      "YEARLY",
+      "CUSTOM",
+    ];
+    if (!ALLOWED_BUDGET_TYPES.includes(budgetType)) {
+      return sendError(
+        res,
+        `Invalid budgetType. Must be one of: ${ALLOWED_BUDGET_TYPES.join(", ")}`,
+        400,
+      );
+    }
+
+    // ── 7. Normalize language + qualifications ──
+    const resolvedLanguage =
+      typeof languageRequirement === "string" && languageRequirement.trim()
+        ? languageRequirement.trim().toLowerCase()
+        : "en";
+
+    const resolvedQualifications = Array.isArray(qualifications)
+      ? Array.from(
+          new Set(
+            qualifications
+              .filter((q) => typeof q === "string" && q.trim().length > 0)
+              .map((q) => q.trim().slice(0, 120)),
+          ),
+        ).slice(0, 10)
+      : [];
+
+    // ── 8. Verify category exists (if it's being changed) ──
+    if (categoryId !== existing.categoryId) {
+      const category = await prisma.category.findUnique({
+        where: { id: categoryId },
+      });
+      if (!category) return sendError(res, "Category not found", 404);
+    }
+
+    // ── 9. Perform the update ──
+    // NOTE: status is intentionally NOT updatable here. Use PATCH /:id/status.
+    const updated = await prisma.jobPost.update({
+      where: { id },
+      data: {
+        categoryId,
+        title,
+        description,
+
+        locationType,
+        address: locationType !== "REMOTE" ? address : null,
+        latitude:
+          latitude != null && latitude !== "" ? parseFloat(latitude) : null,
+        longitude:
+          longitude != null && longitude !== "" ? parseFloat(longitude) : null,
+
+        jobType,
+        scheduledAt: parsedDate,
+
+        estimatedHours:
+          estimatedHours !== undefined &&
+          estimatedHours !== null &&
+          estimatedHours !== ""
+            ? parseFloat(estimatedHours)
+            : null,
+        estimatedUnit: estimatedUnit || "hours",
+        estimatedValue:
+          estimatedValue !== undefined &&
+          estimatedValue !== null &&
+          estimatedValue !== ""
+            ? String(estimatedValue)
+            : null,
+
+        budgetType,
+        budget: parseFloat(budget),
+        currency: currency || "NGN",
+
+        skills: Array.isArray(skills) ? skills : [],
+        notes: notes || null,
+
+        providesAccommodation: Boolean(providesAccommodation),
+        providesMeals: Boolean(providesMeals),
+
+        languageRequirement: resolvedLanguage,
+        qualifications: resolvedQualifications,
+      },
+      include: {
+        hirer: {
+          select: { id: true, firstName: true, lastName: true, avatar: true },
+        },
+        category: true,
+        categories: { include: { category: true } },
+        _count: { select: { applications: true } },
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Job updated successfully",
+      data: { jobPost: updated },
+    });
+  } catch (err) {
+    console.error("updateJobPost error:", err);
+    return sendError(res, "Failed to update job");
+  }
+};
