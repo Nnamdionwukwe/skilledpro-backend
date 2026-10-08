@@ -14,22 +14,29 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
-// GET /api/categories?page=1&limit=100&search=foo
+// GET /api/categories?page=1&limit=100&search=foo&all=true
 // Paginated list of categories. User-submitted categories sort first
 // so any newly added ones are always on page 1.
+//
+// Query params:
+//   page    default 1
+//   limit   default 100, hard cap 200 (public browsing)
+//   search  substring match on name/description
+//   all     if "true", ignores page/limit and returns every category.
+//           Intended for internal UI like the PostJob category picker,
+//           which needs the full list to search against client-side.
 export const getCategories = async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, all } = req.query;
+    const wantsAll = all === "true";
 
-    // Clamp: default 100 per page, hard cap 200. Small enough to be
-    // fast on the DB and the client, large enough that a user browsing
-    // a category list feels instant.
-    const take = Math.min(
-      Math.max(parseInt(req.query.limit, 10) || 100, 1),
-      200,
-    );
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const skip = (page - 1) * take;
+    // Public browsing: clamp to 200 per page.
+    // Internal full-list fetch: no pagination at all.
+    const take = wantsAll
+      ? undefined
+      : Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
+    const page = wantsAll ? 1 : Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const skip = wantsAll ? undefined : (page - 1) * take;
 
     const where = {
       ...(search && {
@@ -50,8 +57,8 @@ export const getCategories = async (req, res) => {
         // desc = user-submitted (true) before seeded (false),
         // then alphabetical within each group
         orderBy: [{ isUserSubmitted: "desc" }, { name: "asc" }],
-        skip,
-        take,
+        ...(skip !== undefined && { skip }),
+        ...(take !== undefined && { take }),
       }),
       prisma.category.count({ where }),
     ]);
@@ -61,8 +68,8 @@ export const getCategories = async (req, res) => {
         categories,
         total,
         page,
-        pages: Math.max(1, Math.ceil(total / take)),
-        limit: take,
+        pages: wantsAll ? 1 : Math.max(1, Math.ceil(total / take)),
+        limit: wantsAll ? total : take,
       },
     });
   } catch (err) {
