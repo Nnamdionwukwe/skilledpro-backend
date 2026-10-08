@@ -481,6 +481,7 @@ const BUDGET_TYPES = [
   "DAILY",
   "WEEKLY",
   "MONTHLY",
+  "YEARLY",
   "CUSTOM",
   "NEGOTIABLE",
 ];
