@@ -109,6 +109,8 @@ const corsOptions = {
       "http://localhost:3000",
       "http://localhost:5173",
       "http://167.172.142.200:5000",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5173",
     ].filter(Boolean);
 
     if (allowed.includes(origin)) {
