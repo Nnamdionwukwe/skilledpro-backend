@@ -51,9 +51,13 @@ export const createJobPost = async (req, res) => {
       skills = [],
       notes,
 
-      // ── Work conditions (NEW) ────────────────────────────────────────────
+      // ── Work conditions ──────────────────────────────────────────────────
       providesAccommodation = false,
       providesMeals = false,
+
+      // ── Language + qualifications ────────────────────────────────────────
+      languageRequirement = "en",
+      qualifications = [],
     } = req.body;
 
     // ── Validation ──────────────────────────────────────────────────────────
@@ -110,6 +114,25 @@ export const createJobPost = async (req, res) => {
       );
     }
 
+    // ── Normalize language + qualifications ─────────────────────────────────
+    // Language: accept a trimmed 2–5 char code (e.g. "en", "fr-CA"). Fall
+    // back to "en" if the client sent nothing sensible.
+    const resolvedLanguage =
+      typeof languageRequirement === "string" && languageRequirement.trim()
+        ? languageRequirement.trim().toLowerCase()
+        : "en";
+
+    // Qualifications: strings only, trimmed, deduped, capped at 10.
+    const resolvedQualifications = Array.isArray(qualifications)
+      ? Array.from(
+          new Set(
+            qualifications
+              .filter((q) => typeof q === "string" && q.trim().length > 0)
+              .map((q) => q.trim().slice(0, 120)),
+          ),
+        ).slice(0, 10)
+      : [];
+
     // ── Validate category exists ────────────────────────────────────────────
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
@@ -160,6 +183,10 @@ export const createJobPost = async (req, res) => {
         // Work conditions
         providesAccommodation: Boolean(providesAccommodation),
         providesMeals: Boolean(providesMeals),
+
+        // Language + qualifications
+        languageRequirement: resolvedLanguage,
+        qualifications: resolvedQualifications,
       },
       include: {
         hirer: {

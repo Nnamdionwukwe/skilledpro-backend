@@ -1115,6 +1115,9 @@ model JobPost {
   providesAccommodation Boolean @default(false) // true = job comes with housing
   providesMeals         Boolean @default(false) // true = job comes with meals
 
+  qualifications      String[]  @default([])
+
+
 
   externalJobClicks ExternalJobClick[]
   bookings          Booking[]          @relation("JobPostBookings")
