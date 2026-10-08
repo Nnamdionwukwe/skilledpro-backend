@@ -27,6 +27,7 @@ import {
   validateJobApplication,
   validateUUIDParam,
   validatePagination,
+  validateUpdateJob,
 } from "../utils/validators.js";
 
 const router = Router();
@@ -66,12 +67,12 @@ router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
 // Hirer: create job post
 router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
 
-// Hirer: update job post  ← NEW
+// Hirer: update existing job post
 router.put(
   "/:id",
   requireRole("HIRER"),
   ...validateUUIDParam("id"),
-  validateCreateJob, // reuse the same validation as create
+  validateUpdateJob, // ← use the update validator
   updateJobPost,
 );
 

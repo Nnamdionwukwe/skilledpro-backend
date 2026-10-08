@@ -3525,3 +3525,220 @@ export const validateRejectCertification = [
     .withMessage("Reason must be 5–500 characters"),
   validate,
 ];
+// ─────────────────────────────────────────────────────────────────────────────
+// § 5.1  UPDATE JOB POST — PUT /api/jobs/:id
+// ─────────────────────────────────────────────────────────────────────────────
+// Reuses every field rule from validateCreateJob, but drops the two
+// `body().custom(...)` cross-field checks that assume a *create* context:
+//
+//   1. "Either scheduledAt or startDate is required"
+//      → On edit, the client sends the full payload and doesn't use startDate.
+//   2. "Either budget or salary range is required"
+//      → On edit, the client always sends budget, but we don't want to fail
+//        if a future client clears it and relies on salary fields instead.
+//
+// We DO keep the scheduledAt ISO8601 check, but harden it: `checkFalsy`
+// is removed so an empty string fails validation instead of bypassing it.
+//
+// Rule of thumb: this validator assumes a FULL PUT payload, not a PATCH.
+export const validateUpdateJob = [
+  // ── Required core (same as create) ──────────────────────────────────────
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("Job title is required")
+    .isLength({ min: 5, max: 200 })
+    .withMessage("Title must be 5–200 characters"),
+
+  body("description")
+    .trim()
+    .notEmpty()
+    .withMessage("Job description is required")
+    .isLength({ min: 20, max: 5000 })
+    .withMessage("Description must be 20–5000 characters"),
+
+  body("categoryId")
+    .trim()
+    .notEmpty()
+    .withMessage("Category is required")
+    .isUUID(4)
+    .withMessage("Category ID must be a valid UUID"),
+
+  // ── Scheduled date — REQUIRED on edit, no checkFalsy bypass ─────────────
+  body("scheduledAt")
+    .trim()
+    .notEmpty()
+    .withMessage("Scheduled date is required")
+    .isISO8601()
+    .withMessage("Scheduled date must be a valid ISO 8601 date"),
+
+  // ── Budget / salary — all optional at the validator level ───────────────
+  // (the controller enforces that *something* is present)
+  body("budget")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Budget must be a non-negative number"),
+
+  body("salaryAmount")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary amount must be a non-negative number"),
+
+  body("salaryMin")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary minimum must be a non-negative number"),
+
+  body("salaryMax")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Salary maximum must be a non-negative number")
+    .custom((value, { req }) => {
+      const min = req.body.salaryMin;
+      if (
+        value !== undefined &&
+        value !== "" &&
+        min !== undefined &&
+        min !== "" &&
+        parseFloat(value) < parseFloat(min)
+      ) {
+        throw new Error(
+          "Salary maximum must be greater than or equal to salary minimum",
+        );
+      }
+      return true;
+    }),
+
+  body("currency")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ min: 3, max: 4 })
+    .withMessage("Currency must be a valid 3–4 character code"),
+
+  body("salaryCurrency")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ min: 3, max: 4 })
+    .withMessage("Salary currency must be a valid 3–4 character code"),
+
+  // ── Job enums ───────────────────────────────────────────────────────────
+  body("jobType")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(JOB_TYPES)
+    .withMessage(`Job type must be one of: ${JOB_TYPES.join(", ")}`),
+
+  body("locationType")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(LOCATION_TYPES)
+    .withMessage(`Location type must be one of: ${LOCATION_TYPES.join(", ")}`),
+
+  body("budgetType")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(BUDGET_TYPES)
+    .withMessage(`Budget type must be one of: ${BUDGET_TYPES.join(", ")}`),
+
+  body("durationType")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(DURATION_TYPES)
+    .withMessage(`Duration type must be one of: ${DURATION_TYPES.join(", ")}`),
+
+  body("salaryPeriod")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(SALARY_PERIODS)
+    .withMessage(`Salary period must be one of: ${SALARY_PERIODS.join(", ")}`),
+
+  body("educationLevel")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(EDUCATION_LEVELS)
+    .withMessage(
+      `Education level must be one of: ${EDUCATION_LEVELS.join(", ")}`,
+    ),
+
+  body("experienceLevel")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(EXPERIENCE_LEVELS)
+    .withMessage(
+      `Experience level must be one of: ${EXPERIENCE_LEVELS.join(", ")}`,
+    ),
+
+  // ── Duration / estimated ────────────────────────────────────────────────
+  body("durationValue")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Duration value must not exceed 100 characters"),
+
+  body("estimatedHours")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: 0 })
+    .withMessage("Estimated hours must be a non-negative number"),
+
+  body("estimatedUnit")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage("Estimated unit must not exceed 30 characters"),
+
+  body("estimatedValue")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Estimated value must not exceed 100 characters"),
+
+  // ── Location ────────────────────────────────────────────────────────────
+  body("address")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 300 })
+    .withMessage("Address must not exceed 300 characters"),
+
+  body("latitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage("Latitude must be between -90 and 90"),
+
+  body("longitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage("Longitude must be between -180 and 180"),
+
+  // ── Skills / notes ──────────────────────────────────────────────────────
+  body("skills")
+    .optional({ nullable: true })
+    .isArray({ max: 20 })
+    .withMessage("Skills must be an array with at most 20 items"),
+
+  body("skills.*")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 80 })
+    .withMessage("Each skill must be 1–80 characters"),
+
+  body("notes")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage("Notes must not exceed 1000 characters"),
+
+  // ── Application channels ────────────────────────────────────────────────
+  body("applicationUrl")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isURL()
+    .withMessage("Application URL must be a valid URL"),
+
+  body("applicationEmail")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("Application email must be a valid email address"),
+
+  // ── Requirements / qualifications ───────────────────────────────────────
+  body("languageRequirement")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("Language requirement must not exceed 50 characters"),
+
+  validate,
+];
