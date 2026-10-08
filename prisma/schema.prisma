@@ -1111,6 +1111,11 @@ model JobPost {
   // locationType already exists (LocationType enum)
   // experienceLevel already exists (String) – could later change to enum
 
+    // ── NEW: Work conditions ────────────────────────────────────────────
+  providesAccommodation Boolean @default(false) // true = job comes with housing
+  providesMeals         Boolean @default(false) // true = job comes with meals
+
+
   externalJobClicks ExternalJobClick[]
   bookings          Booking[]          @relation("JobPostBookings")
 }
@@ -1349,6 +1354,7 @@ enum BudgetType {
   DAILY
   WEEKLY
   MONTHLY
+  YEARLY
   CUSTOM
 }
 
@@ -1357,6 +1363,7 @@ enum DurationType {
   DAYS
   WEEKS
   MONTHS
+  YEARS
   CUSTOM
 }
 
