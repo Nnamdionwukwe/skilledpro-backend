@@ -429,8 +429,16 @@ export const getJobPosts = async (req, res) => {
 };
 
 // ── GET /api/jobs/:id ──────────────────────────────────────────────────────────
-// Public — single job post detail
-
+// Public — single job post detail.
+//
+// Also returns the viewer's relationship to the job when authenticated:
+//   hasApplied        → true only when the current worker has an ACTIVE
+//                       (PENDING or ACCEPTED) application. A REJECTED
+//                       application reports false so the frontend knows
+//                       to show "Apply Again".
+//   isSaved           → true when the current worker has saved the job.
+//   applicationStatus → "PENDING" | "ACCEPTED" | "REJECTED" | null
+//   applicationId     → id of the current worker's application, or null
 export const getJobPost = async (req, res) => {
   try {
     const jobPost = await prisma.jobPost.findUnique({
@@ -472,13 +480,17 @@ export const getJobPost = async (req, res) => {
 
     if (!jobPost) return sendError(res, "Job post not found", 404);
 
+    // ── Viewer-relationship flags (default for guests) ──
     let hasApplied = false;
     let isSaved = false;
+    let applicationStatus = null;
+    let applicationId = null;
 
     if (req.user) {
       const [application, savedJob] = await Promise.all([
         prisma.jobApplication.findFirst({
           where: { jobPostId: jobPost.id, workerId: req.user.id },
+          select: { id: true, status: true },
         }),
         req.user.role === "WORKER"
           ? prisma.savedJob.findUnique({
@@ -491,7 +503,17 @@ export const getJobPost = async (req, res) => {
             })
           : null,
       ]);
-      hasApplied = !!application;
+
+      if (application) {
+        applicationStatus = application.status; // "PENDING" | "ACCEPTED" | "REJECTED"
+        applicationId = application.id;
+
+        // hasApplied reports whether the worker currently has an ACTIVE
+        // application. A REJECTED application deliberately reports false,
+        // so the frontend knows to show the "Apply Again" flow.
+        hasApplied = application.status !== "REJECTED";
+      }
+
       isSaved = !!savedJob;
     }
 
@@ -507,6 +529,8 @@ export const getJobPost = async (req, res) => {
         },
         hasApplied,
         isSaved,
+        applicationStatus,
+        applicationId,
       },
     });
   } catch (err) {
