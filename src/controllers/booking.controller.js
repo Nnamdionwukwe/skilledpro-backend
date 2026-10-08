@@ -34,6 +34,7 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+import { computeJobBookingTotal } from "../utils/bookingMath.js";
 
 export const createBooking = async (req, res) => {
   try {
@@ -135,7 +136,8 @@ export const createBooking = async (req, res) => {
 
 // ── GET /api/bookings/from-job/:jobPostId/draft ─────────────────────────────
 // Hirer fetches the pre-fill data for creating a booking from a job post.
-// Returns the job's locked fields + the list of selectable price options.
+// Returns the job's locked fields + the list of selectable price options,
+// each with its total already computed by the server.
 export const getJobPostBookingDraft = async (req, res) => {
   try {
     const { jobPostId } = req.params;
@@ -190,24 +192,24 @@ export const getJobPostBookingDraft = async (req, res) => {
       return sendError(res, "No accepted application found for this job", 400);
     }
 
-    // ── Build the price options array ──────────────────────────────────────
-    // Every value the hirer can pick from. Each entry is self-describing so
-    // the frontend can render a radio button without extra logic.
-    const priceOptions = [];
+    // ── Build the raw list of price options ──────────────────────────────
+    // Each entry is self-describing, then enriched below with the
+    // server-computed total.
+    const rawOptions = [];
 
     if (jobPost.budget != null && jobPost.budget > 0) {
-      priceOptions.push({
+      rawOptions.push({
         key: "budget",
         label: `${jobPost.currency} ${jobPost.budget.toLocaleString()}`,
         amount: jobPost.budget,
         currency: jobPost.currency,
-        period: jobPost.budgetType, // FIXED | HOURLY | DAILY | ...
-        description: "Fixed budget from the job post",
+        period: jobPost.budgetType,
+        description: "Budget from the job post",
       });
     }
 
     if (jobPost.salaryAmount != null && jobPost.salaryAmount > 0) {
-      priceOptions.push({
+      rawOptions.push({
         key: "salaryAmount",
         label: `${jobPost.salaryCurrency || jobPost.currency} ${jobPost.salaryAmount.toLocaleString()}`,
         amount: jobPost.salaryAmount,
@@ -218,7 +220,7 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     if (jobPost.salaryMin != null && jobPost.salaryMin > 0) {
-      priceOptions.push({
+      rawOptions.push({
         key: "salaryMin",
         label: `${jobPost.salaryCurrency || jobPost.currency} ${jobPost.salaryMin.toLocaleString()} (min)`,
         amount: jobPost.salaryMin,
@@ -229,7 +231,7 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     if (jobPost.salaryMax != null && jobPost.salaryMax > 0) {
-      priceOptions.push({
+      rawOptions.push({
         key: "salaryMax",
         label: `${jobPost.salaryCurrency || jobPost.currency} ${jobPost.salaryMax.toLocaleString()} (max)`,
         amount: jobPost.salaryMax,
@@ -240,24 +242,48 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     if (jobPost.salaryText) {
-      // salaryText has no numeric amount — hirer must enter a value if they pick it
-      priceOptions.push({
+      rawOptions.push({
         key: "salaryText",
         label: jobPost.salaryText,
         amount: null,
         currency: jobPost.salaryCurrency || jobPost.currency,
         period: jobPost.salaryPeriod || null,
-        description: "Salary headline from the job post — enter a final amount",
+        description: "Salary headline — enter a final amount",
       });
     }
 
-    if (priceOptions.length === 0) {
+    if (rawOptions.length === 0) {
       return sendError(
         res,
         "This job post has no price information to base a booking on",
         400,
       );
     }
+
+    // ── Enrich each option with its server-computed total ───────────────
+    const priceOptions = rawOptions.map((opt) => {
+      try {
+        const t = computeJobBookingTotal(jobPost, opt.key, null);
+        return {
+          ...opt,
+          // The rate is still useful for display, but the amount the
+          // hirer pays is `estimatedTotal`.
+          estimatedTotal: t.amount,
+          amount: t.amount, // kept for backwards compatibility
+          canAutoCompute: true,
+          explanation: t.explanation,
+        };
+      } catch (err) {
+        return {
+          ...opt,
+          estimatedTotal: null,
+          amount: null,
+          canAutoCompute: false,
+          error: err.code, // MISSING_RATE / MISSING_DURATION / CUSTOM_UNSUPPORTED / SALARY_TEXT_UNSUPPORTED
+          errorMessage: err.message,
+        };
+      }
+    });
 
     // ── Locked fields — what the frontend must show read-only ─────────────
     const lockedFields = {
@@ -281,6 +307,8 @@ export const getJobPostBookingDraft = async (req, res) => {
       skills: jobPost.skills,
       requirements: jobPost.requirements,
       responsibilities: jobPost.responsibilities,
+      budgetType: jobPost.budgetType,
+      currency: jobPost.currency,
     };
 
     return sendResponse(res, {
@@ -303,19 +331,29 @@ export const getJobPostBookingDraft = async (req, res) => {
 
 // ── POST /api/bookings/from-job/:jobPostId ─────────────────────────────────
 // Hirer creates a booking directly from an accepted job application.
-// All fields except `selectedRateOption`, `negotiatedRate`,
-// `negotiationNote`, and `notes` are IGNORED — they come from the job post.
+//
+// Body:
+//   workerId          — required, the accepted worker to book
+//   selectedRateOption — required, one of the price options
+//   negotiatedRate    — optional, overrides the computed total
+//   negotiationNote   — optional
+//   notes             — optional, booking-level notes
+//   quantity          — optional, defaults to 1
+//   customLabel       — optional
+//
+// The FINAL `agreedRate` is computed server-side by bookingMath. The
+// client can never supply it — any `agreedRate` in the body is ignored.
 export const createBookingFromJobPost = async (req, res) => {
   try {
     const { jobPostId } = req.params;
     const {
-      workerId, // required — which accepted worker to book
-      selectedRateOption, // required — which of the price options to use
-      negotiatedRate, // optional — overrides the selection
-      negotiationNote, // optional
-      notes, // optional — booking-level notes
-      quantity, // optional — defaults to 1
-      customLabel, // optional
+      workerId,
+      selectedRateOption,
+      negotiatedRate,
+      negotiationNote,
+      notes,
+      quantity,
+      customLabel,
     } = req.body;
 
     if (!workerId) {
@@ -325,7 +363,7 @@ export const createBookingFromJobPost = async (req, res) => {
       return sendError(res, "selectedRateOption is required", 400);
     }
 
-    // ── Fetch the job + verify ownership + accepted application ────────────
+    // ── Load the job + verify ownership + accepted application ────────────
     const jobPost = await prisma.jobPost.findUnique({
       where: { id: jobPostId },
       include: {
@@ -348,85 +386,21 @@ export const createBookingFromJobPost = async (req, res) => {
         400,
       );
 
-    // ── Resolve the final agreed rate ──────────────────────────────────────
-    // 1. If negotiatedRate is provided and valid, it WINS.
-    // 2. Otherwise, use the selected price option.
-    // 3. If the selection is `salaryText` (no numeric value) and no
-    //    negotiatedRate, reject — the hirer must supply a number.
-
-    const parsedNegotiated =
-      negotiatedRate !== undefined &&
-      negotiatedRate !== null &&
-      negotiatedRate !== ""
-        ? parseFloat(negotiatedRate)
-        : null;
-
-    const isNegotiated = parsedNegotiated !== null && parsedNegotiated > 0;
-
-    let finalRate = null;
-    let finalCurrency = jobPost.currency || "NGN";
-    let finalPeriod = null;
-
-    if (isNegotiated) {
-      finalRate = parsedNegotiated;
-      // Currency inherits from whichever price option matches the selection,
-      // falling back to the job's currency.
-      finalCurrency =
-        jobPost.salaryCurrency || jobPost.currency || finalCurrency;
-    } else {
-      switch (selectedRateOption) {
-        case "budget":
-          if (jobPost.budget == null) {
-            return sendError(res, "Job has no budget to use", 400);
-          }
-          finalRate = jobPost.budget;
-          finalCurrency = jobPost.currency || finalCurrency;
-          finalPeriod = jobPost.budgetType;
-          break;
-        case "salaryAmount":
-          if (jobPost.salaryAmount == null) {
-            return sendError(res, "Job has no salary amount to use", 400);
-          }
-          finalRate = jobPost.salaryAmount;
-          finalCurrency =
-            jobPost.salaryCurrency || jobPost.currency || finalCurrency;
-          finalPeriod = jobPost.salaryPeriod;
-          break;
-        case "salaryMin":
-          if (jobPost.salaryMin == null) {
-            return sendError(res, "Job has no salary min to use", 400);
-          }
-          finalRate = jobPost.salaryMin;
-          finalCurrency =
-            jobPost.salaryCurrency || jobPost.currency || finalCurrency;
-          finalPeriod = jobPost.salaryPeriod;
-          break;
-        case "salaryMax":
-          if (jobPost.salaryMax == null) {
-            return sendError(res, "Job has no salary max to use", 400);
-          }
-          finalRate = jobPost.salaryMax;
-          finalCurrency =
-            jobPost.salaryCurrency || jobPost.currency || finalCurrency;
-          finalPeriod = jobPost.salaryPeriod;
-          break;
-        case "salaryText":
-          // salaryText has no numeric amount — hirer must negotiate
-          return sendError(
-            res,
-            "This price option has no numeric value. Please enter a negotiated amount.",
-            400,
-          );
-        default:
-          return sendError(res, "Invalid selectedRateOption", 400);
-      }
+    // ── Compute the total via the shared calculator ────────────────────────
+    // Errors thrown here map cleanly to 400 responses with a usable
+    // message the frontend can display.
+    let total;
+    try {
+      total = computeJobBookingTotal(
+        jobPost,
+        selectedRateOption,
+        negotiatedRate,
+      );
+    } catch (err) {
+      return sendError(res, err.message, 400);
     }
 
-    if (!finalRate || finalRate <= 0) {
-      return sendError(res, "Could not resolve a valid agreed rate", 400);
-    }
-
-    // ── Prevent duplicate booking for the same application ─────────────────
+    // ── Prevent duplicate booking for the same application ────────────────
     const existingBooking = await prisma.booking.findFirst({
       where: {
         jobPostId: jobPost.id,
@@ -444,7 +418,7 @@ export const createBookingFromJobPost = async (req, res) => {
       );
     }
 
-    // ── Create the booking with locked fields from the job ─────────────────
+    // ── Create the booking ────────────────────────────────────────────────
     const booking = await prisma.booking.create({
       data: {
         // Source discriminator + linkage
@@ -470,20 +444,21 @@ export const createBookingFromJobPost = async (req, res) => {
         requirements: jobPost.requirements,
         responsibilities: jobPost.responsibilities,
 
-        // Payment resolution
-        agreedRate: finalRate,
-        currency: finalCurrency,
-        isNegotiated,
-        negotiatedRate: isNegotiated ? finalRate : null,
-        negotiationNote:
-          isNegotiated && negotiationNote ? negotiationNote.trim() : null,
+        // Payment resolution — THE FIX
+        agreedRate: total.amount,
+        currency: total.currency,
+        isNegotiated: total.isNegotiated,
+        negotiatedRate: total.isNegotiated ? total.amount : null,
+        negotiationNote: total.isNegotiated
+          ? negotiationNote?.trim() || null
+          : total.explanation, // store the audit trail when not negotiated
 
         // Hirer-editable
         notes: notes || null,
         quantity: quantity || 1,
         custom_label: customLabel || null,
 
-        // Snapshot for audit / replay
+        // Snapshot for audit / replay — every number that fed the total
         jobRateSnapshot: {
           budget: jobPost.budget,
           budgetType: jobPost.budgetType,
@@ -494,8 +469,13 @@ export const createBookingFromJobPost = async (req, res) => {
           salaryCurrency: jobPost.salaryCurrency,
           salaryPeriod: jobPost.salaryPeriod,
           salaryText: jobPost.salaryText,
+          estimatedValue: jobPost.estimatedValue,
+          estimatedUnit: jobPost.estimatedUnit,
           selectedRateOption,
-          negotiatedOverride: isNegotiated ? finalRate : null,
+          negotiatedOverride: total.isNegotiated ? total.amount : null,
+          computedTotal: total.amount,
+          computedCurrency: total.currency,
+          explanation: total.explanation,
         },
       },
       include: {
