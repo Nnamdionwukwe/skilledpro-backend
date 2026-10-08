@@ -81,42 +81,24 @@ const makeStorage = () =>
     cloudinary,
     params: (_req, file) => {
       const resourceType = cloudinaryResourceType(file.mimetype);
-
-      // Preserve the extension for raw resources (PDFs, docs) by building
-      // the public_id from the original filename. For images/videos we can
-      // use Cloudinary's normal handling.
-      const originalExt = path.extname(file.originalname || "").toLowerCase();
-      const baseName = path
-        .basename(file.originalname || "file", originalExt)
-        .replace(/[^a-zA-Z0-9_-]/g, "_")
-        .slice(0, 60);
-
-      // Random suffix so two uploads with the same filename don't collide.
-      const uniqueSuffix =
-        Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-
-      // For raw resources, keep the extension in the public_id so the
-      // delivered URL ends in ".pdf". For other resource types, use
-      // Cloudinary's default unique_filename behavior.
       const isRaw = resourceType === "raw";
 
       const params = {
         folder: "skilledpro",
         resource_type: resourceType,
         allowed_formats: allowedFormatsFor(file.mimetype),
-        // Do NOT use_filename:true here — Cloudinary collapses the folder
-        // path when use_filename + unique_filename are combined in some
-        // versions of multer-storage-cloudinary. We build our own name.
-        use_filename: false,
-        unique_filename: false,
       };
 
       if (isRaw) {
-        // Public id WITHOUT the folder — the storage adapter prepends it.
-        // Preserve the extension (.pdf) so Cloudinary stores the file
-        // literally at <folder>/<base>_<suffix>.pdf
-        params.public_id = `${baseName}_${uniqueSuffix}${originalExt || ".pdf"}`;
-        // Do NOT set params.format for raw — it breaks delivery.
+        // For PDFs (raw resources), Cloudinary's default unique_filename
+        // generates a URL-safe public_id AND appends the original format
+        // automatically. Do NOT set format or public_id manually.
+        params.use_filename = false;
+        params.unique_filename = true;
+        params.format = "pdf";
+      } else {
+        params.use_filename = true;
+        params.unique_filename = true;
       }
 
       return params;
