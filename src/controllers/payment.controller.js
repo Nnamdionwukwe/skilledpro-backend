@@ -332,32 +332,6 @@ function getWithdrawalProvider(countryCode, method) {
   return "flutterwave";
 }
 
-function computeBookingTotal(booking) {
-  const rate = booking.agreedRate || 0;
-  const unit = booking.estimatedUnit || "hours";
-  const hours = booking.estimatedHours;
-  const value = booking.estimatedValue
-    ? parseFloat(booking.estimatedValue)
-    : null;
-
-  let qty = 1;
-  if (value && unit !== "custom") {
-    qty = value;
-  } else if (hours) {
-    if (unit === "hours") qty = hours;
-    else if (unit === "days") qty = Math.round(hours / 8);
-    else if (unit === "weeks") qty = Math.round(hours / 40);
-    else if (unit === "months") qty = Math.round(hours / 160);
-    else if (unit === "years") qty = Math.round(hours / 1920);
-  }
-
-  const subtotal = parseFloat((rate * qty).toFixed(2));
-  const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
-  const total = parseFloat((subtotal + platformFee).toFixed(2));
-
-  return { subtotal, platformFee, workerPayout: subtotal, total };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // § 5  HIRER — INITIATE BOOKING PAYMENT  (smart routing)
 // POST /api/payments/initiate/:bookingId
