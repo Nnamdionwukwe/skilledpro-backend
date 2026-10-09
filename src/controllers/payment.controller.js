@@ -30,7 +30,10 @@ import {
   PIN_DIGITS_RE,
 } from "../services/pin.service.js";
 
-import { releaseEscrow } from "../services/payment.service.js";
+import {
+  computeBookingTotal,
+  releaseEscrow,
+} from "../services/payment.service.js";
 import {
   createRefundFromAdmin,
   processRefund,
@@ -57,7 +60,6 @@ import {
 //    computation. Used by initiateBookingPayment (Paystack + Flutterwave),
 //    initiateBankTransfer, confirmBankTransfer, initiateCryptoPayment,
 //    and confirmCryptoPayment.
-import { computeBookingTotal } from "../utils/pricing.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
