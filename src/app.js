@@ -153,7 +153,7 @@ const corsOptions = {
 // Handle every OPTIONS request explicitly with CORS headers.
 // `preflightContinue: false` means cors() short-circuits OPTIONS and
 // responds directly — nothing downstream runs.
-app.options("*", cors(corsOptions));
+app.options("/*splat", cors(corsOptions));
 app.use(cors(corsOptions));
 
 // ═══════════════════════════════════════════════════════════════════════════
