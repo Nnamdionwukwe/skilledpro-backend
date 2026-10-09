@@ -326,30 +326,74 @@ function getWithdrawalProvider(countryCode, method) {
   return "flutterwave";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// computeBookingTotal — single source of truth for pricing math.
+//
+// Job-post bookings (source === "JOB_POST"):
+//   agreedRate IS the final amount the hirer picked from the job post.
+//   → subtotal = agreedRate (no multiplication by duration)
+//
+// Negotiated bookings (isNegotiated === true):
+//   agreedRate IS the negotiated total.
+//   → subtotal = negotiatedRate
+//
+// Custom unit bookings (estimatedUnit === "custom"):
+//   → subtotal = agreedRate × quantity
+//
+// Direct bookings (everything else):
+//   → subtotal = agreedRate × qty   (qty derived from estimatedValue/hours)
+// ─────────────────────────────────────────────────────────────────────────────
 function computeBookingTotal(booking) {
-  const rate = booking.agreedRate || 0;
+  const rate = Number(booking.agreedRate) || 0;
   const unit = booking.estimatedUnit || "hours";
   const hours = booking.estimatedHours;
   const value = booking.estimatedValue
     ? parseFloat(booking.estimatedValue)
     : null;
+  const quantity = booking.quantity || 1;
+
+  const isJobPostBooking = booking.source === "JOB_POST";
+  const isNegotiated = !!(booking.isNegotiated && booking.negotiatedRate);
 
   let qty = 1;
-  if (value && unit !== "custom") {
-    qty = value;
-  } else if (hours) {
-    if (unit === "hours") qty = hours;
-    else if (unit === "days") qty = Math.round(hours / 8);
-    else if (unit === "weeks") qty = Math.round(hours / 40);
-    else if (unit === "months") qty = Math.round(hours / 160);
-    else if (unit === "years") qty = Math.round(hours / 1920);
+  let subtotal = 0;
+
+  if (isJobPostBooking) {
+    subtotal = parseFloat(rate.toFixed(2));
+    if (value && unit !== "custom") qty = value;
+    else if (hours) qty = hours;
+  } else if (isNegotiated) {
+    subtotal =
+      parseFloat(Number(booking.negotiatedRate).toFixed(2)) ||
+      parseFloat(rate.toFixed(2));
+    if (value && unit !== "custom") qty = value;
+    else if (hours) qty = hours;
+  } else if (unit === "custom") {
+    const customQty = quantity || 1;
+    subtotal = parseFloat((rate * customQty).toFixed(2));
+    qty = customQty;
+  } else {
+    if (value && unit !== "custom") qty = value;
+    else if (hours) {
+      if (unit === "hours") qty = hours;
+      else if (unit === "days") qty = Math.round(hours / 8);
+      else if (unit === "weeks") qty = Math.round(hours / 40);
+      else if (unit === "months") qty = Math.round(hours / 160);
+      else if (unit === "years") qty = Math.round(hours / 1920);
+    }
+    subtotal = parseFloat((rate * qty).toFixed(2));
   }
 
-  const subtotal = parseFloat((rate * qty).toFixed(2));
   const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
   const total = parseFloat((subtotal + platformFee).toFixed(2));
 
-  return { subtotal, platformFee, workerPayout: subtotal, total };
+  return {
+    subtotal,
+    platformFee,
+    workerPayout: subtotal,
+    total,
+    isJobPostBooking,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,7 +403,7 @@ function computeBookingTotal(booking) {
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
-  const { referralAmount = 0 } = req.body; // 👈 read from request
+  const { referralAmount = 0 } = req.body;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -396,8 +440,8 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 
   const currency = (booking.currency ?? "USD").toUpperCase();
 
-  // ── Compute full job value (rate × qty) ─────────────────────────────
-  const { subtotal, platformFee, workerPayout, total } =
+  // ── Compute full job value (job-post aware) ─────────────────────────
+  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
 
   // ── Apply referral amount from frontend ─────────────────────────────
@@ -410,7 +454,6 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const hirerEmail = booking.hirer.email;
 
   if (shouldUsePaystack(currency)) {
-    // ✅ FIX: Point to the verification route, not the booking page
     const callbackUrl = `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
     const psRes = await psInitializePayment({
       email: hirerEmail,
@@ -438,7 +481,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
         status: "PENDING",
         provider: "paystack",
         providerRef: txRef,
-        referralDeduct: referralAmount, // 👈 store for audit
+        referralDeduct: referralAmount,
       },
     });
 
@@ -452,6 +495,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
         amount: totalAmount,
         currency,
         referralDiscount: referralAmount,
+        isJobPostBooking,
       },
     });
   }
@@ -499,6 +543,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       amount: totalAmount,
       currency,
       referralDiscount: referralAmount,
+      isJobPostBooking,
     },
   });
 });
@@ -547,13 +592,11 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
   // 3. Update in a transaction
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Update payment to HELD
       const updatedPayment = await tx.payment.update({
         where: { id: payment.id },
         data: { status: "HELD" },
       });
 
-      // Update booking to ACCEPTED (if not already)
       const updatedBooking = await tx.booking.update({
         where: { id: payment.bookingId },
         data: { status: "ACCEPTED" },
@@ -562,7 +605,6 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
       return { updatedPayment, updatedBooking };
     });
 
-    // 4. Send notifications (fire-and-forget)
     await _notifyPaymentHeld(payment.bookingId).catch(() => {});
 
     return res.status(200).json({
@@ -928,58 +970,33 @@ export const refundPayment = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 11  WORKER — REQUEST WITHDRAWAL
 // POST /api/payments/withdraw
-//
-// Body (bank transfer):
-//   { amount, currency, method: "bank_transfer",
-//     bankCode, bankName, accountNumber, accountName, country }
-//
-// Body (mobile money):
-//   { amount, currency, method: "mobile_money",
-//     mobileNumber, mobileName, mobileProvider, country }
-//
-// Body (crypto):
-//   { amount, currency, method: "crypto",
-//     cryptoAddress, cryptoCurrency, cryptoNetwork }
-//
-// Debt handling: if the worker has an outstanding debt (from a dispute
-// refund that couldn't be clawed back because they had already withdrawn
-// the earnings), the debt is auto-deducted from this payout first.
-//
-// PIN: verified via the shared pin.service so the same 4-digit PIN and
-// lockout counter apply to worker, referral, and campaign wallets alike.
 // ─────────────────────────────────────────────────────────────────────────────
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const {
-    pin, // ← 4-digit withdrawal PIN
+    pin,
     amount,
     currency = "NGN",
     method = "bank_transfer",
-    // Bank transfer
     bankCode,
     bankName,
     accountNumber,
     accountName,
-    // Mobile money
     mobileNumber,
     mobileName,
     mobileProvider,
-    // Crypto
     cryptoAddress,
     cryptoCurrency,
     cryptoNetwork,
-    // Country for routing
     country = "NG",
   } = req.body;
 
-  // ── 1. Validate amount ────────────────────────────────────────────────────
   if (!amount || parseFloat(amount) <= 0) {
     return res
       .status(400)
       .json({ success: false, message: "Valid amount required" });
   }
 
-  // ── 2. PIN check ──────────────────────────────────────────────────────────
   const user = await prisma.user.findUnique({
     where: { id: workerId },
     select: {
@@ -1032,7 +1049,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── 3. Check available balance ────────────────────────────────────────────
   const [earnedAgg, withdrawnAgg] = await Promise.all([
     prisma.payment.aggregate({
       where: { booking: { workerId }, status: "RELEASED" },
@@ -1055,10 +1071,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── 3.5. Auto-deduct any outstanding debt ─────────────────────────────────
-  // When a worker owes the platform (e.g., a dispute refund was clawed back
-  // after they had already withdrawn the earnings), the debt is recovered
-  // from the next withdrawal. We deduct as much as possible from this payout.
   const workerProfile = await prisma.workerProfile.findUnique({
     where: { userId: workerId },
     select: { id: true, debtBalance: true },
@@ -1072,8 +1084,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     debtDeducted = Math.min(finalPayoutAmount, outstandingDebt);
     finalPayoutAmount = finalPayoutAmount - debtDeducted;
 
-    // If the debt consumed the entire withdrawal, reject — no point
-    // creating a Withdrawal row for a payout of zero.
     if (finalPayoutAmount <= 0) {
       return res.status(400).json({
         success: false,
@@ -1086,7 +1096,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }
   }
 
-  // ── 4. Build destination ──────────────────────────────────────────────────
   let destination = "";
   let methodMeta = {};
 
@@ -1133,7 +1142,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await prisma.withdrawal.create({
     data: {
       workerId,
-      amount: finalPayoutAmount, // ← deducted amount (or full if no debt)
+      amount: finalPayoutAmount,
       currency: currency.toUpperCase(),
       method,
       destination,
@@ -1149,7 +1158,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     },
   });
 
-  // ── 5. Apply the debt deduction to WorkerDebt rows (FIFO) ─────────────────
   if (debtDeducted > 0 && workerProfile) {
     await prisma.workerProfile.update({
       where: { id: workerProfile.id },
@@ -1206,7 +1214,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── 6. Notify admins ──────────────────────────────────────────────────────
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
     select: { id: true },
@@ -1228,7 +1235,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     })),
   });
 
-  // ── 7. Return response ────────────────────────────────────────────────────
   return res.status(201).json({
     success: true,
     message:
@@ -1270,7 +1276,6 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
   const currency = withdrawal.currency;
   const provider = getWithdrawalProvider(meta.country ?? "NG", method);
 
-  // ── Apply withdrawal fee config (Phase 1 = 0%, worker gets 100%) ─────────
   const { fee: withdrawalFee, netAmount: amount } =
     FEE_CONFIG.computeWithdrawal(parseFloat(withdrawal.amount));
 
@@ -1278,9 +1283,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
   let providerData = {};
 
   try {
-    // ── PAYSTACK (NGN bank transfer) ────────────────────────────────────────
     if (provider === "paystack" && method === "bank_transfer") {
-      // 1. Create recipient
       const recipientRes = await psCreateRecipient({
         name:
           meta.accountName ??
@@ -1297,7 +1300,6 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 
       const recipientCode = recipientRes.data.recipient_code;
 
-      // 2. Initiate transfer
       const transferRes = await psInitiateTransfer({
         amount,
         recipientCode,
@@ -1312,11 +1314,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         provider: "paystack",
         transferCode: transferRes.data.transfer_code,
       };
-    }
-
-    // ── FLUTTERWAVE (bank transfer — non-NGN or non-NG) ─────────────────────
-    else if (provider === "flutterwave" && method === "bank_transfer") {
-      // International transfers need extra meta
+    } else if (provider === "flutterwave" && method === "bank_transfer") {
       const isInternational = ![
         "NG",
         "GH",
@@ -1362,10 +1360,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         provider: "flutterwave",
         transferId: transferRes.data.id,
       };
-    }
-
-    // ── FLUTTERWAVE (mobile money) ──────────────────────────────────────────
-    else if (provider === "flutterwave" && method === "mobile_money") {
+    } else if (provider === "flutterwave" && method === "mobile_money") {
       const transferRes = await flwMobileTransfer({
         accountNumber: meta.mobileNumber,
         amount,
@@ -1381,11 +1376,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         provider: "flutterwave",
         transferId: transferRes.data.id,
       };
-    }
-
-    // ── CRYPTO — mark as processing, admin completes off-chain ─────────────
-    else if (method === "crypto") {
-      // Crypto is manually processed (or via a crypto gateway)
+    } else if (method === "crypto") {
       providerData = {
         provider: "crypto",
         cryptoAddress: meta.cryptoAddress,
@@ -1395,7 +1386,6 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
       };
     }
 
-    // ── Update withdrawal to PROCESSING ─────────────────────────────────────
     await prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
@@ -1434,7 +1424,6 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
       data: { withdrawalId, transferRef, ...providerData },
     });
   } catch (err) {
-    // Mark as failed if provider errored
     await prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
@@ -1454,14 +1443,6 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 13  WORKER — GET WITHDRAWALS + LIVE BALANCE
 // GET /api/payments/withdrawals
-//
-// Returns the worker's balance summary (including debtBalance so the
-// frontend can show a warning card) and paginated withdrawal history.
-//
-// balancesByCurrency only includes currencies the worker has RELEASED
-// earnings or HELD escrow in. Currencies with only PENDING / FAILED /
-// REFUNDED payments are intentionally excluded — a wallet card for a
-// currency with £0 available and £0 escrow is misleading.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1508,29 +1489,21 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
         debtReason: true,
       },
     }),
-
-    // ── released earnings grouped by currency
     prisma.payment.groupBy({
       by: ["currency"],
       where: { booking: { workerId }, status: "RELEASED" },
       _sum: { workerPayout: true },
     }),
-    // ── escrow (HELD) grouped by currency
     prisma.payment.groupBy({
       by: ["currency"],
       where: { booking: { workerId }, status: "HELD" },
       _sum: { workerPayout: true },
     }),
-    // ── pending withdrawals grouped by currency
     prisma.withdrawal.groupBy({
       by: ["currency"],
       where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
       _sum: { amount: true },
     }),
-    // ── Currencies with real money: RELEASED (already earned) or HELD
-    //    (in escrow, awaiting release). PENDING, FAILED and REFUNDED
-    //    payments are excluded so the wallet does not render empty
-    //    currency cards with nothing to show.
     prisma.payment.findMany({
       where: {
         booking: { workerId },
@@ -1548,8 +1521,6 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 
   const available = Math.max(0, totalEarned - pendingPayout - outstandingDebt);
 
-  // ── Per-currency breakdown ───────────────────────────────────────────────
-  // Only currencies that have a released balance or held escrow appear.
   const balancesByCurrency = {};
   const allCurrencies = new Set(currencyList.map((c) => c.currency));
 
@@ -1605,11 +1576,6 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 14  WORKER — EARNINGS
 // GET /api/payments/earnings
-//
-// availableCurrencies reflects every currency the worker has RELEASED
-// earnings or HELD escrow in. Currencies with only PENDING, FAILED or
-// REFUNDED payments are excluded — they represent no money the worker
-// can act on today.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWorkerEarnings = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1657,13 +1623,6 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
       where,
       _sum: { workerPayout: true, amount: true, platformFee: true },
     }),
-    // ── Discover every currency the worker has RELEASED earnings in.
-    //    This drives the currency tabs on the Earnings page, which shows
-    //    released payments only. HELD (escrow) is deliberately excluded
-    //    here — escrow belongs on the wallet cards in /withdrawals, not
-    //    on the earnings view. PENDING (payment not confirmed yet),
-    //    FAILED and REFUNDED are excluded for the same reason: none of
-    //    them represent money the worker has actually earned.
     prisma.payment.findMany({
       where: {
         booking: { workerId },
@@ -1792,7 +1751,6 @@ export const getBanksByCountry = asyncHandler(async (req, res) => {
   let banks = [];
 
   if (code === "NG") {
-    // Paystack has the most comprehensive Nigerian bank list
     const psRes = await psGetBanks();
     if (psRes.status === true && Array.isArray(psRes.data)) {
       banks = psRes.data.map((b) => ({
@@ -1804,7 +1762,6 @@ export const getBanksByCountry = asyncHandler(async (req, res) => {
       }));
     }
   } else {
-    // Use Flutterwave for all other countries
     const flwRes = await flwGetBanks(code);
     if (flwRes.status === "success" && Array.isArray(flwRes.data)) {
       banks = flwRes.data.map((b) => ({
@@ -1825,7 +1782,6 @@ export const getBanksByCountry = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 17  UTILITY — VERIFY BANK ACCOUNT
 // POST /api/payments/verify-account
-// Body: { accountNumber, bankCode, country }
 // ─────────────────────────────────────────────────────────────────────────────
 export const verifyBankAccount = asyncHandler(async (req, res) => {
   const { accountNumber, bankCode, country = "NG" } = req.body;
@@ -1843,7 +1799,6 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
     if (psRes.status === true && psRes.data?.account_name) {
       accountName = psRes.data.account_name;
     } else {
-      // Fallback to Flutterwave
       const flwRes = await flwVerifyAccount(accountNumber, bankCode);
       if (flwRes.status === "success") accountName = flwRes.data?.account_name;
     }
@@ -1868,7 +1823,7 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { referralAmount = 0 } = req.body; // 👈 read from request
+  const { referralAmount = 0 } = req.body;
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
@@ -1891,11 +1846,10 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  // ── Compute full job value ────────────────────────────────────────────
-  const { subtotal, platformFee, workerPayout, total } =
+  // ── Compute full job value (job-post aware) ───────────────────────────
+  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
 
-  // ── Apply referral amount from frontend ─────────────────────────────
   const totalCharged = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -1912,6 +1866,7 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       referralDiscount: referralAmount,
       totalToSend: totalCharged,
       totalGross: total,
+      isJobPostBooking,
       bankDetails: {
         bankName: process.env.PLATFORM_BANK_NAME ?? "First Bank",
         accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER ?? "0123456789",
@@ -1930,7 +1885,7 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     proofUrl: proofUrlBody,
     senderName,
     bankName,
-    referralAmount = 0, // 👈 read from request
+    referralAmount = 0,
   } = req.body;
   const reference = req.body.reference || uniqueRef("BT");
   const proofUrl = req.file?.path || proofUrlBody || null;
@@ -1956,14 +1911,12 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  // ── Compute full job value (rate × qty) ─────────────────────────────
-  const { subtotal, platformFee, workerPayout, total } =
+  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
   console.log(
-    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}, isJobPostBooking=${isJobPostBooking}`,
   );
 
-  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -1983,7 +1936,7 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       bankTransferProof: proofUrl ?? null,
       accountName: senderName ?? null,
       bankName: bankName ?? null,
-      referralDeduct: referralAmount, // store the discount
+      referralDeduct: referralAmount,
     },
   });
   console.log(
@@ -2035,7 +1988,7 @@ const CRYPTO_WALLETS = {
 
 export const initiateCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { cryptoCurrency = "USDC", referralAmount = 0 } = req.body; // 👈 read referralAmount
+  const { cryptoCurrency = "USDC", referralAmount = 0 } = req.body;
 
   const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
   if (!wallet)
@@ -2063,11 +2016,9 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
-  // ── Compute full job value ────────────────────────────────────────────
-  const { subtotal, platformFee, workerPayout, total } =
+  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
 
-  // ── Apply referral amount from frontend ─────────────────────────────
   const totalChargedCrypto = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -2084,11 +2035,12 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       referralDiscount: referralAmount,
       totalToSend: totalChargedCrypto,
       totalGross: total,
+      isJobPostBooking,
       cryptoDetails: {
         currency: cryptoCurrency.toUpperCase(),
         network: wallet.network,
         wallet: wallet.address,
-        amount: total,
+        amount: totalChargedCrypto,
         note: `Include reference ${reference} in transaction memo`,
       },
     },
@@ -2097,12 +2049,7 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const {
-    txHash,
-    cryptoAmount,
-    cryptoCurrency,
-    referralAmount = 0, // 👈 read from request
-  } = req.body;
+  const { txHash, cryptoAmount, cryptoCurrency, referralAmount = 0 } = req.body;
   const reference = req.body.reference || uniqueRef("CRYPTO");
   const proofUrl = req.file?.path || null;
 
@@ -2136,14 +2083,12 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
     CRYPTO_WALLETS[(cryptoCurrency ?? "USDC").toUpperCase()] ??
     CRYPTO_WALLETS.USDC;
 
-  // ── Compute full job value (rate × qty) ─────────────────────────────
-  const { subtotal, platformFee, workerPayout, total } =
+  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
   console.log(
-    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}, isJobPostBooking=${isJobPostBooking}`,
   );
 
-  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -2165,8 +2110,8 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-      bankTransferProof: proofUrl, // screenshot
-      referralDeduct: referralAmount, // store the discount
+      bankTransferProof: proofUrl,
+      referralDeduct: referralAmount,
     },
   });
   console.log(
@@ -2261,13 +2206,9 @@ export const getPayment = asyncHandler(async (req, res) => {
   )
     return res.status(403).json({ success: false, message: "Forbidden" });
 
-  // Return most recent non-failed payment; fallback to most recent overall
   const payment = await prisma.payment.findFirst({
     where: { bookingId: req.params.bookingId },
-    orderBy: [
-      { status: "desc" }, // RELEASED > HELD > PENDING > FAILED
-      { createdAt: "desc" },
-    ],
+    orderBy: [{ status: "desc" }, { createdAt: "desc" }],
   });
 
   return res.status(200).json({ success: true, data: payment });
@@ -2306,16 +2247,6 @@ async function _notifyPaymentHeld(bookingId) {
 // § A  SET WITHDRAWAL PIN (first time)
 // POST /api/payments/pin/set
 // Body: { pin: "1234" }
-//
-// Available to every authenticated user. The same 4-digit PIN authorises:
-//   • worker payouts        (/api/payments/withdraw)
-//   • hirer wallet          (/api/wallet/withdraw)
-//   • referral wallet       (/api/referral/withdraw)
-//   • campaign wallet       (/api/campaign/withdraw)
-//
-// The PIN is a per-user credential stored on User.withdrawalPin. There is no
-// per-role restriction — any authenticated user may set, read, or change
-// their own PIN.
 // ─────────────────────────────────────────────────────────────────────────────
 export const setWithdrawalPin = asyncHandler(async (req, res) => {
   const { pin } = req.body;
@@ -2365,10 +2296,6 @@ export const setWithdrawalPin = asyncHandler(async (req, res) => {
 // § B  CHANGE WITHDRAWAL PIN
 // POST /api/payments/pin/change
 // Body: { currentPin: "1234", newPin: "5678" }
-//
-// Available to every authenticated user. Verifies the current PIN against
-// the shared lockout counter (via verifyWithdrawalPin in pin.service.js),
-// then writes the new hash and resets the attempt counters.
 // ─────────────────────────────────────────────────────────────────────────────
 export const changeWithdrawalPin = asyncHandler(async (req, res) => {
   const { currentPin, newPin } = req.body;
@@ -2453,7 +2380,6 @@ export const changeWithdrawalPin = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § C  CHECK PIN STATUS
 // GET /api/payments/pin/status
-// Returns whether the worker has a PIN set (does NOT expose the PIN)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWithdrawalPinStatus = asyncHandler(async (req, res) => {
   const user = await prisma.user.findUnique({
