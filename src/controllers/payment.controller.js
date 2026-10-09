@@ -30,10 +30,16 @@ import {
   PIN_DIGITS_RE,
 } from "../services/pin.service.js";
 
+// ── Shared pricing helper + escrow release ────────────────────────────────
+// computeBookingTotal is the SINGLE source of truth for pricing math and is
+// job-post aware (source === "JOB_POST" → agreedRate is the final total).
+// Imported from payment.service.js so Paystack, Flutterwave, bank transfer,
+// and crypto paths all agree with what the UI shows.
 import {
   computeBookingTotal,
   releaseEscrow,
 } from "../services/payment.service.js";
+
 import {
   createRefundFromAdmin,
   processRefund,
@@ -55,11 +61,6 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
-
-// ── Shared pricing util — single source of truth for job-post-aware
-//    computation. Used by initiateBookingPayment (Paystack + Flutterwave),
-//    initiateBankTransfer, confirmBankTransfer, initiateCryptoPayment,
-//    and confirmCryptoPayment.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  CONFIG
