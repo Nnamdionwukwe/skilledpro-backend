@@ -30,16 +30,7 @@ import {
   PIN_DIGITS_RE,
 } from "../services/pin.service.js";
 
-// ── Shared pricing helper + escrow release ────────────────────────────────
-// computeBookingTotal is the SINGLE source of truth for pricing math and is
-// job-post aware (source === "JOB_POST" → agreedRate is the final total).
-// Imported from payment.service.js so Paystack, Flutterwave, bank transfer,
-// and crypto paths all agree with what the UI shows.
-import {
-  computeBookingTotal,
-  releaseEscrow,
-} from "../services/payment.service.js";
-
+import { releaseEscrow } from "../services/payment.service.js";
 import {
   createRefundFromAdmin,
   processRefund,
@@ -335,21 +326,40 @@ function getWithdrawalProvider(countryCode, method) {
   return "flutterwave";
 }
 
+function computeBookingTotal(booking) {
+  const rate = booking.agreedRate || 0;
+  const unit = booking.estimatedUnit || "hours";
+  const hours = booking.estimatedHours;
+  const value = booking.estimatedValue
+    ? parseFloat(booking.estimatedValue)
+    : null;
+
+  let qty = 1;
+  if (value && unit !== "custom") {
+    qty = value;
+  } else if (hours) {
+    if (unit === "hours") qty = hours;
+    else if (unit === "days") qty = Math.round(hours / 8);
+    else if (unit === "weeks") qty = Math.round(hours / 40);
+    else if (unit === "months") qty = Math.round(hours / 160);
+    else if (unit === "years") qty = Math.round(hours / 1920);
+  }
+
+  const subtotal = parseFloat((rate * qty).toFixed(2));
+  const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
+  const total = parseFloat((subtotal + platformFee).toFixed(2));
+
+  return { subtotal, platformFee, workerPayout: subtotal, total };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 5  HIRER — INITIATE BOOKING PAYMENT  (smart routing)
 // POST /api/payments/initiate/:bookingId
-//
-//   NGN            → Paystack
-//   All other FX   → Flutterwave
-//
-// Both gateways receive the SAME totalAmount, computed from the shared
-// pricing util. Job-post bookings are charged the agreedRate as a final
-// total (no multiplication) — the fee is 5% on top.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
-  const { referralAmount = 0 } = req.body;
+  const { referralAmount = 0 } = req.body; // 👈 read from request
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -386,11 +396,8 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 
   const currency = (booking.currency ?? "USD").toUpperCase();
 
-  // ── Compute totals via the shared, job-post-aware util ────────────────
-  // For JOB_POST bookings: subtotal = agreedRate (no multiplication)
-  // For DIRECT bookings:    subtotal = agreedRate × qty
-  // For NEGOTIATED:         subtotal = negotiatedRate
-  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
+  // ── Compute full job value (rate × qty) ─────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
 
   // ── Apply referral amount from frontend ─────────────────────────────
@@ -402,14 +409,12 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const hirerName = `${booking.hirer.firstName} ${booking.hirer.lastName}`;
   const hirerEmail = booking.hirer.email;
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // PAYSTACK path — NGN only
-  // ═══════════════════════════════════════════════════════════════════════
   if (shouldUsePaystack(currency)) {
+    // ✅ FIX: Point to the verification route, not the booking page
     const callbackUrl = `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
     const psRes = await psInitializePayment({
       email: hirerEmail,
-      amount: totalAmount, // ← correct job-post total (e.g. 10,500)
+      amount: totalAmount,
       reference: txRef,
       currency,
       bookingId,
@@ -433,7 +438,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
         status: "PENDING",
         provider: "paystack",
         providerRef: txRef,
-        referralDeduct: referralAmount,
+        referralDeduct: referralAmount, // 👈 store for audit
       },
     });
 
@@ -447,18 +452,15 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
         amount: totalAmount,
         currency,
         referralDiscount: referralAmount,
-        isJobPostBooking,
       },
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // FLUTTERWAVE path — all other currencies (USD, EUR, GBP, GHS, KES, …)
-  // ═══════════════════════════════════════════════════════════════════════
+  // Flutterwave remains as is – webhook will handle success
   const redirectUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
   const flwRes = await flwInitiatePayment({
     txRef,
-    amount: totalAmount, // ← same corrected total as Paystack
+    amount: totalAmount,
     currency,
     email: hirerEmail,
     name: hirerName,
@@ -497,7 +499,6 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
       amount: totalAmount,
       currency,
       referralDiscount: referralAmount,
-      isJobPostBooking,
     },
   });
 });
@@ -1864,11 +1865,10 @@ export const verifyBankAccount = asyncHandler(async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 18  MANUAL — BANK TRANSFER (hirer sends manually, admin verifies)
-// POST /api/payments/bank-transfer/:bookingId
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { referralAmount = 0 } = req.body;
+  const { referralAmount = 0 } = req.body; // 👈 read from request
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking)
@@ -1891,10 +1891,11 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  // ── Compute full job value via shared util ────────────────────────────
-  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
+  // ── Compute full job value ────────────────────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
 
+  // ── Apply referral amount from frontend ─────────────────────────────
   const totalCharged = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -1911,7 +1912,6 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       referralDiscount: referralAmount,
       totalToSend: totalCharged,
       totalGross: total,
-      isJobPostBooking,
       bankDetails: {
         bankName: process.env.PLATFORM_BANK_NAME ?? "First Bank",
         accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER ?? "0123456789",
@@ -1930,7 +1930,7 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     proofUrl: proofUrlBody,
     senderName,
     bankName,
-    referralAmount = 0,
+    referralAmount = 0, // 👈 read from request
   } = req.body;
   const reference = req.body.reference || uniqueRef("BT");
   const proofUrl = req.file?.path || proofUrlBody || null;
@@ -1956,13 +1956,14 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Payment already completed" });
 
-  // ── Compute totals via shared util (job-post aware) ───────────────────
-  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
+  // ── Compute full job value (rate × qty) ─────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
   console.log(
-    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}, isJobPostBooking=${isJobPostBooking}`,
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
   );
 
+  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -1982,11 +1983,11 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
       bankTransferProof: proofUrl ?? null,
       accountName: senderName ?? null,
       bankName: bankName ?? null,
-      referralDeduct: referralAmount,
+      referralDeduct: referralAmount, // store the discount
     },
   });
   console.log(
-    `✅ Payment created with referralDeduct=${payment.referralDeduct}, amount=${payment.amount}`,
+    `✅ Payment created with referralDeduct=${payment.referralDeduct}`,
   );
 
   const admins = await prisma.user.findMany({
@@ -1997,15 +1998,9 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     data: admins.map((a) => ({
       userId: a.id,
       title: "Bank Transfer Submitted 🏦",
-      body: `Hirer confirmed bank transfer for booking ${bookingId}. Ref: ${reference}${isJobPostBooking ? " (job-post booking)" : ""}`,
+      body: `Hirer confirmed bank transfer for booking ${bookingId}. Ref: ${reference}`,
       type: "BANK_TRANSFER_PROOF",
-      data: {
-        bookingId,
-        paymentId: payment.id,
-        proofUrl,
-        reference,
-        isJobPostBooking,
-      },
+      data: { bookingId, paymentId: payment.id, proofUrl, reference },
     })),
   });
 
@@ -2015,6 +2010,7 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
     data: { payment },
   });
 });
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 19  MANUAL — CRYPTO PAYMENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2039,7 +2035,7 @@ const CRYPTO_WALLETS = {
 
 export const initiateCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { cryptoCurrency = "USDC", referralAmount = 0 } = req.body;
+  const { cryptoCurrency = "USDC", referralAmount = 0 } = req.body; // 👈 read referralAmount
 
   const wallet = CRYPTO_WALLETS[cryptoCurrency.toUpperCase()];
   if (!wallet)
@@ -2067,10 +2063,11 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
-  // ── Compute totals via shared util (job-post aware) ───────────────────
-  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
+  // ── Compute full job value ────────────────────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
 
+  // ── Apply referral amount from frontend ─────────────────────────────
   const totalChargedCrypto = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -2087,12 +2084,11 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
       referralDiscount: referralAmount,
       totalToSend: totalChargedCrypto,
       totalGross: total,
-      isJobPostBooking,
       cryptoDetails: {
         currency: cryptoCurrency.toUpperCase(),
         network: wallet.network,
         wallet: wallet.address,
-        amount: totalChargedCrypto,
+        amount: total,
         note: `Include reference ${reference} in transaction memo`,
       },
     },
@@ -2101,7 +2097,12 @@ export const initiateCryptoPayment = asyncHandler(async (req, res) => {
 
 export const confirmCryptoPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
-  const { txHash, cryptoAmount, cryptoCurrency, referralAmount = 0 } = req.body;
+  const {
+    txHash,
+    cryptoAmount,
+    cryptoCurrency,
+    referralAmount = 0, // 👈 read from request
+  } = req.body;
   const reference = req.body.reference || uniqueRef("CRYPTO");
   const proofUrl = req.file?.path || null;
 
@@ -2135,13 +2136,14 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
     CRYPTO_WALLETS[(cryptoCurrency ?? "USDC").toUpperCase()] ??
     CRYPTO_WALLETS.USDC;
 
-  // ── Compute totals via shared util (job-post aware) ───────────────────
-  const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
+  // ── Compute full job value (rate × qty) ─────────────────────────────
+  const { subtotal, platformFee, workerPayout, total } =
     computeBookingTotal(booking);
   console.log(
-    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}, isJobPostBooking=${isJobPostBooking}`,
+    `📊 computeBookingTotal: subtotal=${subtotal}, total=${total}, platformFee=${platformFee}, workerPayout=${workerPayout}`,
   );
 
+  // ── Apply the referral amount from the frontend (wallet balance discount) ──
   const chargedAmount = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -2163,12 +2165,12 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
       cryptoCurrency: (cryptoCurrency ?? "USDC").toUpperCase(),
       cryptoTxHash: txHash,
       cryptoAmount: cryptoAmount ? parseFloat(cryptoAmount) : null,
-      bankTransferProof: proofUrl,
-      referralDeduct: referralAmount,
+      bankTransferProof: proofUrl, // screenshot
+      referralDeduct: referralAmount, // store the discount
     },
   });
   console.log(
-    `✅ Payment created with referralDeduct=${payment.referralDeduct}, amount=${payment.amount}`,
+    `✅ Payment created with referralDeduct=${payment.referralDeduct}`,
   );
 
   const admins = await prisma.user.findMany({
@@ -2179,16 +2181,9 @@ export const confirmCryptoPayment = asyncHandler(async (req, res) => {
     data: admins.map((a) => ({
       userId: a.id,
       title: "Crypto TX Submitted ₿",
-      body: `Hirer submitted crypto tx for booking ${bookingId}. Hash: ${txHash}${isJobPostBooking ? " (job-post booking)" : ""}`,
+      body: `Hirer submitted crypto tx for booking ${bookingId}. Hash: ${txHash}`,
       type: "CRYPTO_TX_SUBMITTED",
-      data: {
-        bookingId,
-        txHash,
-        cryptoCurrency,
-        cryptoAmount,
-        reference,
-        isJobPostBooking,
-      },
+      data: { bookingId, txHash, cryptoCurrency, cryptoAmount, reference },
     })),
   });
 
@@ -2495,102 +2490,4 @@ function _parseMeta(value) {
   } catch {
     return {};
   }
-}
-// ─── Escrow release (canonical) ─────────────────────────────────────────────
-// Performs the full release flow:
-//   1. Marks payment RELEASED + escrowReleasedAt
-//   2. Marks booking COMPLETED + completedAt
-//   3. Increments worker's completedJobs counter
-//   4. Converts any pending referrals for the worker
-//   5. Sends a notification to the worker
-//
-// Auth and permission checks stay in the controller — this service assumes
-// the caller has already authorized the release.
-//
-// Returns: { payment, booking } on success.
-// Throws if the payment isn't in a releasable state.
-export async function releaseEscrow(paymentId, options = {}) {
-  const { triggeredBy = null, triggeredByRole = "SYSTEM" } = options;
-
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-    include: {
-      booking: {
-        include: {
-          worker: { select: { id: true, firstName: true } },
-          hirer: { select: { id: true, firstName: true, lastName: true } },
-        },
-      },
-    },
-  });
-
-  if (!payment) {
-    throw new Error("Payment not found");
-  }
-
-  if (payment.status !== "HELD") {
-    throw new Error(
-      `Payment cannot be released — current status is ${payment.status}, expected HELD`,
-    );
-  }
-
-  const booking = payment.booking;
-  if (!booking) {
-    throw new Error("Payment has no associated booking");
-  }
-
-  // 1 + 2. Update payment and booking atomically
-  const [updatedPayment, updatedBooking] = await prisma.$transaction([
-    prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: "RELEASED", escrowReleasedAt: new Date() },
-    }),
-    prisma.booking.update({
-      where: { id: booking.id },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    }),
-  ]);
-
-  // 3. Increment worker's completedJobs counter (best-effort — profile may not exist)
-  await prisma.workerProfile
-    .update({
-      where: { userId: booking.workerId },
-      data: { completedJobs: { increment: 1 } },
-    })
-    .catch(() => {});
-
-  // 4. Convert referrals (fire and forget)
-  const { convertReferral } = await import("./referral.controller.js").catch(
-    () => ({ convertReferral: null }),
-  );
-  if (convertReferral) {
-    await convertReferral(booking.workerId, payment.amount).catch((err) =>
-      console.error("convertReferral (releaseEscrow) error:", err.message),
-    );
-  }
-
-  // 5. Notify worker
-  const { createNotification } =
-    await import("./notification.service.js").catch(() => ({
-      createNotification: null,
-    }));
-  if (createNotification) {
-    await createNotification({
-      userId: booking.workerId,
-      title: "Payment Released 🎉",
-      body: `Payment for "${booking.title}" has been released to you.`,
-      type: "PAYMENT_RELEASED",
-      data: { bookingId: booking.id, paymentId: payment.id },
-      icon: "FaMoneyBillWave",
-    }).catch((err) =>
-      console.error("notify (releaseEscrow) error:", err.message),
-    );
-  }
-
-  // Audit-friendly log line
-  console.log(
-    `[releaseEscrow] Payment ${payment.id} released to worker ${booking.workerId} (triggered by ${triggeredByRole} ${triggeredBy ?? "system"})`,
-  );
-
-  return { payment: updatedPayment, booking: updatedBooking };
 }
