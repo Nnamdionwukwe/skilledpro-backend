@@ -181,8 +181,6 @@ export const getJobPostBookingDraft = async (req, res) => {
     if (jobPost.hirerId !== req.user.id)
       return sendError(res, "Forbidden — you don't own this job post", 403);
 
-    // Optional filter: if `workerId` query is present, return only that
-    // application's worker so the frontend knows who to book.
     const { workerId } = req.query;
     const accepted = workerId
       ? jobPost.applications.find((a) => a.workerId === workerId)
@@ -193,8 +191,6 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     // ── Build the raw list of price options ──────────────────────────────
-    // Each entry is self-describing, then enriched below with the
-    // server-computed total.
     const rawOptions = [];
 
     if (jobPost.budget != null && jobPost.budget > 0) {
@@ -266,10 +262,8 @@ export const getJobPostBookingDraft = async (req, res) => {
         const t = computeJobBookingTotal(jobPost, opt.key, null);
         return {
           ...opt,
-          // The rate is still useful for display, but the amount the
-          // hirer pays is `estimatedTotal`.
           estimatedTotal: t.amount,
-          amount: t.amount, // kept for backwards compatibility
+          amount: t.amount,
           canAutoCompute: true,
           explanation: t.explanation,
         };
@@ -279,7 +273,7 @@ export const getJobPostBookingDraft = async (req, res) => {
           estimatedTotal: null,
           amount: null,
           canAutoCompute: false,
-          error: err.code, // MISSING_RATE / MISSING_DURATION / CUSTOM_UNSUPPORTED / SALARY_TEXT_UNSUPPORTED
+          error: err.code,
           errorMessage: err.message,
         };
       }
@@ -305,10 +299,35 @@ export const getJobPostBookingDraft = async (req, res) => {
       jobType: jobPost.jobType,
       locationType: jobPost.locationType,
       skills: jobPost.skills,
+      qualifications: jobPost.qualifications,
       requirements: jobPost.requirements,
       responsibilities: jobPost.responsibilities,
       budgetType: jobPost.budgetType,
       currency: jobPost.currency,
+
+      // ── NEW: everything else the booking page needs ─────────────────────
+      languageRequirement: jobPost.languageRequirement,
+      providesAccommodation: jobPost.providesAccommodation,
+      providesMeals: jobPost.providesMeals,
+      experienceLevel: jobPost.experienceLevel,
+      experienceLength: jobPost.experienceLength,
+      minQualification: jobPost.minQualification,
+      educationLevel: jobPost.educationLevel,
+      workingHours: jobPost.workingHours,
+      applicantLocation: jobPost.applicantLocation,
+      salaryText: jobPost.salaryText,
+      salaryAmount: jobPost.salaryAmount,
+      salaryMin: jobPost.salaryMin,
+      salaryMax: jobPost.salaryMax,
+      salaryCurrency: jobPost.salaryCurrency,
+      salaryPeriod: jobPost.salaryPeriod,
+      companyName: jobPost.companyName,
+      sourcePlatform: jobPost.sourcePlatform,
+      applicationUrl: jobPost.applicationUrl,
+      applicationEmail: jobPost.applicationEmail,
+      applicationWhatsApp: jobPost.applicationWhatsApp,
+      applicationPhone: jobPost.applicationPhone,
+      expiryDate: jobPost.expiryDate,
     };
 
     return sendResponse(res, {
@@ -371,6 +390,7 @@ export const createBookingFromJobPost = async (req, res) => {
     const jobPost = await prisma.jobPost.findUnique({
       where: { id: jobPostId },
       include: {
+        category: true,
         applications: {
           where: { status: "ACCEPTED" },
           select: { id: true, workerId: true, status: true },
@@ -391,8 +411,6 @@ export const createBookingFromJobPost = async (req, res) => {
       );
 
     // ── Compute the total via the shared calculator ────────────────────────
-    // Errors thrown here map cleanly to 400 responses with a usable
-    // message the frontend can display.
     let total;
     try {
       total = computeJobBookingTotal(
@@ -423,8 +441,6 @@ export const createBookingFromJobPost = async (req, res) => {
     }
 
     // ── Normalize job-post fields for the snapshot ────────────────────────
-    // Defensive: these may be undefined on older job posts. Fall back to
-    // safe defaults so the booking row never has undefined columns.
     const snapshotSkills = Array.isArray(jobPost.skills) ? jobPost.skills : [];
     const snapshotQualifications = Array.isArray(jobPost.qualifications)
       ? jobPost.qualifications
@@ -463,15 +479,44 @@ export const createBookingFromJobPost = async (req, res) => {
         requirements: jobPost.requirements,
         responsibilities: jobPost.responsibilities,
 
-        // ── Job-post snapshot fields (Option B) ────────────────────────
-        // Copied at creation time so the booking detail page is fully
-        // self-contained. Future edits to the job post do not alter
-        // historical bookings.
+        // ── Job-post snapshot fields ───────────────────────────────────
         skills: snapshotSkills,
         qualifications: snapshotQualifications,
         languageRequirement: snapshotLanguage,
         providesAccommodation: snapshotAccommodation,
         providesMeals: snapshotMeals,
+
+        // ── NEW snapshot fields ────────────────────────────────────────
+        snapshotCategoryName: jobPost.category?.name ?? null,
+        snapshotCategoryIcon: jobPost.category?.icon ?? null,
+
+        durationType: jobPost.durationType ?? null,
+        durationValue: jobPost.durationValue ?? null,
+
+        experienceLevel: jobPost.experienceLevel ?? null,
+        experienceLength: jobPost.experienceLength ?? null,
+        minQualification: jobPost.minQualification ?? null,
+        educationLevel: jobPost.educationLevel ?? null,
+        workingHours: jobPost.workingHours ?? null,
+        applicantLocation: jobPost.applicantLocation ?? null,
+
+        salaryText: jobPost.salaryText ?? null,
+        salaryAmount: jobPost.salaryAmount ?? null,
+        salaryMin: jobPost.salaryMin ?? null,
+        salaryMax: jobPost.salaryMax ?? null,
+        salaryCurrency: jobPost.salaryCurrency ?? null,
+        salaryPeriod: jobPost.salaryPeriod ?? null,
+
+        companyName: jobPost.companyName ?? null,
+        sourcePlatform: jobPost.sourcePlatform ?? null,
+        applicationUrl: jobPost.applicationUrl ?? null,
+        applicationEmail: jobPost.applicationEmail ?? null,
+        applicationWhatsApp: jobPost.applicationWhatsApp ?? null,
+        applicationPhone: jobPost.applicationPhone ?? null,
+
+        jobPostExpiryDate: jobPost.expiryDate ?? null,
+        jobPostPostedAt: jobPost.createdAt ?? null,
+        snapshotBudgetType: jobPost.budgetType ?? null,
 
         // Payment resolution — server-computed
         agreedRate: total.amount,
@@ -480,14 +525,14 @@ export const createBookingFromJobPost = async (req, res) => {
         negotiatedRate: total.isNegotiated ? total.amount : null,
         negotiationNote: total.isNegotiated
           ? negotiationNote?.trim() || null
-          : total.explanation, // store the audit trail when not negotiated
+          : total.explanation,
 
         // Hirer-editable
         notes: notes || null,
         quantity: quantity || 1,
         custom_label: customLabel || null,
 
-        // Snapshot for audit / replay — every number that fed the total
+        // Snapshot for audit / replay
         jobRateSnapshot: {
           budget: jobPost.budget,
           budgetType: jobPost.budgetType,
@@ -607,6 +652,15 @@ export const getBooking = async (req, res) => {
             avatar: true,
             phone: true,
             role: true,
+            city: true,
+            country: true,
+            hirerProfile: {
+              select: {
+                companyName: true,
+                avgRating: true,
+                totalHires: true,
+              },
+            },
           },
         },
         worker: {
@@ -617,6 +671,14 @@ export const getBooking = async (req, res) => {
             avatar: true,
             phone: true,
             role: true,
+            city: true,
+            country: true,
+            workerProfile: {
+              select: {
+                title: true,
+                avgRating: true,
+              },
+            },
           },
         },
         category: true,
@@ -634,6 +696,29 @@ export const getBooking = async (req, res) => {
             },
           },
         },
+        jobPost: {
+          include: {
+            category: true,
+            hirer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                avatar: true,
+                city: true,
+                country: true,
+                hirerProfile: {
+                  select: {
+                    companyName: true,
+                    avgRating: true,
+                    totalHires: true,
+                  },
+                },
+              },
+            },
+            _count: { select: { applications: true } },
+          },
+        },
       },
     });
 
@@ -648,8 +733,48 @@ export const getBooking = async (req, res) => {
       estimatedHours: booking.estimatedHours || null,
       estimatedUnit: booking.estimatedUnit || "hours",
       estimatedValue: booking.estimatedValue || null,
-      quantity: booking.quantity || 1, // ← Add this
+      quantity: booking.quantity || 1,
       customLabel: booking.custom_label || null,
+
+      // Snapshot — normalized shape for the frontend
+      snapshot: {
+        categoryName: booking.snapshotCategoryName,
+        categoryIcon: booking.snapshotCategoryIcon,
+
+        durationType: booking.durationType,
+        durationValue: booking.durationValue,
+
+        experienceLevel: booking.experienceLevel,
+        experienceLength: booking.experienceLength,
+        minQualification: booking.minQualification,
+        educationLevel: booking.educationLevel,
+        workingHours: booking.workingHours,
+        applicantLocation: booking.applicantLocation,
+
+        salaryText: booking.salaryText,
+        salaryAmount: booking.salaryAmount,
+        salaryMin: booking.salaryMin,
+        salaryMax: booking.salaryMax,
+        salaryCurrency: booking.salaryCurrency,
+        salaryPeriod: booking.salaryPeriod,
+
+        companyName: booking.companyName,
+        sourcePlatform: booking.sourcePlatform,
+        applicationUrl: booking.applicationUrl,
+        applicationEmail: booking.applicationEmail,
+        applicationWhatsApp: booking.applicationWhatsApp,
+        applicationPhone: booking.applicationPhone,
+
+        expiryDate: booking.jobPostExpiryDate,
+        postedAt: booking.jobPostPostedAt,
+        budgetType: booking.snapshotBudgetType,
+
+        skills: booking.skills,
+        qualifications: booking.qualifications,
+        languageRequirement: booking.languageRequirement,
+        providesAccommodation: booking.providesAccommodation,
+        providesMeals: booking.providesMeals,
+      },
     };
 
     return sendResponse(res, { data: { booking: responseData } });
