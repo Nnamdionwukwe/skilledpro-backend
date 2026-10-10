@@ -305,7 +305,7 @@ export const getJobPostBookingDraft = async (req, res) => {
       budgetType: jobPost.budgetType,
       currency: jobPost.currency,
 
-      // ── NEW: everything else the booking page needs ─────────────────────
+      // ── Extended job-post fields (mirror JobDetail.jsx) ────────────────
       languageRequirement: jobPost.languageRequirement,
       providesAccommodation: jobPost.providesAccommodation,
       providesMeals: jobPost.providesMeals,
@@ -328,6 +328,13 @@ export const getJobPostBookingDraft = async (req, res) => {
       applicationWhatsApp: jobPost.applicationWhatsApp,
       applicationPhone: jobPost.applicationPhone,
       expiryDate: jobPost.expiryDate,
+
+      // ── NEW: budget + custom label ─────────────────────────────────────
+      // The frontend renders a "Budget" card on the booking preview that
+      // mirrors the "Budget" card on the job detail page. Both need the
+      // raw numeric budget and (for CUSTOM budgetType) the free-text label.
+      budget: jobPost.budget,
+      budgetCustomLabel: jobPost.budgetCustomLabel ?? null,
     };
 
     return sendResponse(res, {
