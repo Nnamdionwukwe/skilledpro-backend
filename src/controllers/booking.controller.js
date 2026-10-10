@@ -343,6 +343,10 @@ export const getJobPostBookingDraft = async (req, res) => {
 //
 // The FINAL `agreedRate` is computed server-side by bookingMath. The
 // client can never supply it — any `agreedRate` in the body is ignored.
+//
+// All job-post-specific fields (skills, qualifications, language
+// requirement, work conditions) are snapshotted onto the Booking row at
+// creation time so the booking detail page is fully self-contained.
 export const createBookingFromJobPost = async (req, res) => {
   try {
     const { jobPostId } = req.params;
@@ -418,6 +422,21 @@ export const createBookingFromJobPost = async (req, res) => {
       );
     }
 
+    // ── Normalize job-post fields for the snapshot ────────────────────────
+    // Defensive: these may be undefined on older job posts. Fall back to
+    // safe defaults so the booking row never has undefined columns.
+    const snapshotSkills = Array.isArray(jobPost.skills) ? jobPost.skills : [];
+    const snapshotQualifications = Array.isArray(jobPost.qualifications)
+      ? jobPost.qualifications
+      : [];
+    const snapshotLanguage =
+      typeof jobPost.languageRequirement === "string" &&
+      jobPost.languageRequirement.trim()
+        ? jobPost.languageRequirement.trim().toLowerCase()
+        : null;
+    const snapshotAccommodation = Boolean(jobPost.providesAccommodation);
+    const snapshotMeals = Boolean(jobPost.providesMeals);
+
     // ── Create the booking ────────────────────────────────────────────────
     const booking = await prisma.booking.create({
       data: {
@@ -444,7 +463,17 @@ export const createBookingFromJobPost = async (req, res) => {
         requirements: jobPost.requirements,
         responsibilities: jobPost.responsibilities,
 
-        // Payment resolution — THE FIX
+        // ── Job-post snapshot fields (Option B) ────────────────────────
+        // Copied at creation time so the booking detail page is fully
+        // self-contained. Future edits to the job post do not alter
+        // historical bookings.
+        skills: snapshotSkills,
+        qualifications: snapshotQualifications,
+        languageRequirement: snapshotLanguage,
+        providesAccommodation: snapshotAccommodation,
+        providesMeals: snapshotMeals,
+
+        // Payment resolution — server-computed
         agreedRate: total.amount,
         currency: total.currency,
         isNegotiated: total.isNegotiated,

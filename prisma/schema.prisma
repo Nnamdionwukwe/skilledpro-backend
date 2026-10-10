@@ -907,6 +907,13 @@ model Booking {
   // Snapshot of what the hirer selected from the job's price options
   selectedRateOption String? // "budget" | "salaryAmount" | "salaryMin" | "salaryMax" | "salaryText"
   jobRateSnapshot    Json? // optional: snapshot the job's price fields at booking time
+
+    // ── Job-post snapshot fields ─────────────────────────────────────────────
+  skills                String[]  @default([])
+  qualifications        String[]  @default([])
+  languageRequirement   String?
+  providesAccommodation Boolean   @default(false)
+  providesMeals         Boolean   @default(false)
 }
 
 model Payment {
