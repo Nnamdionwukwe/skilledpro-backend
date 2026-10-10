@@ -42,6 +42,11 @@ export const createJobPost = async (req, res) => {
       estimatedUnit,
       estimatedValue,
 
+      // ── Schedule mode (recurring support) ────────────────────────────────
+      scheduleMode, // "ONE_OFF" | "RECURRING" | undefined (treated as ONE_OFF)
+      recurrenceInterval, // "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "YEARLY"
+      recurrenceDuration, // "2_WEEKS" | "1_MONTH" | "3_MONTHS" | "6_MONTHS" | "1_YEAR" | "ONGOING"
+
       // ── Payment ──────────────────────────────────────────────────────────
       budget,
       currency,
@@ -133,6 +138,71 @@ export const createJobPost = async (req, res) => {
         ).slice(0, 10)
       : [];
 
+    // ── Resolve the duration fields (ONE_OFF vs RECURRING) ──────────────────
+    // For ONE_OFF jobs, use the numeric value the hirer entered.
+    // For RECURRING jobs, the hirer never enters a numeric value — they pick
+    // an interval (e.g. "Weekly") and a duration (e.g. "For 3 months").
+    // We store that as estimatedUnit: "custom" and estimatedValue: the text,
+    // so downstream bookings carry real duration data instead of nulls.
+    const RECURRENCE_INTERVAL_LABEL = {
+      DAILY: "Daily",
+      WEEKLY: "Weekly",
+      BIWEEKLY: "Bi-weekly",
+      MONTHLY: "Monthly",
+      YEARLY: "Yearly",
+    };
+    const RECURRENCE_DURATION_LABEL = {
+      "2_WEEKS": "for 2 weeks",
+      "1_MONTH": "for 1 month",
+      "3_MONTHS": "for 3 months",
+      "6_MONTHS": "for 6 months",
+      "1_YEAR": "for 1 year",
+      ONGOING: "ongoing",
+    };
+
+    const isRecurring = scheduleMode === "RECURRING";
+
+    let resolvedEstimatedUnit;
+    let resolvedEstimatedValue;
+    let resolvedEstimatedHours;
+
+    if (isRecurring) {
+      const intervalLabel =
+        RECURRENCE_INTERVAL_LABEL[recurrenceInterval] ||
+        (typeof recurrenceInterval === "string" ? recurrenceInterval : null);
+      const durationLabel =
+        RECURRENCE_DURATION_LABEL[recurrenceDuration] ||
+        (typeof recurrenceDuration === "string"
+          ? recurrenceDuration.replace(/_/g, " ").toLowerCase()
+          : null);
+
+      const recurringText =
+        intervalLabel && durationLabel
+          ? `${intervalLabel}, ${durationLabel}`
+          : intervalLabel || durationLabel || "Recurring";
+
+      resolvedEstimatedUnit = "custom";
+      resolvedEstimatedValue = recurringText;
+      // Recurring jobs have no single numeric hour count we can compute here —
+      // the notes-based breakdown is what matters for display.
+      resolvedEstimatedHours = null;
+    } else {
+      // ONE_OFF: preserve the existing behaviour exactly.
+      resolvedEstimatedUnit = estimatedUnit || "hours";
+      resolvedEstimatedValue =
+        estimatedValue !== undefined &&
+        estimatedValue !== null &&
+        estimatedValue !== ""
+          ? String(estimatedValue)
+          : null;
+      resolvedEstimatedHours =
+        estimatedHours !== undefined &&
+        estimatedHours !== null &&
+        estimatedHours !== ""
+          ? parseFloat(estimatedHours)
+          : null;
+    }
+
     // ── Validate category exists ────────────────────────────────────────────
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
@@ -157,19 +227,9 @@ export const createJobPost = async (req, res) => {
         // Job meta
         jobType,
         scheduledAt: parsedDate,
-        estimatedHours:
-          estimatedHours !== undefined &&
-          estimatedHours !== null &&
-          estimatedHours !== ""
-            ? parseFloat(estimatedHours)
-            : null,
-        estimatedUnit: estimatedUnit || "hours",
-        estimatedValue:
-          estimatedValue !== undefined &&
-          estimatedValue !== null &&
-          estimatedValue !== ""
-            ? String(estimatedValue)
-            : null,
+        estimatedHours: resolvedEstimatedHours,
+        estimatedUnit: resolvedEstimatedUnit,
+        estimatedValue: resolvedEstimatedValue,
 
         // Payment
         budgetType,
