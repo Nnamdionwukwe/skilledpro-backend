@@ -191,6 +191,8 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     // ── Build the raw list of price options ──────────────────────────────
+    // Each option carries the RAW rate the hirer entered (opt.amount).
+    // The computed total is added later as opt.estimatedTotal.
     const rawOptions = [];
 
     if (jobPost.budget != null && jobPost.budget > 0) {
@@ -257,21 +259,26 @@ export const getJobPostBookingDraft = async (req, res) => {
     }
 
     // ── Enrich each option with its server-computed total ───────────────
+    // IMPORTANT: `opt.amount` is the RAW rate the hirer entered on the
+    // job post (e.g. 1000 for "NGN 1000 per day"). `estimatedTotal` is
+    // the computed total after multiplying by the duration
+    // (e.g. 30310 = 1000 × 30.31 days). The frontend needs BOTH so it
+    // can display the multiplication explicitly.
     const priceOptions = rawOptions.map((opt) => {
       try {
         const t = computeJobBookingTotal(jobPost, opt.key, null);
         return {
           ...opt,
+          // Keep opt.amount as-is — it holds the raw rate.
           estimatedTotal: t.amount,
-          amount: t.amount,
           canAutoCompute: true,
           explanation: t.explanation,
         };
       } catch (err) {
         return {
           ...opt,
+          // Keep opt.amount so the frontend can still display the rate.
           estimatedTotal: null,
-          amount: null,
           canAutoCompute: false,
           error: err.code,
           errorMessage: err.message,
@@ -329,10 +336,7 @@ export const getJobPostBookingDraft = async (req, res) => {
       applicationPhone: jobPost.applicationPhone,
       expiryDate: jobPost.expiryDate,
 
-      // ── NEW: budget + custom label ─────────────────────────────────────
-      // The frontend renders a "Budget" card on the booking preview that
-      // mirrors the "Budget" card on the job detail page. Both need the
-      // raw numeric budget and (for CUSTOM budgetType) the free-text label.
+      // ── Budget + custom label ──────────────────────────────────────────
       budget: jobPost.budget,
       budgetCustomLabel: jobPost.budgetCustomLabel ?? null,
     };
