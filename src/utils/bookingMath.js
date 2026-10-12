@@ -115,8 +115,7 @@ function round4(n) {
  * }}
  *
  * @throws Error with `.code` ∈ {
- *   MISSING_RATE, MISSING_DURATION, CUSTOM_UNSUPPORTED,
- *   SALARY_TEXT_UNSUPPORTED
+ *   MISSING_RATE, MISSING_DURATION, SALARY_TEXT_UNSUPPORTED
  * }
  */
 export function computeJobBookingTotal(job, optionKey, negotiatedRate) {
@@ -156,7 +155,11 @@ export function computeJobBookingTotal(job, optionKey, negotiatedRate) {
   }
   const currency = resolveCurrency(job, optionKey);
 
-  // ── 4. FIXED (or unset) → flat total ─────────────────────────────
+  // ── 4. FIXED and CUSTOM → flat total (rate IS the total) ─────────
+  // CUSTOM behaves identically to FIXED: the amount the hirer entered
+  // on the job post is the subtotal. This mirrors JobDetail.jsx and
+  // CreateBookingFromJob.jsx, which both treat `isCustom → subtotal = rate`.
+  // No multiplier, no negotiation required.
   const budgetType = job.budgetType || "FIXED";
   if (budgetType === "FIXED") {
     return {
@@ -166,17 +169,16 @@ export function computeJobBookingTotal(job, optionKey, negotiatedRate) {
       explanation: `Fixed total: ${currency} ${rate}`,
     };
   }
-
-  // ── 5. CUSTOM → negotiation required ─────────────────────────────
   if (budgetType === "CUSTOM") {
-    const err = new Error(
-      "This job uses a custom pay rate. Please enter the agreed total amount as a negotiated rate.",
-    );
-    err.code = "CUSTOM_UNSUPPORTED";
-    throw err;
+    return {
+      amount: round2(rate),
+      currency,
+      isNegotiated: false,
+      explanation: `Custom rate · ${currency} ${rate}`,
+    };
   }
 
-  // ── 6. Time-based rate → need a duration ─────────────────────────
+  // ── 5. Time-based rate → need a duration ─────────────────────────
   const hours = durationToHours(job.estimatedValue, job.estimatedUnit);
   if (hours == null) {
     const err = new Error(
