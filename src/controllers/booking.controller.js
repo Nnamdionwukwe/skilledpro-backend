@@ -377,6 +377,19 @@ export const getJobPostBookingDraft = async (req, res) => {
 // All job-post-specific fields (skills, qualifications, language
 // requirement, work conditions) are snapshotted onto the Booking row at
 // creation time so the booking detail page is fully self-contained.
+//
+// ── Multiple bookings per job post ─────────────────────────────────────────
+// A job post is a reusable template. The hirer may create MANY bookings
+// from the same job post over its lifetime — for the same worker or
+// different workers — without limit. Each booking is fully independent
+// (its own status, payment, check-in, cancellation, reviews). Cancelling
+// one booking never affects another, and never affects the job post.
+// Cancellation is handled exclusively by `updateBookingStatus` on the
+// booking detail page.
+//
+// Therefore: this handler does NOT block on prior bookings. It only
+// requires that the target worker has an ACCEPTED application on this
+// job post (so the hirer has formally chosen them at least once).
 export const createBookingFromJobPost = async (req, res) => {
   try {
     const { jobPostId } = req.params;
@@ -433,24 +446,6 @@ export const createBookingFromJobPost = async (req, res) => {
       return sendError(res, err.message, 400);
     }
 
-    // ── Prevent duplicate booking for the same application ────────────────
-    const existingBooking = await prisma.booking.findFirst({
-      where: {
-        jobPostId: jobPost.id,
-        workerId,
-        status: { notIn: ["CANCELLED", "REJECTED"] },
-      },
-      select: { id: true },
-    });
-
-    if (existingBooking) {
-      return sendError(
-        res,
-        "A booking already exists for this application",
-        409,
-      );
-    }
-
     // ── Normalize job-post fields for the snapshot ────────────────────────
     const snapshotSkills = Array.isArray(jobPost.skills) ? jobPost.skills : [];
     const snapshotQualifications = Array.isArray(jobPost.qualifications)
@@ -497,7 +492,7 @@ export const createBookingFromJobPost = async (req, res) => {
         providesAccommodation: snapshotAccommodation,
         providesMeals: snapshotMeals,
 
-        // ── NEW snapshot fields ────────────────────────────────────────
+        // ── Snapshot fields ────────────────────────────────────────────
         snapshotCategoryName: jobPost.category?.name ?? null,
         snapshotCategoryIcon: jobPost.category?.icon ?? null,
 

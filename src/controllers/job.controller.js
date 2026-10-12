@@ -887,11 +887,12 @@ export const getJobApplications = async (req, res) => {
 // Protected (HIRER) — change an application's status.
 //
 // Accepted values:
-//   ACCEPTED → application accepted, job marked FILLED, worker notified
-//   REJECTED → application rejected, worker notified, job unchanged
-//   PENDING  → application reopened, job set back to OPEN, worker notified
-//              (also used by the dedicated /unaccept route, but supported
-//               here as a fallback for clients that only know about /status)
+//   ACCEPTED → application accepted, worker notified. Job status is NOT
+//              changed — the job post is a reusable template and stays
+//              OPEN so the hirer can accept more workers and create more
+//              bookings over its lifetime.
+//   REJECTED → application rejected, worker notified, job unchanged.
+//   PENDING  → application reopened, job set back to OPEN, worker notified.
 export const updateApplicationStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -964,26 +965,23 @@ export const updateApplicationStatus = async (req, res) => {
     });
 
     // ── 6. Job status transitions ──
-    if (status === "ACCEPTED") {
-      // Job is now filled — no other worker can be accepted.
-      await prisma.jobPost.update({
-        where: { id: jobPostId },
-        data: { status: "FILLED" },
-      });
-    } else if (status === "PENDING") {
-      // Reset — reopen the job so the hirer can pick someone else.
-      //
-      // We intentionally DO NOT touch any booking that may exist for
-      // this application. Bookings are independent entities with their
-      // own lifecycle. The hirer cancels them from the booking detail
-      // page, which is the only place with the full context (payment
-      // state, check-in, refund implications). This also allows one
-      // job post to accumulate multiple bookings over its lifetime.
+    //
+    // A job post is a reusable template. Accepting an application does
+    // NOT close the job — the hirer can keep accepting workers and
+    // create multiple independent bookings for the same job post over
+    // its lifetime. Cancelling a booking is done exclusively from the
+    // booking detail page and never touches the job post.
+    //
+    // The ONLY job-status transition here is PENDING: resetting a
+    // previously-accepted application back to Pending Review reopens
+    // the job so the hirer can pick someone else.
+    if (status === "PENDING") {
       await prisma.jobPost.update({
         where: { id: jobPostId },
         data: { status: "OPEN" },
       });
     }
+    // ACCEPTED: no job-status change — the job stays as it is.
     // REJECTED: no job-status change.
 
     return sendResponse(res, {
