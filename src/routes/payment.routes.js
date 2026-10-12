@@ -118,6 +118,13 @@ router.post(
   releasePayment,
 );
 
+// Optional alias — same handler, clearer intent for partials
+router.post(
+  "/partial-release/:bookingId",
+  ...validateUUIDParam("bookingId"),
+  releasePayment,
+);
+
 // ── Refund (admin or hirer within refund window) ──────────────────────────────
 router.post(
   "/refund/:bookingId",

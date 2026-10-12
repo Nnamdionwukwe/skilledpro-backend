@@ -419,6 +419,8 @@ model User {
 
     voiceCallsInitiated VoiceCall[]      @relation("VoiceCallsInitiated")
   voiceCallsReceived  VoiceCall[]      @relation("VoiceCallsReceived")
+
+  releasesMade PaymentRelease[] @relation("ReleasedBy")
 }
 
 model Referral {
@@ -992,6 +994,33 @@ model Payment {
 
   // Inside model Payment { ... }
   refunds Refund[]
+  releasedAmount Float              @default(0)
+releaseCount   Int                @default(0)
+releases       PaymentRelease[]
+}
+
+model PaymentRelease {
+  id           String   @id @default(uuid())
+  paymentId    String
+  payment      Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  amount       Float                  // the released amount, in currency units
+  currency     String   @default("NGN")
+  note         String?                // optional reason from the hirer
+
+  releasedById String
+  releasedBy   User     @relation("ReleasedBy", fields: [releasedById], references: [id])
+
+  // Snapshot at time of release, so history stays intact even if the
+  // payment is later edited:
+  workerPayoutAtRelease Float
+  remainingBefore       Float
+  remainingAfter        Float
+
+  createdAt    DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([createdAt(sort: Desc)])
 }
 
 model Withdrawal {

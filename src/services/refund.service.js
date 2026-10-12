@@ -23,16 +23,51 @@ export const isRefundEligible = (booking) => {
 };
 
 // ── Calculate refund amounts ────────────────────────────────────────
+// Honours the partial-release rule: whatever has already been released
+// to the worker (payment.releasedAmount) is NON-REFUNDABLE. Refund math
+// operates only on the remaining escrow balance.
+//
+// Before partial releases existed, `releasedAmount` was implicitly 0 for
+// every HELD payment. This function preserves that behaviour because the
+// default is 0.
 export const calculateRefundAmounts = (
   payment,
   refundType,
   percentage = null,
 ) => {
   const currency = payment.currency || "NGN";
-  const originalAmount = payment.amount;
+  const originalAmount = Number(payment.amount) || 0;
   const platformFee =
-    payment.platformFee || originalAmount * PLATFORM_FEE_PERCENT;
-  const workerPayout = payment.workerPayout || originalAmount - platformFee;
+    Number(payment.platformFee) ||
+    parseFloat((originalAmount * PLATFORM_FEE_PERCENT).toFixed(2));
+  const fullWorkerPayout =
+    Number(payment.workerPayout) ||
+    parseFloat((originalAmount - platformFee).toFixed(2));
+
+  // ── NEW: escrow-aware worker payout ────────────────────────────────
+  // Whatever is already released is off-limits for refunds.
+  const releasedAmount = Number(payment.releasedAmount) || 0;
+  const refundableWorkerPayout = parseFloat(
+    Math.max(0, fullWorkerPayout - releasedAmount).toFixed(2),
+  );
+
+  // The refundable portion of the hirer's total is what remains in
+  // escrow for the worker, PLUS the platform fee (which was never
+  // released). But if the worker never got anything yet, the fee is
+  // fully refundable too.
+  //
+  // We cap at two invariants:
+  //   • hirer's total refundable ≤ amount - releasedAmount
+  //   • worker deduction        ≤ refundableWorkerPayout
+  const maxRefundableTotal = parseFloat(
+    Math.max(0, originalAmount - releasedAmount).toFixed(2),
+  );
+  const maxPlatformFeeRefundable = parseFloat(
+    Math.max(
+      0,
+      platformFee - Math.max(0, releasedAmount - fullWorkerPayout),
+    ).toFixed(2),
+  );
 
   let refundAmount = 0;
   let platformFeeRefunded = 0;
@@ -41,27 +76,45 @@ export const calculateRefundAmounts = (
 
   switch (refundType) {
     case "FULL":
-      refundAmount = originalAmount;
-      platformFeeRefunded = platformFee;
-      workerAmountDeducted = workerPayout;
-      finalPercentage = 100;
+      refundAmount = maxRefundableTotal;
+      platformFeeRefunded = maxPlatformFeeRefundable;
+      workerAmountDeducted = refundableWorkerPayout;
+      finalPercentage =
+        originalAmount > 0
+          ? parseFloat(((refundAmount / originalAmount) * 100).toFixed(2))
+          : 0;
       break;
 
     case "PARTIAL": {
       const pct = percentage || 50;
       finalPercentage = pct;
-      refundAmount = (originalAmount * pct) / 100;
-      platformFeeRefunded = (platformFee * pct) / 100;
-      workerAmountDeducted = (workerPayout * pct) / 100;
+
+      // Apply the percentage to each component, then clamp to the
+      // escrow-aware ceilings.
+      const rawTotal = (originalAmount * pct) / 100;
+      const rawFee = (platformFee * pct) / 100;
+      const rawWorker = (fullWorkerPayout * pct) / 100;
+
+      refundAmount = parseFloat(
+        Math.min(rawTotal, maxRefundableTotal).toFixed(2),
+      );
+      platformFeeRefunded = parseFloat(
+        Math.min(rawFee, maxPlatformFeeRefundable).toFixed(2),
+      );
+      workerAmountDeducted = parseFloat(
+        Math.min(rawWorker, refundableWorkerPayout).toFixed(2),
+      );
       break;
     }
 
     case "CUSTOM_AMOUNT":
-      finalPercentage = (refundAmount / originalAmount) * 100;
+      // Legacy path — caller fills refundAmount manually elsewhere.
+      finalPercentage =
+        originalAmount > 0 ? (refundAmount / originalAmount) * 100 : 0;
       break;
 
     case "DISPUTE":
-      // Admin decides the amount
+      // Admin decides the amount — no automatic math here.
       break;
   }
 
@@ -73,9 +126,32 @@ export const calculateRefundAmounts = (
     currency,
     originalAmount,
     platformFee,
-    workerPayout,
+    workerPayout: fullWorkerPayout, // unchanged shape for callers
+    refundableWorkerPayout, // NEW
+    releasedAmount, // NEW
+    maxRefundableTotal, // NEW — useful for admin UI
   };
 };
+
+// ── Guard: refunds cannot exceed the remaining escrow ──────────────
+// Throws if `requestedAmount` (the hirer-side refund total) is greater
+// than what is still held. This is the single choke point that makes
+// the "released portion is non-refundable" rule enforceable from every
+// code path.
+function assertRefundableWithinEscrow(payment, requestedAmount, context) {
+  const originalAmount = Number(payment.amount) || 0;
+  const releasedAmount = Number(payment.releasedAmount) || 0;
+  const maxRefundable = parseFloat(
+    Math.max(0, originalAmount - releasedAmount).toFixed(2),
+  );
+
+  if (requestedAmount > maxRefundable) {
+    throw new Error(
+      `${context}: cannot refund ${requestedAmount} ${payment.currency} — ` +
+        `only ${maxRefundable} remains in escrow (${releasedAmount} already released to the worker).`,
+    );
+  }
+}
 
 // ── Generate refund reference ──────────────────────────────────────
 export const generateRefundReference = () => {
@@ -581,11 +657,17 @@ export const createRefundFromDispute = async (
     throw new Error("createRefundFromDispute: percentage must be 1–100");
   }
 
-  // Calculate prorated amounts using the existing helper
   const calculated = calculateRefundAmounts(
     payment,
     percentage === 100 ? "FULL" : "PARTIAL",
     percentage === 100 ? null : percentage,
+  );
+
+  // ── Enforce the non-refundable-released rule ──────────────────────
+  assertRefundableWithinEscrow(
+    payment,
+    calculated.refundAmount,
+    "createRefundFromDispute",
   );
 
   const refund = await prisma.refund.create({
@@ -606,7 +688,7 @@ export const createRefundFromDispute = async (
         `Dispute resolved in favour of the hirer. Original reason: ${dispute.reason}` +
         (adminNotes ? ` | Admin notes: ${adminNotes}` : ""),
       adminNotes: adminNotes || "Created from dispute resolution",
-      status: "APPROVED", // admin already approved by resolving the dispute
+      status: "APPROVED",
       disputeId: dispute.id,
       meta: {
         source: "DISPUTE",
@@ -616,6 +698,8 @@ export const createRefundFromDispute = async (
         originalAmount: calculated.originalAmount,
         platformFee: calculated.platformFee,
         workerPayout: calculated.workerPayout,
+        refundableWorkerPayout: calculated.refundableWorkerPayout,
+        releasedAmount: calculated.releasedAmount,
       },
     },
   });
@@ -645,6 +729,13 @@ export const createRefundFromAdmin = async (
     percentage === 100 ? null : percentage,
   );
 
+  // ── Enforce the non-refundable-released rule ──────────────────────
+  assertRefundableWithinEscrow(
+    payment,
+    calculated.refundAmount,
+    "createRefundFromAdmin",
+  );
+
   const refund = await prisma.refund.create({
     data: {
       reference: generateRefundReference(),
@@ -667,6 +758,8 @@ export const createRefundFromAdmin = async (
         originalAmount: calculated.originalAmount,
         platformFee: calculated.platformFee,
         workerPayout: calculated.workerPayout,
+        refundableWorkerPayout: calculated.refundableWorkerPayout,
+        releasedAmount: calculated.releasedAmount,
         initiatedBy: adminOrHirerId,
       },
     },

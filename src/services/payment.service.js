@@ -245,3 +245,175 @@ export async function releaseEscrow(paymentId, options = {}) {
 
   return { payment: updatedPayment, booking: updatedBooking };
 }
+
+// ─── Partial escrow release ──────────────────────────────────────────────────
+// Releases a specific amount from a HELD payment to the worker. This is the
+// primitive that underpins both partial releases and the "release all"
+// shortcut.
+//
+// Rules:
+//   • payment.status must be "HELD"
+//   • amount must be > 0 and ≤ (workerPayout - releasedAmount)
+//   • releases are non-refundable once made
+//   • booking.status is NEVER touched by this service — a partially-released
+//     booking is still IN_PROGRESS or COMPLETED, depending on where the
+//     worker is in the job lifecycle
+//   • when releasedAmount reaches workerPayout, the payment flips to
+//     RELEASED and the full-release side effects fire (referral conversion,
+//     both-party notifications, completedJobs increment). Partial releases
+//     do NOT fire any of those.
+//
+// Returns: { payment, release, isFinal }
+export async function releaseEscrowPartial(paymentId, amount, options = {}) {
+  const {
+    triggeredBy = null,
+    triggeredByRole = "SYSTEM",
+    note = null,
+  } = options;
+
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    throw new Error("Release amount must be a positive number");
+  }
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      booking: {
+        include: {
+          worker: { select: { id: true, firstName: true } },
+          hirer: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!payment) throw new Error("Payment not found");
+  if (payment.status !== "HELD") {
+    throw new Error(
+      `Payment cannot be released — current status is ${payment.status}, expected HELD`,
+    );
+  }
+
+  const booking = payment.booking;
+  if (!booking) throw new Error("Payment has no associated booking");
+
+  const workerPayout = Number(payment.workerPayout) || 0;
+  const alreadyReleased = Number(payment.releasedAmount) || 0;
+  const remainingBefore = parseFloat(
+    (workerPayout - alreadyReleased).toFixed(2),
+  );
+
+  if (remainingBefore <= 0) {
+    throw new Error("This payment has already been fully released");
+  }
+  if (amountNum > remainingBefore) {
+    throw new Error(
+      `Release amount (${amountNum}) exceeds the remaining balance (${remainingBefore})`,
+    );
+  }
+
+  const roundedAmount = parseFloat(amountNum.toFixed(2));
+  const remainingAfter = parseFloat(
+    (remainingBefore - roundedAmount).toFixed(2),
+  );
+  const newReleasedAmount = parseFloat(
+    (alreadyReleased + roundedAmount).toFixed(2),
+  );
+  const isFinal = remainingAfter === 0;
+
+  // ── Atomic write: bump releasedAmount/releaseCount, append release row,
+  //    and (if final) flip status → RELEASED ────────────────────────────
+  const [updatedPayment, release] = await prisma.$transaction([
+    prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        releasedAmount: newReleasedAmount,
+        releaseCount: { increment: 1 },
+        ...(isFinal
+          ? { status: "RELEASED", escrowReleasedAt: new Date() }
+          : {}),
+      },
+    }),
+    prisma.paymentRelease.create({
+      data: {
+        paymentId: payment.id,
+        amount: roundedAmount,
+        currency: payment.currency || "NGN",
+        note: note || null,
+        releasedById: triggeredBy || booking.hirerId,
+        workerPayoutAtRelease: workerPayout,
+        remainingBefore,
+        remainingAfter,
+      },
+    }),
+  ]);
+
+  // ── Notify the worker ───────────────────────────────────────────────
+  const { createNotification } =
+    await import("./notification.service.js").catch(() => ({
+      createNotification: null,
+    }));
+
+  if (createNotification) {
+    const cur = payment.currency || "NGN";
+    const title = isFinal
+      ? "Payment Fully Released 🎉"
+      : "Partial Payment Received 💸";
+    const body = isFinal
+      ? `The full amount of ${cur} ${roundedAmount.toLocaleString()} for "${booking.title}" has been released to you.${note ? ` Note: ${note}` : ""}`
+      : `${cur} ${roundedAmount.toLocaleString()} has been released to you for "${booking.title}". Remaining in escrow: ${cur} ${remainingAfter.toLocaleString()}.${note ? ` Note: ${note}` : ""}`;
+
+    await createNotification({
+      userId: booking.workerId,
+      title,
+      body,
+      type: isFinal ? "PAYMENT_RELEASED" : "PAYMENT_PARTIALLY_RELEASED",
+      data: {
+        bookingId: booking.id,
+        paymentId: payment.id,
+        releaseId: release.id,
+        amount: roundedAmount,
+        currency: cur,
+        remaining: remainingAfter,
+        isFinal,
+        note: note || null,
+      },
+      icon: "FaMoneyBillWave",
+    }).catch((err) =>
+      console.error("notify (releaseEscrowPartial) error:", err.message),
+    );
+  }
+
+  // ── Full-release side effects — only when 100% has been released ────
+  if (isFinal) {
+    // completedJobs increment (best-effort)
+    await prisma.workerProfile
+      .update({
+        where: { userId: booking.workerId },
+        data: { completedJobs: { increment: 1 } },
+      })
+      .catch(() => {});
+
+    // Referral conversion (fire-and-forget)
+    const { convertReferral } = await import("./referral.controller.js").catch(
+      () => ({ convertReferral: null }),
+    );
+    if (convertReferral) {
+      await convertReferral(booking.workerId, payment.amount).catch((err) =>
+        console.error(
+          "convertReferral (releaseEscrowPartial) error:",
+          err.message,
+        ),
+      );
+    }
+  }
+
+  console.log(
+    `[releaseEscrowPartial] Payment ${payment.id}: released ${roundedAmount} ${payment.currency} (${alreadyReleased}→${newReleasedAmount} of ${workerPayout}), final=${isFinal}, by ${triggeredByRole} ${triggeredBy ?? "system"}`,
+  );
+
+  return { payment: updatedPayment, release, isFinal };
+}

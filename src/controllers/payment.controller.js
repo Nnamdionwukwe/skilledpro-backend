@@ -30,7 +30,10 @@ import {
   PIN_DIGITS_RE,
 } from "../services/pin.service.js";
 
-import { releaseEscrow } from "../services/payment.service.js";
+import {
+  releaseEscrow,
+  releaseEscrowPartial,
+} from "../services/payment.service.js";
 import {
   createRefundFromAdmin,
   processRefund,
@@ -850,11 +853,24 @@ export const paystackWebhook = asyncHandler(async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 9  HIRER — RELEASE ESCROW
+//
 // POST /api/payments/release/:bookingId
+//   Body: {}                            → release the entire remaining balance
+//   Body: { amount: 5000, note: "..." } → release 5000 (partial)
+//
+// Either path delegates to releaseEscrowPartial, which:
+//   • validates amount > 0 and ≤ remaining
+//   • appends a PaymentRelease row
+//   • bumps releasedAmount / releaseCount
+//   • flips status → RELEASED only when 100% has been released
+//
+// The booking status is NEVER touched here. A partially-released booking
+// stays IN_PROGRESS or COMPLETED depending on where the worker is.
 // ─────────────────────────────────────────────────────────────────────────────
 export const releasePayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
+  const { amount, note } = req.body || {};
 
   // ── Authorize ────────────────────────────────────────────────────────────
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
@@ -865,9 +881,12 @@ export const releasePayment = asyncHandler(async (req, res) => {
   if (booking.hirerId !== hirerId)
     return res.status(403).json({ success: false, message: "Forbidden" });
 
-  // ── Find HELD payment ────────────────────────────────────────────────────
+  // ── Find the HELD payment that still has unreleased balance ─────────────
   const payment = await prisma.payment.findFirst({
-    where: { bookingId, status: "HELD" },
+    where: {
+      bookingId,
+      status: "HELD",
+    },
     orderBy: { createdAt: "desc" },
   });
   if (!payment)
@@ -875,17 +894,67 @@ export const releasePayment = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "No payment in escrow" });
 
-  // ── Delegate to the canonical service ────────────────────────────────────
+  const workerPayout = Number(payment.workerPayout) || 0;
+  const alreadyReleased = Number(payment.releasedAmount) || 0;
+  const remaining = parseFloat((workerPayout - alreadyReleased).toFixed(2));
+
+  if (remaining <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "This payment has already been fully released",
+    });
+  }
+
+  // ── Resolve the release amount ──────────────────────────────────────────
+  //   • no amount in body → release the entire remaining balance
+  //   • amount in body    → validate and release that slice
+  let releaseAmount;
+  if (amount === undefined || amount === null || amount === "") {
+    releaseAmount = remaining;
+  } else {
+    releaseAmount = Number(amount);
+    if (!Number.isFinite(releaseAmount) || releaseAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a positive number",
+      });
+    }
+    if (releaseAmount > remaining) {
+      return res.status(400).json({
+        success: false,
+        message: `Amount exceeds remaining escrow (${remaining} ${payment.currency})`,
+      });
+    }
+  }
+
+  // ── Delegate to the service ─────────────────────────────────────────────
   try {
-    const { payment: updatedPayment } = await releaseEscrow(payment.id, {
+    const {
+      payment: updatedPayment,
+      release,
+      isFinal,
+    } = await releaseEscrowPartial(payment.id, releaseAmount, {
       triggeredBy: hirerId,
       triggeredByRole: "HIRER",
+      note: typeof note === "string" && note.trim() ? note.trim() : null,
     });
 
     return res.status(200).json({
       success: true,
-      message: "Payment released to worker",
-      data: updatedPayment,
+      message: isFinal
+        ? "Full payment released to worker"
+        : "Partial payment released to worker",
+      data: {
+        payment: updatedPayment,
+        release,
+        isFinal,
+        remaining: parseFloat(
+          (
+            (Number(updatedPayment.workerPayout) || 0) -
+            (Number(updatedPayment.releasedAmount) || 0)
+          ).toFixed(2),
+        ),
+      },
     });
   } catch (err) {
     console.error("releasePayment error:", err.message);
@@ -2196,6 +2265,15 @@ export const getAllPayments = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 21  SINGLE BOOKING PAYMENT
 // GET /api/payments/:bookingId
+//
+// Returns the current payment row for a booking, along with the full
+// release history so the frontend can show:
+//   • how much has been released so far (releasedAmount)
+//   • how much is still in escrow (workerPayout - releasedAmount)
+//   • each partial release as a line item (who, when, how much, note)
+//
+// The `releasedAmount` / `releaseCount` fields are on the payment row.
+// `releases` is populated from the new PaymentRelease table.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getPayment = asyncHandler(async (req, res) => {
   const booking = await prisma.booking.findUnique({
@@ -2215,6 +2293,21 @@ export const getPayment = asyncHandler(async (req, res) => {
   const payment = await prisma.payment.findFirst({
     where: { bookingId: req.params.bookingId },
     orderBy: [{ status: "desc" }, { createdAt: "desc" }],
+    include: {
+      releases: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          releasedBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   return res.status(200).json({ success: true, data: payment });
