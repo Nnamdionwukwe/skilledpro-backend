@@ -677,6 +677,8 @@ export const getWorkerDashboard = async (req, res) => {
             currency: true,
             status: true,
             workerPayout: true,
+            // NEW: so the frontend can render the actual released slice
+            releasedAmount: true,
           },
         },
       },
@@ -704,39 +706,66 @@ export const getWorkerDashboard = async (req, res) => {
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
-    const [thisMonthPayments, lastMonthPayments, thisYearPayments] =
-      await Promise.all([
-        prisma.payment.aggregate({
-          where: {
-            booking: { workerId: userId },
-            status: "RELEASED",
-            createdAt: { gte: startOfMonth },
-          },
-          _sum: { workerPayout: true },
-        }),
-        prisma.payment.aggregate({
-          where: {
-            booking: { workerId: userId },
-            status: "RELEASED",
-            createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
-          },
-          _sum: { workerPayout: true },
-        }),
-        prisma.payment.aggregate({
-          where: {
-            booking: { workerId: userId },
-            status: "RELEASED",
-            createdAt: { gte: startOfYear },
-          },
-          _sum: { workerPayout: true },
-        }),
-      ]);
+    // ── Partial-release aware earnings + escrow ────────────────────────────
+    // Earnings  = Σ releasedAmount across HELD + RELEASED (what the worker
+    //             has actually received, whether partial or full).
+    // In escrow = Σ (workerPayout − releasedAmount) on HELD payments only.
+    // Mirrors getWithdrawals / getWorkerEarnings so all three screens agree.
+    const releasedInRange = (from, to) =>
+      prisma.payment.aggregate({
+        where: {
+          booking: { workerId: userId },
+          status: { in: ["HELD", "RELEASED"] },
+          releasedAmount: { gt: 0 },
+          ...(from || to
+            ? {
+                updatedAt: {
+                  ...(from ? { gte: from } : {}),
+                  ...(to ? { lte: to } : {}),
+                },
+              }
+            : {}),
+        },
+        _sum: { releasedAmount: true },
+      });
 
-    const pendingPayouts = await prisma.payment.aggregate({
-      where: { booking: { workerId: userId }, status: "HELD" },
-      _sum: { workerPayout: true },
-    });
+    const [
+      thisMonthPayments,
+      lastMonthPayments,
+      thisYearPayments,
+      allTimePayments,
+      heldPayments,
+    ] = await Promise.all([
+      releasedInRange(startOfMonth, null),
+      releasedInRange(startOfLastMonth, endOfLastMonth),
+      releasedInRange(startOfYear, null),
+      releasedInRange(null, null),
 
+      // HELD payments so we can compute remaining escrow in JS
+      prisma.payment.findMany({
+        where: { booking: { workerId: userId }, status: "HELD" },
+        select: { workerPayout: true, releasedAmount: true },
+      }),
+    ]);
+
+    // In escrow = Σ (workerPayout − releasedAmount) on HELD payments
+    const inEscrowTotal = parseFloat(
+      heldPayments
+        .reduce(
+          (sum, p) =>
+            sum +
+            Math.max(
+              0,
+              (Number(p.workerPayout) || 0) - (Number(p.releasedAmount) || 0),
+            ),
+          0,
+        )
+        .toFixed(2),
+    );
+
+    // Monthly trend — 6 months of releasedAmount, partial releases included.
+    // Uses updatedAt so a partial release in the current month lands in the
+    // current month's bar even if the payment row was created earlier.
     const monthlyTrend = await Promise.all(
       Array.from({ length: 6 }, (_, i) => {
         const d = new Date();
@@ -747,17 +776,18 @@ export const getWorkerDashboard = async (req, res) => {
           .aggregate({
             where: {
               booking: { workerId: userId },
-              status: "RELEASED",
-              createdAt: { gte: start, lte: end },
+              status: { in: ["HELD", "RELEASED"] },
+              releasedAmount: { gt: 0 },
+              updatedAt: { gte: start, lte: end },
             },
-            _sum: { workerPayout: true },
+            _sum: { releasedAmount: true },
           })
           .then((result) => ({
             month: start.toLocaleString("default", {
               month: "short",
               year: "numeric",
             }),
-            earnings: result._sum.workerPayout || 0,
+            earnings: result._sum.releasedAmount || 0,
           }));
       }),
     );
@@ -811,11 +841,14 @@ export const getWorkerDashboard = async (req, res) => {
             disputed: disputedBookings,
           },
           earnings: {
-            allTime: worker.totalEarnings,
-            thisMonth: thisMonthPayments._sum.workerPayout || 0,
-            lastMonth: lastMonthPayments._sum.workerPayout || 0,
-            thisYear: thisYearPayments._sum.workerPayout || 0,
-            pendingPayout: pendingPayouts._sum.workerPayout || 0,
+            // All-time now comes from Σ releasedAmount, not the cached
+            // worker.totalEarnings column, so partial releases count.
+            allTime: allTimePayments._sum.releasedAmount || 0,
+            thisMonth: thisMonthPayments._sum.releasedAmount || 0,
+            lastMonth: lastMonthPayments._sum.releasedAmount || 0,
+            thisYear: thisYearPayments._sum.releasedAmount || 0,
+            // "pendingPayout" is now the net escrow figure, not the gross.
+            pendingPayout: inEscrowTotal,
             currency: worker.currency,
           },
           engagement: {
@@ -1026,6 +1059,8 @@ export const getCompletedJobs = async (req, res) => {
               id: true,
               amount: true,
               workerPayout: true,
+              // NEW: so we can sum the actual released slice below
+              releasedAmount: true,
               currency: true,
               status: true,
               createdAt: true,
@@ -1046,11 +1081,26 @@ export const getCompletedJobs = async (req, res) => {
       prisma.booking.count({ where }),
     ]);
 
+    // totalEarned = Σ releasedAmount across this booking's payments.
+    // For a fully-released payment, releasedAmount === workerPayout, so
+    // the number matches what the worker actually received. For a payment
+    // that's still partially released, it reflects the released slice only.
     const bookingsWithEarnings = bookings.map((b) => ({
       ...b,
-      totalEarned: b.payments
-        .filter((p) => p.status === "RELEASED")
-        .reduce((sum, p) => sum + (p.workerPayout || 0), 0),
+      totalEarned: parseFloat(
+        b.payments
+          .reduce(
+            (sum, p) =>
+              sum +
+              (Number(p.releasedAmount) ||
+                // Fallback for legacy rows created before the partial-release
+                // column existed: a RELEASED payment with releasedAmount = 0
+                // was, by definition, fully released.
+                (p.status === "RELEASED" ? Number(p.workerPayout) || 0 : 0)),
+            0,
+          )
+          .toFixed(2),
+      ),
       review: b.reviews.length > 0 ? b.reviews[0] : null,
     }));
 
