@@ -836,7 +836,17 @@ export const applyToJob = async (req, res) => {
 };
 
 // ── GET /api/jobs/:id/applications ────────────────────────────────────────────
-// Protected (HIRER) — view all applications for a job
+// Protected (HIRER) — view all applications for a job.
+//
+// Response includes `latestBooking` on each application when the hirer
+// has ever created a booking for that (jobPostId, workerId) pair. The
+// frontend uses this to offer both "View Latest Booking" and
+// "Create Another Booking" actions on accepted applications.
+//
+// "Latest" means the most recently created non-cancelled booking. If the
+// only bookings that exist for a worker are CANCELLED or REJECTED, we
+// treat the worker as having no bookable history and omit the field —
+// the hirer can only act on bookings that are still relevant.
 export const getJobApplications = async (req, res) => {
   try {
     const jobPost = await prisma.jobPost.findUnique({
@@ -875,10 +885,53 @@ export const getJobApplications = async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    // ── Attach the latest active booking per worker ──────────────────────
+    // Bookings are keyed by (jobPostId, workerId), not by applicationId.
+    // A single worker may have many bookings on this job post over time —
+    // we surface only the most recent non-cancelled one as a shortcut.
+    const workerIds = [...new Set(applications.map((a) => a.workerId))];
+
+    let latestByWorker = new Map();
+    if (workerIds.length > 0) {
+      const bookings = await prisma.booking.findMany({
+        where: {
+          jobPostId: jobPost.id,
+          workerId: { in: workerIds },
+          status: { notIn: ["CANCELLED", "REJECTED"] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          workerId: true,
+          status: true,
+          agreedRate: true,
+          currency: true,
+          scheduledAt: true,
+          createdAt: true,
+        },
+      });
+
+      // First one wins per worker because we sorted desc by createdAt.
+      for (const b of bookings) {
+        if (!latestByWorker.has(b.workerId)) {
+          latestByWorker.set(b.workerId, b);
+        }
+      }
+    }
+
+    const applicationsWithBooking = applications.map((a) => ({
+      ...a,
+      latestBooking: latestByWorker.get(a.workerId) || null,
+    }));
+
     return sendResponse(res, {
-      data: { applications, total: applications.length },
+      data: {
+        applications: applicationsWithBooking,
+        total: applicationsWithBooking.length,
+      },
     });
   } catch (err) {
+    console.error("getJobApplications error:", err);
     return sendError(res, "Failed to fetch applications");
   }
 };
