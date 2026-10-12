@@ -16,10 +16,11 @@ import {
   updateJobPost,
   updateApplicationStatus,
   applyToJob,
-  // Saved jobs (NEW)
+  // Saved jobs
   getSavedJobs,
   saveJob,
   unsaveJob,
+  // Application actions
   unacceptApplication,
   reconsiderApplication,
 } from "../controllers/job.controller.js";
@@ -40,7 +41,7 @@ router.get("/", optionalProtect, validatePagination, getJobPosts);
 // ── Protected from here down ──────────────────────────────────────────────────
 router.use(protect);
 
-// ── NAMED routes MUST come before /:id to avoid UUID validator catching them ──
+// ── NAMED routes MUST come before /:id to avoid the UUID validator catching them ──
 
 // Hirer: my job posts
 router.get(
@@ -58,7 +59,7 @@ router.get(
   getMyApplications,
 );
 
-// Worker: saved/bookmarked jobs  ← NEW (must be before /:id)
+// Worker: saved / bookmarked jobs  (must be before /:id)
 router.get("/saved", requireRole("WORKER"), validatePagination, getSavedJobs);
 
 // ── Parameterised routes ──────────────────────────────────────────────────────
@@ -66,35 +67,19 @@ router.get("/saved", requireRole("WORKER"), validatePagination, getSavedJobs);
 // Single job detail (optional auth — shows hasApplied + isSaved when logged in)
 router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
 
-router.patch(
-  "/:id/applications/:appId/reconsider",
-  auth,
-  requireRole("HIRER"),
-  reconsiderApplication,
-);
-
 // Hirer: create job post
 router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
-
-// src/routes/job.routes.js
-router.patch(
-  "/:id/applications/:appId/unaccept",
-  requireRole("HIRER"),
-  ...validateUUIDParam("id"),
-  ...validateUUIDParam("appId"),
-  unacceptApplication,
-);
 
 // Hirer: update existing job post
 router.put(
   "/:id",
   requireRole("HIRER"),
   ...validateUUIDParam("id"),
-  validateUpdateJob, // ← use the update validator
+  validateUpdateJob,
   updateJobPost,
 );
 
-// Hirer: change status
+// Hirer: change job status (OPEN | FILLED | CANCELLED)
 router.patch(
   "/:id/status",
   requireRole("HIRER"),
@@ -103,7 +88,7 @@ router.patch(
   updateJobPostStatus,
 );
 
-// Hirer: view + action on applications
+// Hirer: view all applications for a job
 router.get(
   "/:id/applications",
   requireRole("HIRER"),
@@ -112,13 +97,32 @@ router.get(
   getJobApplications,
 );
 
-// ── FIX: validate `appId` UUID too — prevents 500 on bad param ──────────────
+// Hirer: accept / reject an application
 router.patch(
   "/:id/applications/:appId/status",
   requireRole("HIRER"),
   ...validateUUIDParam("id"),
-  ...validateUUIDParam("appId"), // ← ADDED
+  ...validateUUIDParam("appId"),
   updateApplicationStatus,
+);
+
+// Hirer: undo an acceptance (ACCEPTED → PENDING, reopens the job)
+router.patch(
+  "/:id/applications/:appId/unaccept",
+  requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  ...validateUUIDParam("appId"),
+  unacceptApplication,
+);
+
+// Hirer: reconsider a rejected application (REJECTED → PENDING,
+// leaves the job status untouched)
+router.patch(
+  "/:id/applications/:appId/reconsider",
+  requireRole("HIRER"),
+  ...validateUUIDParam("id"),
+  ...validateUUIDParam("appId"),
+  reconsiderApplication,
 );
 
 // Worker: apply to job
@@ -130,7 +134,7 @@ router.post(
   applyToJob,
 );
 
-// Worker: save / unsave a job  ← NEW
+// Worker: save / unsave a job
 router.post(
   "/:id/save",
   requireRole("WORKER"),
