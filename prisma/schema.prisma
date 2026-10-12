@@ -995,21 +995,21 @@ model Payment {
   // Inside model Payment { ... }
   refunds Refund[]
   releasedAmount Float              @default(0)
-releaseCount   Int                @default(0)
-releases       PaymentRelease[]
+  releaseCount   Int                @default(0)
+  releases       PaymentRelease[]
 }
 
 model PaymentRelease {
-  id           String   @id @default(uuid())
-  paymentId    String
-  payment      Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
 
-  amount       Float                  // the released amount, in currency units
-  currency     String   @default("NGN")
-  note         String?                // optional reason from the hirer
+  amount   Float                  // the released amount, in currency units
+  currency String   @default("NGN")
+  note     String?                // optional reason from the hirer
 
   releasedById String
-  releasedBy   User     @relation("ReleasedBy", fields: [releasedById], references: [id])
+  releasedBy   User   @relation("ReleasedBy", fields: [releasedById], references: [id])
 
   // Snapshot at time of release, so history stays intact even if the
   // payment is later edited:
@@ -1017,14 +1017,12 @@ model PaymentRelease {
   remainingBefore       Float
   remainingAfter        Float
 
-  createdAt    DateTime @default(now())
-
-  releasedById String
-releasedBy   User   @relation("ReleasedBy", fields: [releasedById], references: [id])
+  createdAt DateTime @default(now())
 
   @@index([paymentId])
+  @@index([releasedById])
   @@index([createdAt(sort: Desc)])
-}
+} 
 
 model Withdrawal {
   id          String           @id @default(uuid())
