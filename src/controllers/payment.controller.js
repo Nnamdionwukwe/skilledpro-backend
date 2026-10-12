@@ -1518,6 +1518,18 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 13  WORKER — GET WITHDRAWALS + LIVE BALANCE
 // GET /api/payments/withdrawals
+//
+// Partial-release aware:
+//   • Available balance = Σ payment.releasedAmount − Σ pending withdrawals
+//     - releasedAmount is 0 for untouched HELD payments
+//     - = workerPayout for fully-released payments
+//     - = a partial slice for partially-released payments
+//   • In escrow         = Σ (workerPayout − releasedAmount) on HELD payments
+//   • Total earned      = Σ releasedAmount (everything the worker has
+//                         actually received, partial or full)
+//
+// This means a 25% release immediately credits the worker's available
+// balance — no waiting for the hirer to hit 100%.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWithdrawals = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1526,35 +1538,49 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 
   const [
     earnedAgg,
-    escrowAgg,
+    heldPayments,
     pendingAgg,
     withdrawals,
     total,
     workerProfile,
     perCurrencyReleased,
-    perCurrencyHeld,
     perCurrencyPending,
     currencyList,
   ] = await Promise.all([
+    // ── Released-to-worker total (uses releasedAmount, not workerPayout) ──
     prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "RELEASED" },
-      _sum: { workerPayout: true },
+      where: {
+        booking: { workerId },
+        status: { in: ["HELD", "RELEASED"] },
+      },
+      _sum: { releasedAmount: true },
     }),
-    prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "HELD" },
-      _sum: { workerPayout: true },
+
+    // ── Fetch HELD payments so we can compute escrow in JS ──
+    // (Prisma can't subtract two columns in aggregate, and we're avoiding
+    //  raw SQL. The number of HELD payments per worker is small.)
+    prisma.payment.findMany({
+      where: {
+        booking: { workerId },
+        status: "HELD",
+      },
+      select: { workerPayout: true, releasedAmount: true, currency: true },
     }),
+
     prisma.withdrawal.aggregate({
       where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
       _sum: { amount: true },
     }),
+
     prisma.withdrawal.findMany({
       where: { workerId },
       orderBy: { createdAt: "desc" },
       skip,
       take,
     }),
+
     prisma.withdrawal.count({ where: { workerId } }),
+
     prisma.workerProfile.findUnique({
       where: { userId: workerId },
       select: {
@@ -1564,21 +1590,23 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
         debtReason: true,
       },
     }),
+
+    // ── Per-currency released (uses releasedAmount) ──
     prisma.payment.groupBy({
       by: ["currency"],
-      where: { booking: { workerId }, status: "RELEASED" },
-      _sum: { workerPayout: true },
+      where: {
+        booking: { workerId },
+        status: { in: ["HELD", "RELEASED"] },
+      },
+      _sum: { releasedAmount: true },
     }),
-    prisma.payment.groupBy({
-      by: ["currency"],
-      where: { booking: { workerId }, status: "HELD" },
-      _sum: { workerPayout: true },
-    }),
+
     prisma.withdrawal.groupBy({
       by: ["currency"],
       where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
       _sum: { amount: true },
     }),
+
     prisma.payment.findMany({
       where: {
         booking: { workerId },
@@ -1589,30 +1617,51 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const totalEarned = earnedAgg._sum.workerPayout ?? 0;
-  const inEscrow = escrowAgg._sum.workerPayout ?? 0;
+  // ── Compute total + per-currency escrow from the HELD payments ─────────
+  let inEscrow = 0;
+  const escrowByCurrency = {};
+  for (const p of heldPayments) {
+    const remaining = Math.max(
+      0,
+      (Number(p.workerPayout) || 0) - (Number(p.releasedAmount) || 0),
+    );
+    inEscrow += remaining;
+    if (remaining > 0) {
+      escrowByCurrency[p.currency] =
+        (escrowByCurrency[p.currency] || 0) + remaining;
+    }
+  }
+  inEscrow = parseFloat(inEscrow.toFixed(2));
+
+  const totalEarned = earnedAgg._sum.releasedAmount ?? 0;
   const pendingPayout = pendingAgg._sum.amount ?? 0;
   const outstandingDebt = workerProfile?.debtBalance ?? 0;
 
   const available = Math.max(0, totalEarned - pendingPayout - outstandingDebt);
 
   const balancesByCurrency = {};
-  const allCurrencies = new Set(currencyList.map((c) => c.currency));
+  const allCurrencies = new Set([
+    ...currencyList.map((c) => c.currency),
+    ...Object.keys(escrowByCurrency),
+  ]);
 
   for (const cur of allCurrencies) {
     const released =
-      perCurrencyReleased.find((r) => r.currency === cur)?._sum.workerPayout ??
-      0;
-    const held =
-      perCurrencyHeld.find((r) => r.currency === cur)?._sum.workerPayout ?? 0;
+      perCurrencyReleased.find((r) => r.currency === cur)?._sum
+        .releasedAmount ?? 0;
+    const held = escrowByCurrency[cur] ?? 0;
     const pending =
       perCurrencyPending.find((r) => r.currency === cur)?._sum.amount ?? 0;
+
+    // Skip currencies with no money anywhere — keeps the wallet grid tidy.
+    const hasAnything = released > 0 || held > 0 || pending > 0;
+    if (!hasAnything) continue;
 
     balancesByCurrency[cur] = {
       currency: cur,
       available: Math.max(0, released - pending),
       totalEarned: released,
-      inEscrow: held,
+      inEscrow: parseFloat(held.toFixed(2)),
       pendingPayout: pending,
     };
   }
@@ -1651,15 +1700,23 @@ export const getWithdrawals = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 14  WORKER — EARNINGS
 // GET /api/payments/earnings
+//
+// Partial-release aware: any payment with releasedAmount > 0 appears here.
+// The row carries `earned` (= releasedAmount) and `remaining`
+// (= workerPayout − releasedAmount) so the frontend doesn't have to
+// recompute them, plus the full `releases` array for per-release detail.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getWorkerEarnings = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
   const { from, to, currency, page = 1, limit = 20 } = req.query;
   const { skip, take } = paginate(page, limit);
 
+  // A payment is "earned from" if the worker has received any released
+  // funds from it — partial or full.
   const where = {
     booking: { workerId },
-    status: "RELEASED",
+    status: { in: ["HELD", "RELEASED"] },
+    releasedAmount: { gt: 0 },
     ...(currency && currency !== "ALL"
       ? { currency: currency.toUpperCase() }
       : {}),
@@ -1691,32 +1748,64 @@ export const getWorkerEarnings = asyncHandler(async (req, res) => {
             },
           },
         },
+        releases: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            note: true,
+            createdAt: true,
+            remainingBefore: true,
+            remainingAfter: true,
+          },
+        },
       },
     }),
     prisma.payment.count({ where }),
     prisma.payment.aggregate({
       where,
-      _sum: { workerPayout: true, amount: true, platformFee: true },
+      _sum: {
+        releasedAmount: true, // what the worker actually earned
+        workerPayout: true, // what the worker was promised
+        amount: true, // what the hirer was charged
+        platformFee: true,
+      },
     }),
     prisma.payment.findMany({
       where: {
         booking: { workerId },
-        status: "RELEASED",
+        status: { in: ["HELD", "RELEASED"] },
+        releasedAmount: { gt: 0 },
       },
       select: { currency: true },
       distinct: ["currency"],
     }),
   ]);
 
+  // Enrich each row with derived values so the frontend stays simple.
+  const enriched = payments.map((p) => {
+    const workerPayout = Number(p.workerPayout) || 0;
+    const released = Number(p.releasedAmount) || 0;
+    return {
+      ...p,
+      earned: released,
+      remaining: parseFloat(Math.max(0, workerPayout - released).toFixed(2)),
+      isFullyReleased: released >= workerPayout && workerPayout > 0,
+      releaseCount: p.releases?.length || 0,
+    };
+  });
+
   return res.status(200).json({
     success: true,
     data: {
-      payments,
+      payments: enriched,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / take),
       summary: {
-        totalEarned: aggregate._sum.workerPayout ?? 0,
+        totalEarned: aggregate._sum.releasedAmount ?? 0,
+        totalPromised: aggregate._sum.workerPayout ?? 0,
         totalJobValue: aggregate._sum.amount ?? 0,
         totalFees: aggregate._sum.platformFee ?? 0,
       },
