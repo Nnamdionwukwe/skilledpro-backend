@@ -1746,3 +1746,81 @@ export const unacceptApplication = async (req, res) => {
     return sendError(res, "Failed to unaccept application");
   }
 };
+
+// ── PATCH /api/jobs/:id/applications/:appId/reconsider ────────────────────────
+// Protected (HIRER) — return a REJECTED application to PENDING so the
+// hirer can review the worker again.
+//
+// Semantics:
+//   1. Guards that the application is currently REJECTED.
+//   2. Resets the application status to PENDING.
+//   3. Does NOT touch the job's status. A rejected application never
+//      changed the job status in the first place, so reconsidering it
+//      must not either. If the hirer had already marked the job
+//      FILLED or CANCELLED, we leave that decision alone.
+//   4. Does NOT touch any booking.
+//   5. Notifies the worker that their application is back under review.
+export const reconsiderApplication = async (req, res) => {
+  try {
+    const { id: jobPostId, appId: applicationId } = req.params;
+
+    // ── 1. Authorize the hirer owns this job ──
+    const jobPost = await prisma.jobPost.findUnique({
+      where: { id: jobPostId },
+    });
+    if (!jobPost) return sendError(res, "Job post not found", 404);
+    if (jobPost.hirerId !== req.user.id)
+      return sendError(res, "Forbidden", 403);
+
+    // ── 2. Load the application ──
+    const application = await prisma.jobApplication.findUnique({
+      where: { id: applicationId },
+      include: {
+        worker: { select: { id: true, firstName: true, lastName: true } },
+        jobPost: { select: { id: true, title: true } },
+      },
+    });
+    if (!application) return sendError(res, "Application not found", 404);
+    if (application.jobPostId !== jobPostId)
+      return sendError(res, "Application does not belong to this job", 400);
+
+    // ── 3. State guard — only REJECTED applications can be reconsidered ──
+    if (application.status !== "REJECTED") {
+      return sendError(
+        res,
+        "Only rejected applications can be reconsidered",
+        400,
+      );
+    }
+
+    // ── 4. Reset the application to PENDING ──
+    const updated = await prisma.jobApplication.update({
+      where: { id: applicationId },
+      data: { status: "PENDING" },
+    });
+
+    // ── 5. Notify the worker ──
+    await prisma.notification.create({
+      data: {
+        userId: application.workerId,
+        title: "Application Reconsidered",
+        body: `Your application for "${application.jobPost.title}" is back under review.`,
+        type: "APPLICATION_STATUS",
+        data: {
+          jobPostId,
+          applicationId,
+          status: "PENDING",
+          reason: "RECONSIDERED",
+        },
+      },
+    });
+
+    return sendResponse(res, {
+      message: "Application is back under review",
+      data: { application: updated },
+    });
+  } catch (err) {
+    console.error("reconsiderApplication error:", err);
+    return sendError(res, "Failed to reconsider application");
+  }
+};

@@ -21,6 +21,7 @@ import {
   saveJob,
   unsaveJob,
   unacceptApplication,
+  reconsiderApplication,
 } from "../controllers/job.controller.js";
 import {
   validateCreateJob,
@@ -64,6 +65,13 @@ router.get("/saved", requireRole("WORKER"), validatePagination, getSavedJobs);
 
 // Single job detail (optional auth — shows hasApplied + isSaved when logged in)
 router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getJobPost);
+
+router.patch(
+  "/:id/applications/:appId/reconsider",
+  auth,
+  requireRole("HIRER"),
+  reconsiderApplication,
+);
 
 // Hirer: create job post
 router.post("/", requireRole("HIRER"), validateCreateJob, createJobPost);
