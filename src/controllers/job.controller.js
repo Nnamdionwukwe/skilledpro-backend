@@ -972,26 +972,13 @@ export const updateApplicationStatus = async (req, res) => {
       });
     } else if (status === "PENDING") {
       // Reset — reopen the job so the hirer can pick someone else.
-      // If a booking existed for this worker, cancel it too.
-      const activeBooking = await prisma.booking.findFirst({
-        where: {
-          jobPostId,
-          workerId: application.workerId,
-          status: { notIn: ["CANCELLED", "COMPLETED"] },
-        },
-        select: { id: true },
-      });
-
-      if (activeBooking) {
-        await prisma.booking.update({
-          where: { id: activeBooking.id },
-          data: {
-            status: "CANCELLED",
-            cancelReason: "Hirer unaccepted the worker for this job",
-          },
-        });
-      }
-
+      //
+      // We intentionally DO NOT touch any booking that may exist for
+      // this application. Bookings are independent entities with their
+      // own lifecycle. The hirer cancels them from the booking detail
+      // page, which is the only place with the full context (payment
+      // state, check-in, refund implications). This also allows one
+      // job post to accumulate multiple bookings over its lifetime.
       await prisma.jobPost.update({
         where: { id: jobPostId },
         data: { status: "OPEN" },
