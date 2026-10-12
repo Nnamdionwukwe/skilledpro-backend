@@ -213,7 +213,8 @@ export const getHirerDashboard = async (req, res) => {
       totalBookings,
       activeBookings,
       completedBookings,
-      totalSpent,
+      totalSpentAgg,
+      inEscrowAgg,
       recentBookings,
       recentWorkers,
     ] = await Promise.all([
@@ -227,10 +228,35 @@ export const getHirerDashboard = async (req, res) => {
       prisma.booking.count({
         where: { hirerId: req.user.id, status: "COMPLETED" },
       }),
+
+      // ── Total Spent ─────────────────────────────────────────────────
+      // Money that has left the hirer's control: every payment that has
+      // been funded but not refunded. That means HELD (in escrow) +
+      // RELEASED (paid out to the worker). PENDING payments haven't
+      // actually been paid yet; REFUNDED and FAILED are excluded.
+      //
+      // `Payment.userId` is set to the hirer's ID at creation time, so
+      // this correctly targets the hirer's own payments.
       prisma.payment.aggregate({
-        where: { userId: req.user.id, status: "RELEASED" },
+        where: {
+          userId: req.user.id,
+          status: { in: ["HELD", "RELEASED"] },
+        },
         _sum: { amount: true },
       }),
+
+      // ── In Escrow ───────────────────────────────────────────────────
+      // Subset of Total Spent that hasn't been released to workers yet.
+      // Shown as a secondary line so the hirer can see what portion of
+      // their spend is still sitting in escrow.
+      prisma.payment.aggregate({
+        where: {
+          userId: req.user.id,
+          status: "HELD",
+        },
+        _sum: { amount: true },
+      }),
+
       prisma.booking.findMany({
         where: { hirerId: req.user.id },
         take: 5,
@@ -267,7 +293,8 @@ export const getHirerDashboard = async (req, res) => {
           totalBookings,
           activeBookings,
           completedBookings,
-          totalSpent: totalSpent._sum.amount || 0,
+          totalSpent: totalSpentAgg._sum.amount || 0,
+          inEscrow: inEscrowAgg._sum.amount || 0,
         },
         recentBookings,
         recentWorkers: recentWorkers.map((b) => b.worker),
