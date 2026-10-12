@@ -1344,6 +1344,11 @@ export const updateJobPost = async (req, res) => {
       estimatedUnit,
       estimatedValue,
 
+      // ── NEW: Schedule mode fields (mirrors createJobPost) ──
+      scheduleMode, // "ONE_OFF" | "RECURRING" | undefined
+      recurrenceInterval, // "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "YEARLY"
+      recurrenceDuration, // "2_WEEKS" | "1_MONTH" | "3_MONTHS" | "6_MONTHS" | "1_YEAR" | "ONGOING"
+
       // ── Payment ──
       budget,
       currency,
@@ -1447,7 +1452,69 @@ export const updateJobPost = async (req, res) => {
         ).slice(0, 10)
       : [];
 
-    // ── 8. Verify category exists (if it's being changed) ──
+    // ── 8. NEW: Resolve duration fields based on schedule mode ───────────
+    // Mirrors createJobPost exactly so edits stay consistent with the
+    // original create payload:
+    //   ONE_OFF    → numeric value + unit the hirer typed
+    //   RECURRING  → estimatedUnit: "custom", estimatedValue: "Weekly, for 1 month"
+    const RECURRENCE_INTERVAL_LABEL = {
+      DAILY: "Daily",
+      WEEKLY: "Weekly",
+      BIWEEKLY: "Bi-weekly",
+      MONTHLY: "Monthly",
+      YEARLY: "Yearly",
+    };
+    const RECURRENCE_DURATION_LABEL = {
+      "2_WEEKS": "for 2 weeks",
+      "1_MONTH": "for 1 month",
+      "3_MONTHS": "for 3 months",
+      "6_MONTHS": "for 6 months",
+      "1_YEAR": "for 1 year",
+      ONGOING: "ongoing",
+    };
+
+    const isRecurring = scheduleMode === "RECURRING";
+
+    let resolvedEstimatedUnit;
+    let resolvedEstimatedValue;
+    let resolvedEstimatedHours;
+
+    if (isRecurring) {
+      const intervalLabel =
+        RECURRENCE_INTERVAL_LABEL[recurrenceInterval] ||
+        (typeof recurrenceInterval === "string" ? recurrenceInterval : null);
+      const durationLabel =
+        RECURRENCE_DURATION_LABEL[recurrenceDuration] ||
+        (typeof recurrenceDuration === "string"
+          ? recurrenceDuration.replace(/_/g, " ").toLowerCase()
+          : null);
+
+      const recurringText =
+        intervalLabel && durationLabel
+          ? `${intervalLabel}, ${durationLabel}`
+          : intervalLabel || durationLabel || "Recurring";
+
+      resolvedEstimatedUnit = "custom";
+      resolvedEstimatedValue = recurringText;
+      resolvedEstimatedHours = null;
+    } else {
+      // ONE_OFF — preserve existing behaviour exactly.
+      resolvedEstimatedUnit = estimatedUnit || "hours";
+      resolvedEstimatedValue =
+        estimatedValue !== undefined &&
+        estimatedValue !== null &&
+        estimatedValue !== ""
+          ? String(estimatedValue)
+          : null;
+      resolvedEstimatedHours =
+        estimatedHours !== undefined &&
+        estimatedHours !== null &&
+        estimatedHours !== ""
+          ? parseFloat(estimatedHours)
+          : null;
+    }
+
+    // ── 9. Verify category exists (if it's being changed) ──
     if (categoryId !== existing.categoryId) {
       const category = await prisma.category.findUnique({
         where: { id: categoryId },
@@ -1455,7 +1522,7 @@ export const updateJobPost = async (req, res) => {
       if (!category) return sendError(res, "Category not found", 404);
     }
 
-    // ── 9. Perform the update ──
+    // ── 10. Perform the update ──
     // NOTE: status is intentionally NOT updatable here. Use PATCH /:id/status.
     const updated = await prisma.jobPost.update({
       where: { id },
@@ -1474,19 +1541,10 @@ export const updateJobPost = async (req, res) => {
         jobType,
         scheduledAt: parsedDate,
 
-        estimatedHours:
-          estimatedHours !== undefined &&
-          estimatedHours !== null &&
-          estimatedHours !== ""
-            ? parseFloat(estimatedHours)
-            : null,
-        estimatedUnit: estimatedUnit || "hours",
-        estimatedValue:
-          estimatedValue !== undefined &&
-          estimatedValue !== null &&
-          estimatedValue !== ""
-            ? String(estimatedValue)
-            : null,
+        // ── NEW: use the resolved values (mirrors createJobPost) ──
+        estimatedHours: resolvedEstimatedHours,
+        estimatedUnit: resolvedEstimatedUnit,
+        estimatedValue: resolvedEstimatedValue,
 
         budgetType,
         budget: parseFloat(budget),
