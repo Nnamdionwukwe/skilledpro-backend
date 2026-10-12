@@ -1045,6 +1045,14 @@ export const refundPayment = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // § 11  WORKER — REQUEST WITHDRAWAL
 // POST /api/payments/withdraw
+//
+// Partial-release aware: the worker's available balance is computed from
+// Σ payment.releasedAmount (not workerPayout), across HELD + RELEASED
+// payments. This matches getWithdrawals exactly, so a worker whose hirer
+// has only partially released can still withdraw the released slice.
+//
+// Also filters pending withdrawals by the requested currency so a worker
+// with pending NGN withdrawals can still withdraw USD, and vice versa.
 // ─────────────────────────────────────────────────────────────────────────────
 export const requestWithdrawal = asyncHandler(async (req, res) => {
   const workerId = req.user.id;
@@ -1072,6 +1080,9 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Valid amount required" });
   }
 
+  const requestedCurrency = currency.toUpperCase();
+
+  // ── PIN check ────────────────────────────────────────────────────────────
   const user = await prisma.user.findUnique({
     where: { id: workerId },
     select: {
@@ -1124,34 +1135,53 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  const [earnedAgg, withdrawnAgg] = await Promise.all([
+  // ── Balance check — partial-release aware, currency-scoped ──────────────
+  // Available (this currency) =
+  //   Σ releasedAmount on this worker's HELD + RELEASED payments in this
+  //   currency, minus pending withdrawals in this currency, minus the
+  //   worker's outstanding debt (if any).
+  const [releasedAgg, pendingAgg, workerProfile] = await Promise.all([
     prisma.payment.aggregate({
-      where: { booking: { workerId }, status: "RELEASED" },
-      _sum: { workerPayout: true },
+      where: {
+        booking: { workerId },
+        status: { in: ["HELD", "RELEASED"] },
+        currency: requestedCurrency,
+      },
+      _sum: { releasedAmount: true },
     }),
     prisma.withdrawal.aggregate({
-      where: { workerId, status: { in: ["PENDING", "PROCESSING"] } },
+      where: {
+        workerId,
+        currency: requestedCurrency,
+        status: { in: ["PENDING", "PROCESSING"] },
+      },
       _sum: { amount: true },
+    }),
+    prisma.workerProfile.findUnique({
+      where: { userId: workerId },
+      select: { id: true, debtBalance: true },
     }),
   ]);
 
-  const totalEarned = earnedAgg._sum.workerPayout ?? 0;
-  const pendingPayouts = withdrawnAgg._sum.amount ?? 0;
-  const available = totalEarned - pendingPayouts;
+  const totalReleased = releasedAgg._sum.releasedAmount ?? 0;
+  const pendingPayouts = pendingAgg._sum.amount ?? 0;
+  const outstandingDebt = workerProfile?.debtBalance || 0;
+
+  // Debt is a platform-wide obligation, so we deduct it from whichever
+  // currency the worker is trying to withdraw from.
+  const available = Math.max(
+    0,
+    totalReleased - pendingPayouts - outstandingDebt,
+  );
 
   if (parseFloat(amount) > available) {
     return res.status(400).json({
       success: false,
-      message: `Insufficient balance. Available: ${available.toFixed(2)} ${currency}`,
+      message: `Insufficient balance. Available in ${requestedCurrency}: ${available.toFixed(2)}`,
     });
   }
 
-  const workerProfile = await prisma.workerProfile.findUnique({
-    where: { userId: workerId },
-    select: { id: true, debtBalance: true },
-  });
-
-  const outstandingDebt = workerProfile?.debtBalance || 0;
+  // ── Debt deduction ──────────────────────────────────────────────────────
   let debtDeducted = 0;
   let finalPayoutAmount = parseFloat(amount);
 
@@ -1162,7 +1192,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     if (finalPayoutAmount <= 0) {
       return res.status(400).json({
         success: false,
-        message: `Your outstanding debt of ${currency} ${outstandingDebt.toFixed(2)} exceeds this withdrawal amount. Please withdraw more, or contact support.`,
+        message: `Your outstanding debt of ${requestedCurrency} ${outstandingDebt.toFixed(2)} exceeds this withdrawal amount. Please withdraw more, or contact support.`,
         data: {
           debtBalance: outstandingDebt,
           requestedAmount: parseFloat(amount),
@@ -1171,6 +1201,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }
   }
 
+  // ── Method-specific validation ──────────────────────────────────────────
   let destination = "";
   let methodMeta = {};
 
@@ -1212,13 +1243,14 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── Create the withdrawal ───────────────────────────────────────────────
   const reference = uniqueRef("WD");
 
   const withdrawal = await prisma.withdrawal.create({
     data: {
       workerId,
       amount: finalPayoutAmount,
-      currency: currency.toUpperCase(),
+      currency: requestedCurrency,
       method,
       destination,
       reference,
@@ -1233,6 +1265,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     },
   });
 
+  // ── Apply debt deduction (FIFO across outstanding debts) ────────────────
   if (debtDeducted > 0 && workerProfile) {
     await prisma.workerProfile.update({
       where: { id: workerProfile.id },
@@ -1271,13 +1304,13 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }
 
     console.log(
-      `[requestWithdrawal] Deducted ${debtDeducted} ${currency} of debt from worker ${workerId} via withdrawal ${reference}`,
+      `[requestWithdrawal] Deducted ${debtDeducted} ${requestedCurrency} of debt from worker ${workerId} via withdrawal ${reference}`,
     );
 
     await createNotification({
       userId: workerId,
       title: "Debt deducted from withdrawal",
-      body: `${currency} ${debtDeducted.toFixed(2)} was deducted from your withdrawal to pay down your outstanding balance.`,
+      body: `${requestedCurrency} ${debtDeducted.toFixed(2)} was deducted from your withdrawal to pay down your outstanding balance.`,
       type: "WORKER_DEBT_DEDUCTED",
       data: {
         withdrawalId: withdrawal.id,
@@ -1289,6 +1322,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
+  // ── Notify admins ───────────────────────────────────────────────────────
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", isActive: true },
     select: { id: true },
@@ -1297,13 +1331,13 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     data: admins.map((a) => ({
       userId: a.id,
       title: "Withdrawal Request 💸",
-      body: `Worker requested ${currency.toUpperCase()} ${finalPayoutAmount.toFixed(2)}${debtDeducted > 0 ? ` (debt deduction: ${currency} ${debtDeducted.toFixed(2)})` : ""} via ${method.replace("_", " ")} — Ref: ${reference}`,
+      body: `Worker requested ${requestedCurrency} ${finalPayoutAmount.toFixed(2)}${debtDeducted > 0 ? ` (debt deduction: ${requestedCurrency} ${debtDeducted.toFixed(2)})` : ""} via ${method.replace("_", " ")} — Ref: ${reference}`,
       type: "WITHDRAWAL_REQUESTED",
       data: {
         withdrawalId: withdrawal.id,
         workerId,
         amount: finalPayoutAmount,
-        currency,
+        currency: requestedCurrency,
         method,
         debtDeducted,
       },
@@ -1314,7 +1348,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     success: true,
     message:
       debtDeducted > 0
-        ? `Withdrawal of ${currency} ${finalPayoutAmount.toFixed(2)} submitted. ${currency} ${debtDeducted.toFixed(2)} was applied to your outstanding debt.`
+        ? `Withdrawal of ${requestedCurrency} ${finalPayoutAmount.toFixed(2)} submitted. ${requestedCurrency} ${debtDeducted.toFixed(2)} was applied to your outstanding debt.`
         : "Withdrawal request submitted. Processing within 1–3 business days.",
     data: {
       withdrawal,
