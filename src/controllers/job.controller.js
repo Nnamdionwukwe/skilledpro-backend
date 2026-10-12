@@ -1537,12 +1537,17 @@ export const updateJobPost = async (req, res) => {
 // ── PATCH /api/jobs/:id/applications/:appId/unaccept ──────────────────────────
 // Protected (HIRER) — undo an acceptance for a specific application.
 //
-// This is the "clean" version of the reopen flow:
+// Semantics:
 //   1. Guards that the application is currently ACCEPTED.
-//   2. Cancels any active booking created from this application.
-//   3. Resets the application status to PENDING.
-//   4. Reopens the job (status → OPEN).
-//   5. Notifies the worker.
+//   2. Resets the application status to PENDING.
+//   3. Reopens the job (status → OPEN).
+//   4. Notifies the worker.
+//   5. Does NOT touch any existing booking. Bookings are independent
+//      entities with their own lifecycle; the hirer manages them from
+//      the booking detail page. This allows one job post to accumulate
+//      multiple bookings over its lifetime — the hirer can accept a
+//      second worker while an existing booking is still active, and can
+//      cancel the existing booking separately if they choose.
 //
 // Prefer this route over PATCH /status with body { status: "PENDING" } —
 // its semantics are explicit ("undo an acceptance") and the guard prevents
@@ -1580,26 +1585,19 @@ export const unacceptApplication = async (req, res) => {
       );
     }
 
-    // ── 4. Cancel any active booking created from this application ──
-    const activeBooking = await prisma.booking.findFirst({
+    // ── 4. Look up any existing booking for this application so the
+    //      response can tell the frontend whether one exists. We do NOT
+    //      modify it — bookings are independent. The hirer cancels them
+    //      from the booking detail page if needed.
+    const existingBooking = await prisma.booking.findFirst({
       where: {
         jobPostId,
         workerId: application.workerId,
-        status: { notIn: ["CANCELLED", "COMPLETED"] },
+        status: { notIn: ["CANCELLED", "REJECTED"] },
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, status: true },
     });
-
-    if (activeBooking) {
-      await prisma.booking.update({
-        where: { id: activeBooking.id },
-        data: {
-          status: "CANCELLED",
-          cancelReason: "Hirer unaccepted the worker for this job",
-        },
-      });
-    }
 
     // ── 5. Reset the application to PENDING ──
     const updated = await prisma.jobApplication.update({
@@ -1614,28 +1612,37 @@ export const unacceptApplication = async (req, res) => {
     });
 
     // ── 7. Notify the worker ──
+    // The message clearly states that any existing booking is untouched,
+    // so the worker is not confused about the fate of their booking.
     await prisma.notification.create({
       data: {
         userId: application.workerId,
         title: "Application Reopened",
-        body: activeBooking
-          ? `The booking for "${application.jobPost.title}" was cancelled. Your application is back under review.`
+        body: existingBooking
+          ? `Your application for "${application.jobPost.title}" has been returned to Pending Review. The existing booking for this job was not affected — you can still view it from your bookings.`
           : `Your application for "${application.jobPost.title}" is back under review.`,
         type: "APPLICATION_STATUS",
         data: {
           jobPostId,
           applicationId,
           status: "PENDING",
-          cancelledBookingId: activeBooking?.id || null,
+          // Report whether a booking exists — but do NOT report a
+          // cancellation, because we did not cancel anything.
+          existingBookingId: existingBooking?.id || null,
+          bookingUntouched: true,
         },
       },
     });
 
     return sendResponse(res, {
-      message: "Application returned to pending review",
+      message: existingBooking
+        ? "Application returned to pending review. The existing booking was not affected — manage it from the booking detail page."
+        : "Application returned to pending review",
       data: {
         application: updated,
-        cancelledBookingId: activeBooking?.id || null,
+        // We explicitly renamed this from `cancelledBookingId` to
+        // `existingBookingId` because nothing was cancelled.
+        existingBookingId: existingBooking?.id || null,
       },
     });
   } catch (err) {
