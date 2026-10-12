@@ -1019,6 +1019,9 @@ model PaymentRelease {
 
   createdAt    DateTime @default(now())
 
+  releasedById String
+releasedBy   User   @relation("ReleasedBy", fields: [releasedById], references: [id])
+
   @@index([paymentId])
   @@index([createdAt(sort: Desc)])
 }
