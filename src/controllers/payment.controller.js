@@ -342,6 +342,9 @@ function getWithdrawalProvider(countryCode, method) {
 //
 // Direct bookings (everything else):
 //   → subtotal = agreedRate × qty   (qty derived from estimatedValue/hours)
+//
+// The platform fee is read from FEE_CONFIG so changing the fee in one
+// place updates every consumer.
 // ─────────────────────────────────────────────────────────────────────────────
 function computeBookingTotal(booking) {
   const rate = Number(booking.agreedRate) || 0;
@@ -384,8 +387,11 @@ function computeBookingTotal(booking) {
     subtotal = parseFloat((rate * qty).toFixed(2));
   }
 
-  const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
-  const total = parseFloat((subtotal + platformFee).toFixed(2));
+  // Fee math — centralized in FEE_CONFIG so changing the fee rate in
+  // one place updates every consumer (pricing, payments, invoices,
+  // refunds, emails).
+  const platformFee = FEE_CONFIG.computeHirerFee(subtotal);
+  const total = FEE_CONFIG.computeGrossTotal(subtotal);
 
   return {
     subtotal,

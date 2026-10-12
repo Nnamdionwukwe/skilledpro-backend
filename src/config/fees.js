@@ -1,15 +1,24 @@
 // src/config/fees.js
 // ── Central fee configuration — change here, applies everywhere ──────────────
-// Phase 1: Growth mode (0–10k users) — keep fees low to build liquidity
+//
+// Single source of truth for every fee rate on the platform. Anywhere the
+// fee is needed (pricing, payments, invoices, refunds, emails), import
+// FEE_CONFIG from this file. Change HIRER_FEE_RATE below and every
+// consumer updates automatically.
+//
+// To override in production without a code change, set the environment
+// variable HIRER_FEE_RATE (as a decimal string, e.g. "0.02" for 2%).
 
 export const FEE_CONFIG = {
   phase: 1, // increment as you grow
 
   // ── Booking fees ──────────────────────────────────────────────────────────
-  // Phase 1: hirer pays 5%, worker keeps 100% of agreedRate
-  // Phase 2: hirer 5% + worker 3%
-  // Phase 3: hirer 5% + worker 5%
-  HIRER_FEE_RATE: 0.05, // 5% added on top of agreedRate — hirer pays this
+  // Phase 1: hirer pays 1%, worker keeps 100% of agreedRate
+  // Phase 2: hirer 1% + worker 3%
+  // Phase 3: hirer 1% + worker 5%
+  HIRER_FEE_RATE: process.env.HIRER_FEE_RATE
+    ? parseFloat(process.env.HIRER_FEE_RATE)
+    : 0.01, // 1% added on top of agreedRate — hirer pays this
   WORKER_FEE_RATE: 0.0, // 0% deducted from worker payout in phase 1
 
   // ── Withdrawal fees ───────────────────────────────────────────────────────
@@ -77,5 +86,40 @@ export const FEE_CONFIG = {
       fee: parseFloat(fee.toFixed(2)),
       netAmount: parseFloat((amount - fee).toFixed(2)),
     };
+  },
+
+  /**
+   * Convenience: compute the hirer fee from a subtotal.
+   * Rounds to 2 decimals.
+   */
+  computeHirerFee(subtotal) {
+    return parseFloat((subtotal * this.HIRER_FEE_RATE).toFixed(2));
+  },
+
+  /**
+   * Convenience: compute the worker's cut from a subtotal.
+   * Rounds to 2 decimals. Returns the full subtotal in phase 1.
+   */
+  computeWorkerPayout(subtotal) {
+    return parseFloat((subtotal * (1 - this.WORKER_FEE_RATE)).toFixed(2));
+  },
+
+  /**
+   * Convenience: compute the total the hirer is charged
+   * (subtotal + hirer fee). Rounds to 2 decimals.
+   */
+  computeGrossTotal(subtotal) {
+    return parseFloat((subtotal * (1 + this.HIRER_FEE_RATE)).toFixed(2));
+  },
+
+  /**
+   * Human-readable percentage for labels, e.g. 1 for "1%", 5 for "5%".
+   */
+  get HIRER_FEE_PERCENT() {
+    return Math.round(this.HIRER_FEE_RATE * 100);
+  },
+
+  get WORKER_FEE_PERCENT() {
+    return Math.round(this.WORKER_FEE_RATE * 100);
   },
 };

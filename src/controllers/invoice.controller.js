@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import PDFDocument from "pdfkit";
 import prisma from "../config/database.js";
+import { FEE_CONFIG } from "../config/fees.js";
 
 // ── Brand constants ───────────────────────────────────────────────────────────
 const BRAND = {
@@ -343,7 +344,7 @@ export const getPaymentInvoice = async (req, res) => {
     }
 
     const subtotal = parseFloat((rate * qty).toFixed(2));
-    const platformFee = parseFloat((subtotal * 0.05).toFixed(2));
+    const platformFee = FEE_CONFIG.computeHirerFee(subtotal);
     const referralDeduct = payment.referralDeduct || 0;
     const totalCharged = parseFloat(
       (subtotal + platformFee - referralDeduct).toFixed(2),
@@ -398,7 +399,7 @@ export const getPaymentInvoice = async (req, res) => {
         bold: false,
       },
       {
-        label: "Platform Fee (5%)",
+        label: `Platform Fee (${FEE_CONFIG.HIRER_FEE_PERCENT}%)`,
         value: currency(platformFee, booking.currency),
         bold: false,
       },

@@ -2,10 +2,13 @@
 import prisma from "../config/database.js";
 import { createNotification } from "./notification.service.js";
 import { v4 as uuidv4 } from "uuid";
+import { FEE_CONFIG } from "../config/fees.js";
 
 // ── Constants ──────────────────────────────────────────────────────────
 const REFUND_TIME_LIMIT_HOURS = 48;
-const PLATFORM_FEE_PERCENT = 0.05;
+// Sourced from the central fee config so a change in one place updates
+// refunds, invoices, payments, and pricing simultaneously.
+const PLATFORM_FEE_PERCENT = FEE_CONFIG.HIRER_FEE_RATE;
 const AUTO_APPROVE_THRESHOLD_HOURS = 48; // auto-approve after this many hours
 const AUTO_APPROVE_MAX_AMOUNT = 50000; // only auto-approve refunds below this amount (NGN)
 const AUTO_APPROVE_SETTING_KEY = "refund_auto_approve";

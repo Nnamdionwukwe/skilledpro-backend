@@ -2,10 +2,15 @@
 // Shared pricing utility — mirror of the frontend's src/utils/pricing.js
 // so Paystack, Flutterwave, bank-transfer, and crypto paths all agree
 // with what the UI shows.
+//
+// Fee rate comes from src/config/fees.js — the single source of truth
+// for every fee on the platform.
 
 import prisma from "../config/database.js";
+import { FEE_CONFIG } from "../config/fees.js";
 
-export const HIRER_FEE_RATE = 0.05;
+// Re-exported for backwards compatibility with existing importers.
+export const HIRER_FEE_RATE = FEE_CONFIG.HIRER_FEE_RATE;
 
 export function calcPricing(booking, referralDiscount = 0) {
   const agreedRate = Number(booking?.agreedRate) || 0;
@@ -95,9 +100,11 @@ export function calcPricing(booking, referralDiscount = 0) {
       custom: "custom",
     }[unit] || unit;
 
-  const hirerFee = parseFloat((subtotal * HIRER_FEE_RATE).toFixed(2));
-  const workerPayout = subtotal;
-  const grossTotal = parseFloat((subtotal + hirerFee).toFixed(2));
+  // Fee math — pulled from FEE_CONFIG so changing the fee rate in one
+  // place updates pricing, payments, invoices, refunds, and emails.
+  const hirerFee = FEE_CONFIG.computeHirerFee(subtotal);
+  const workerPayout = FEE_CONFIG.computeWorkerPayout(subtotal);
+  const grossTotal = FEE_CONFIG.computeGrossTotal(subtotal);
   const referralSaving = currency === "NGN" ? referralDiscount : 0;
   const totalCharged = parseFloat(
     Math.max(0, grossTotal - referralSaving).toFixed(2),
