@@ -983,3 +983,41 @@ export const getMyRetainedEarnings = wrap(async (req, res) => {
     },
   });
 });
+
+/**
+ * GET /api/retained-staff/lookup
+ * Find a worker to add to payroll by email or name.
+ */
+export const lookupWorker = wrap(async (req, res) => {
+  const { q } = req.query;
+  if (!q || q.length < 2) {
+    return ok(res, { workers: [] });
+  }
+
+  const workers = await prisma.user.findMany({
+    where: {
+      role: "WORKER",
+      isActive: true,
+      isBanned: false,
+      OR: [
+        { email: { equals: q, mode: "insensitive" } },
+        { firstName: { contains: q, mode: "insensitive" } },
+        { lastName: { contains: q, mode: "insensitive" } },
+      ],
+    },
+    take: 8,
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      avatar: true,
+      city: true,
+      workerProfile: {
+        select: { title: true },
+      },
+    },
+  });
+
+  return ok(res, { workers });
+});

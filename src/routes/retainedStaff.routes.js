@@ -45,6 +45,7 @@ import {
   getMyEmployment,
   listMyCycles,
   getMyRetainedEarnings,
+  lookupWorker,
 } from "../controllers/retainedStaff.controller.js";
 import {
   validateAddRetainedStaff,
@@ -99,6 +100,8 @@ router.post(
   validateUUIDParam("cycleId"),
   cancelCycleHandler,
 );
+
+router.get("/lookup", requireRole("HIRER"), lookupWorker);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ═══ HIRER — STAFF CRUD ═════════════════════════════════════════════════════
