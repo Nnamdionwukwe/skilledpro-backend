@@ -22,7 +22,7 @@ import {
 } from "./retainedStaff.service.js";
 import { logAdminAction } from "../utils/auditLog.js";
 import { createNotification } from "./notification.service.js";
-import { releaseEscrowPartial } from "../utils/pricing.js";
+import { releaseEscrowPartial } from "./payment.service.js";
 
 const DAY_MS = 86_400_000;
 
