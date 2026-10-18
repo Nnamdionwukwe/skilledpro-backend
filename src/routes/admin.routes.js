@@ -81,6 +81,17 @@ import {
   reviewWorkerVerification as _reviewWorkerVerification,
 } from "../controllers/verification.controller.js";
 
+import {
+  adminListRetainedStaff,
+  adminRetainedStats,
+  adminGetRetainedStaff,
+  adminPauseRetained,
+  adminEndRetained,
+  adminListRetainedCycles,
+  adminGetRetainedCycle,
+  adminTriggerRetainedCron,
+} from "../controllers/admin.retainedStaff.controller.js";
+
 import { approveWithdrawalPayout } from "../controllers/payment.controller.js";
 
 // ── Refund Controllers ────────────────────────────────────────────────────────
@@ -316,5 +327,32 @@ router.put("/refunds/:id/reject", rejectRefund);
 router.put("/refunds/:id/reverse", reverseRefund);
 router.put("/settings/refund-auto-approve", toggleAutoApproval);
 router.get("/settings/refund-auto-approve", getAutoApprovalStatus);
+
+// ── Retained Staff (HR / Payroll) ─────────────────────────────────────────
+router.get("/retained-staff", adminListRetainedStaff);
+router.get("/retained-staff/stats", adminRetainedStats);
+router.get(
+  "/retained-staff/:memberId",
+  validateUUIDParam("memberId"),
+  adminGetRetainedStaff,
+);
+router.patch(
+  "/retained-staff/:memberId/pause",
+  validateUUIDParam("memberId"),
+  adminPauseRetained,
+);
+router.patch(
+  "/retained-staff/:memberId/end",
+  validateUUIDParam("memberId"),
+  adminEndRetained,
+);
+
+router.get("/retained-cycles", adminListRetainedCycles);
+router.get(
+  "/retained-cycles/:cycleId",
+  validateUUIDParam("cycleId"),
+  adminGetRetainedCycle,
+);
+router.post("/retained-cycles/run-cron", adminTriggerRetainedCron);
 
 export default router;

@@ -23,11 +23,14 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   DISPUTED
+  AWAITING_PAYMENT        // ← NEW  (retained cycle, no payment yet)
+  PAID                    // ← NEW  (retained cycle, fully released)
 }
 
 enum BookingSource {
   DIRECT
   JOB_POST
+  RETAINED_STAFF 
 }
 
 enum PaymentStatus {
@@ -206,6 +209,25 @@ enum AuditAction {
 
   JOB_CREATED
   JOB_UPDATED
+
+  // ── Retained Staff ─────────────────────────────────────────────────
+  RETAINED_STAFF_ADDED
+  RETAINED_STAFF_UPDATED
+  RETAINED_STAFF_PAUSED
+  RETAINED_STAFF_RESUMED
+  RETAINED_STAFF_ENDED
+  RETAINED_STAFF_DELETED
+  RETAINED_STAFF_RATE_CHANGED
+  RETAINED_STAFF_DOCUMENT_UPLOADED
+  RETAINED_STAFF_DOCUMENT_VERIFIED
+  RETAINED_STAFF_DOCUMENT_REJECTED
+  RETAINED_CYCLE_CREATED
+  RETAINED_CYCLE_CANCELLED
+  RETAINED_CYCLE_PAYMENT_MADE
+  RETAINED_CYCLE_RELEASED
+  RETAINED_CYCLE_REFUNDED
+  RETAINED_CYCLE_DISPUTED
+  RETAINED_CYCLE_CRON_GENERATED
 }
 
 enum AuditTargetType {
@@ -228,6 +250,9 @@ enum AuditTargetType {
   REFUND // ← NEW
   SURVEY // ← NEW
   SYSTEM
+  RETAINED_STAFF_MEMBER
+  RETAINED_STAFF_CYCLE
+  RETAINED_STAFF_DOCUMENT
 }
 
 // Add new enums
@@ -253,6 +278,65 @@ enum AuditResult {
   SUCCESS
   FAILED
   PARTIAL
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// RETAINED STAFF — Enums
+// ═════════════════════════════════════════════════════════════════════
+enum RetainedStaffStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+  TERMINATED
+}
+
+enum PayFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+  QUARTERLY
+  ON_DEMAND
+}
+
+enum RetainedCycleStatus {
+  SCHEDULED
+  AWAITING_PAYMENT
+  HELD
+  PARTIALLY_RELEASED
+  RELEASED
+  CANCELLED
+  FAILED
+}
+
+enum RetainedCycleType {
+  REGULAR
+  MANUAL
+  BONUS
+  REIMBURSEMENT
+  FINAL_SETTLEMENT
+}
+
+enum RetainedPaymentMethod {
+  ESCROW
+  DIRECT_TRANSFER
+}
+
+enum RetainedDocumentType {
+  CONTRACT
+  NDA
+  ID
+  CERTIFICATION
+  OFFER_LETTER
+  PAYSLIP
+  OTHER
+}
+
+enum RetainedDocumentStatus {
+  PENDING
+  SIGNED
+  VERIFIED
+  REJECTED
 }
 
 model User {
@@ -421,6 +505,15 @@ model User {
   voiceCallsReceived  VoiceCall[]      @relation("VoiceCallsReceived")
 
   releasesMade PaymentRelease[] @relation("ReleasedBy")
+
+  // ── Retained Staff relations ────────────────────────────────────────
+  retainedStaffHired      RetainedStaffMember[]   @relation("HirerRetainedStaff")
+  retainedStaffEmployedBy RetainedStaffMember[]   @relation("WorkerRetainedBy")
+  retainedCyclesAsHirer   RetainedPayrollCycle[]  @relation("HirerRetainedCycles")
+  retainedCyclesAsWorker  RetainedPayrollCycle[]  @relation("WorkerRetainedCycles")
+  uploadedRetainedDocs    RetainedStaffDocument[] @relation("UploadedRetainedDocs")
+  retainedNotesAuthored   RetainedStaffNote[]     @relation("RetainedNotes")
+  retainedRevisionsMade   RetainedStaffRevision[] @relation("RetainedRevisions")
 }
 
 model Referral {
@@ -948,6 +1041,8 @@ model Booking {
   jobPostExpiryDate  DateTime?
   jobPostPostedAt    DateTime?
   snapshotBudgetType BudgetType?
+
+  retainedCycle RetainedPayrollCycle? @relation("RetainedCycleBooking")
 }
 
 model Payment {
@@ -1066,6 +1161,9 @@ model Conversation {
   users     ConversationUser[]
   messages  Message[]
   voiceCall VoiceCall?
+
+  retainedMemberId String?              @unique
+  retainedMember   RetainedStaffMember? @relation("RetainedStaffConversation", fields: [retainedMemberId], references: [id], onDelete: SetNull)
 }
 
 model ConversationUser {
@@ -1838,6 +1936,11 @@ model Refund {
   @@index([status])
   @@index([reference])
   @@index([createdAt(sort: Desc)])
+
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleRefunds", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
+  @@index([retainedCycleId])
 }
 
 // ─── Dispute Model ───────────────────────────────────────────────────────────
@@ -1883,6 +1986,11 @@ model Dispute {
   @@index([againstId])
   @@index([status])
   @@index([createdAt(sort: Desc)])
+
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleDisputes", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
+  @@index([retainedCycleId])
 }
 
 // ─── App Settings ────────────────────────────────────────────────────────────
@@ -2089,4 +2197,187 @@ model UserSegmentMembership {
   @@unique([userId, segmentId])
   @@index([userId])
   @@index([segmentId])
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// RETAINED STAFF — HR employment module
+// ═════════════════════════════════════════════════════════════════════
+
+model RetainedStaffMember {
+  id                 String               @id @default(uuid())
+  hirerId            String
+  hirer              User                 @relation("HirerRetainedStaff", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId           String
+  worker             User                 @relation("WorkerRetainedBy", fields: [workerId], references: [id], onDelete: Restrict)
+
+  // ── Role / position
+  jobTitle           String
+  department         String?
+  employmentType     String               @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
+  description        String?
+
+  // ── Compensation
+  payRate            Float
+  currency           String               @default("NGN")
+  payFrequency       PayFrequency         @default(MONTHLY)
+  overtimeRate       Float?
+  bonusEnabled       Boolean              @default(true)
+  currencyLocked     Boolean              @default(false)
+
+  // ── Schedule (informational)
+  workDays           String[]             @default([])
+  workStart          String?
+  workEnd            String?
+  timezone           String               @default("Africa/Lagos")
+
+  // ── Lifecycle
+  status             RetainedStaffStatus  @default(ACTIVE)
+  startedAt          DateTime             @default(now())
+  pausedAt           DateTime?
+  endedAt            DateTime?
+  endReason          String?
+  nextCycleAt        DateTime?
+
+  // ── Finance rollups (denormalized)
+  totalPaidLifetime  Float                @default(0)
+  totalHeld          Float                @default(0)
+  cyclesCount        Int                  @default(0)
+  lastPaidAt         DateTime?
+
+  // ── HR file
+  employeeNumber     String?
+  managerName        String?
+  emergencyContact   String?
+  notes              String?
+
+  // ── Relations
+  cycles             RetainedPayrollCycle[]
+  documents          RetainedStaffDocument[]
+  staffNotes         RetainedStaffNote[]
+  revisions          RetainedStaffRevision[]
+  conversation       Conversation?          @relation("RetainedStaffConversation")
+
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([hirerId, status])
+  @@index([workerId, status])
+  @@index([hirerId, workerId])
+  @@index([nextCycleAt])
+  @@index([createdAt(sort: Desc)])
+}
+
+model RetainedPayrollCycle {
+  id                 String               @id @default(uuid())
+  memberId           String
+  member             RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  hirerId            String
+  hirer              User                 @relation("HirerRetainedCycles", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId           String
+  worker             User                 @relation("WorkerRetainedCycles", fields: [workerId], references: [id], onDelete: Restrict)
+
+  // ── Cycle definition
+  type               RetainedCycleType   @default(REGULAR)
+  periodStart        DateTime
+  periodEnd          DateTime
+  payDate            DateTime
+  label              String?
+
+  // ── Amounts (snapshot)
+  baseAmount         Float
+  bonusAmount        Float                @default(0)
+  deductionAmount    Float                @default(0)
+  grossAmount        Float
+  netAmount          Float
+  currency           String               @default("NGN")
+  platformFee        Float                @default(0)
+  workerPayout       Float
+  notes              String?
+
+  // ── Status
+  status             RetainedCycleStatus  @default(AWAITING_PAYMENT)
+  paymentMethod      RetainedPaymentMethod @default(ESCROW)
+
+  // ── Financial shell
+  bookingId          String?              @unique
+  booking            Booking?             @relation("RetainedCycleBooking", fields: [bookingId], references: [id], onDelete: SetNull)
+
+  // ── Cron idempotency
+  autoGenerated      Boolean              @default(false)
+  cronLockKey        String?              @unique
+
+  // ── Timing
+  paidAt             DateTime?
+  releasedAt         DateTime?
+  cancelledAt        DateTime?
+  failureReason      String?
+
+  // ── Relations
+  disputes           Dispute[]            @relation("RetainedCycleDisputes")
+  refunds            Refund[]             @relation("RetainedCycleRefunds")
+
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([memberId, status])
+  @@index([hirerId, status])
+  @@index([workerId, status])
+  @@index([payDate])
+  @@index([status, payDate])
+  @@index([periodStart, periodEnd])
+  @@index([createdAt(sort: Desc)])
+}
+
+model RetainedStaffDocument {
+  id             String                  @id @default(uuid())
+  memberId       String
+  member         RetainedStaffMember     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  type           RetainedDocumentType
+  title          String
+  fileUrl        String
+  mimeType       String?
+  sizeBytes      Int?
+  status         RetainedDocumentStatus  @default(PENDING)
+  uploadedById   String
+  uploadedBy     User                    @relation("UploadedRetainedDocs", fields: [uploadedById], references: [id])
+  signedAt       DateTime?
+  expiresAt      DateTime?
+  rejectionNote  String?
+  meta           Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@index([memberId])
+  @@index([type])
+  @@index([status])
+}
+
+model RetainedStaffNote {
+  id           String               @id @default(uuid())
+  memberId     String
+  member       RetainedStaffMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User                 @relation("RetainedNotes", fields: [authorId], references: [id])
+  title        String
+  body         String
+  category     String               @default("GENERAL") // PERFORMANCE | DISCIPLINE | PRAISE | GENERAL
+  isPrivate    Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+
+  @@index([memberId, createdAt(sort: Desc)])
+}
+
+model RetainedStaffRevision {
+  id           String               @id @default(uuid())
+  memberId     String
+  member       RetainedStaffMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  changedById  String
+  changedBy    User                 @relation("RetainedRevisions", fields: [changedById], references: [id])
+  field        String
+  oldValue     Json?
+  newValue     Json?
+  reason       String?
+  createdAt    DateTime             @default(now())
+
+  @@index([memberId, createdAt(sort: Desc)])
 }

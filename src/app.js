@@ -46,6 +46,7 @@ import workerRefundRoutes from "./routes/worker.refund.routes.js";
 import analyticsRoutes from "./routes/analytics.routes.js";
 import adminAnalyticsRoutes from "./routes/adminAnalytics.routes.js";
 import voiceCallRoutes from "./routes/voicecall.routes.js";
+import retainedStaffRoutes from "./routes/retainedStaff.routes.js";
 
 // ── Cron service imports ─────────────────────────────────────────────────────
 import "./services/expiry.service.js"; // auto-starts on import
@@ -260,6 +261,7 @@ app.use("/api/refunds", refundRoutes);
 app.use("/api/admin/worker-debts", adminDebtRoutes);
 app.use("/api/worker/refunds", workerRefundRoutes);
 app.use("/api/voice-calls", voiceCallRoutes);
+app.use("/api/retained-staff", retainedStaffRoutes);
 
 // ── 404 fallback (after all routes, before error handler) ────────────────────
 // Runs only if nothing above matched. Keeps the shape consistent with the

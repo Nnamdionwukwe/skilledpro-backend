@@ -3743,3 +3743,370 @@ export const validateUpdateJob = [
 
   validate,
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § RET  RETAINED STAFF VALIDATORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PAY_FREQUENCIES = [
+  "WEEKLY",
+  "BIWEEKLY",
+  "SEMI_MONTHLY",
+  "MONTHLY",
+  "QUARTERLY",
+  "ON_DEMAND",
+];
+
+const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "CASUAL"];
+
+const RETAINED_CYCLE_TYPES = [
+  "REGULAR",
+  "MANUAL",
+  "BONUS",
+  "REIMBURSEMENT",
+  "FINAL_SETTLEMENT",
+];
+
+const RETAINED_PAYMENT_METHODS = ["ESCROW", "DIRECT_TRANSFER"];
+
+const RETAINED_DOCUMENT_TYPES = [
+  "CONTRACT",
+  "NDA",
+  "ID",
+  "CERTIFICATION",
+  "OFFER_LETTER",
+  "PAYSLIP",
+  "OTHER",
+];
+
+const RETAINED_DOCUMENT_STATUSES = [
+  "PENDING",
+  "SIGNED",
+  "VERIFIED",
+  "REJECTED",
+];
+
+// POST /api/retained-staff
+export const validateAddRetainedStaff = [
+  body("workerId")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isUUID(4)
+    .withMessage("workerId must be a valid UUID"),
+  body("workerEmail")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isEmail()
+    .withMessage("workerEmail must be a valid email"),
+  body().custom((_, { req }) => {
+    if (!req.body?.workerId && !req.body?.workerEmail) {
+      throw new Error("Either workerId or workerEmail is required");
+    }
+    return true;
+  }),
+  body("jobTitle")
+    .trim()
+    .notEmpty()
+    .withMessage("jobTitle is required")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("jobTitle must be 2–150 characters"),
+  body("department")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("department must not exceed 100 characters"),
+  body("employmentType")
+    .optional()
+    .isIn(EMPLOYMENT_TYPES)
+    .withMessage(
+      `employmentType must be one of: ${EMPLOYMENT_TYPES.join(", ")}`,
+    ),
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage("description must not exceed 2000 characters"),
+  body("payRate")
+    .notEmpty()
+    .withMessage("payRate is required")
+    .isFloat({ min: 0.01 })
+    .withMessage("payRate must be a positive number"),
+  body("currency")
+    .optional()
+    .trim()
+    .isIn(CURRENCIES)
+    .withMessage("currency must be a valid currency code"),
+  body("payFrequency")
+    .optional()
+    .isIn(PAY_FREQUENCIES)
+    .withMessage(`payFrequency must be one of: ${PAY_FREQUENCIES.join(", ")}`),
+  body("overtimeRate")
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage("overtimeRate must be a non-negative number"),
+  body("workDays")
+    .optional()
+    .isArray({ max: 7 })
+    .withMessage("workDays must be an array of up to 7 items"),
+  body("workDays.*")
+    .optional()
+    .isIn([
+      "MON",
+      "TUE",
+      "WED",
+      "THU",
+      "FRI",
+      "SAT",
+      "SUN",
+      "MONDAY",
+      "TUESDAY",
+      "WEDNESDAY",
+      "THURSDAY",
+      "FRIDAY",
+      "SATURDAY",
+      "SUNDAY",
+    ])
+    .withMessage("Each workDays entry must be a valid weekday"),
+  body("workStart")
+    .optional({ nullable: true })
+    .matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .withMessage("workStart must be HH:MM"),
+  body("workEnd")
+    .optional({ nullable: true })
+    .matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .withMessage("workEnd must be HH:MM"),
+  body("timezone")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("timezone must not exceed 100 characters"),
+  body("employeeNumber")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("employeeNumber must not exceed 100 characters"),
+  body("managerName")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 150 })
+    .withMessage("managerName must not exceed 150 characters"),
+  body("emergencyContact")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("emergencyContact must not exceed 200 characters"),
+  body("notes")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage("notes must not exceed 2000 characters"),
+  validate,
+];
+
+// PATCH /api/retained-staff/:memberId
+export const validateUpdateRetainedStaff = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  body("jobTitle")
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 150 })
+    .withMessage("jobTitle must be 2–150 characters"),
+  body("department").optional({ nullable: true }).trim().isLength({ max: 100 }),
+  body("employmentType")
+    .optional()
+    .isIn(EMPLOYMENT_TYPES)
+    .withMessage(
+      `employmentType must be one of: ${EMPLOYMENT_TYPES.join(", ")}`,
+    ),
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 2000 }),
+  body("payRate")
+    .optional()
+    .isFloat({ min: 0.01 })
+    .withMessage("payRate must be a positive number"),
+  body("currency")
+    .optional()
+    .trim()
+    .isIn(CURRENCIES)
+    .withMessage("currency must be a valid currency code"),
+  body("payFrequency")
+    .optional()
+    .isIn(PAY_FREQUENCIES)
+    .withMessage(`payFrequency must be one of: ${PAY_FREQUENCIES.join(", ")}`),
+  body("overtimeRate").optional({ nullable: true }).isFloat({ min: 0 }),
+  body("bonusEnabled").optional().isBoolean(),
+  body("workDays").optional().isArray({ max: 7 }),
+  body("workStart")
+    .optional({ nullable: true })
+    .matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .withMessage("workStart must be HH:MM"),
+  body("workEnd")
+    .optional({ nullable: true })
+    .matches(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .withMessage("workEnd must be HH:MM"),
+  body("timezone").optional().trim().isLength({ max: 100 }),
+  body("employeeNumber")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 100 }),
+  body("managerName")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 150 }),
+  body("emergencyContact")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 200 }),
+  body("notes").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("applyToPending").optional().isBoolean(),
+  body("rateChangeReason")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 500 }),
+  validate,
+];
+
+// PATCH /api/retained-staff/:memberId/end
+export const validateEndRetainedStaff = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  body("reason")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("reason must not exceed 500 characters"),
+  body("finalCycle").optional().isBoolean(),
+  body("finalAmount")
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage("finalAmount must be a non-negative number"),
+  validate,
+];
+
+// POST /api/retained-staff/:memberId/cycles
+export const validateCreateRetainedCycle = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  body("type")
+    .optional()
+    .isIn(RETAINED_CYCLE_TYPES)
+    .withMessage(`type must be one of: ${RETAINED_CYCLE_TYPES.join(", ")}`),
+  body("periodStart").optional().isISO8601(),
+  body("periodEnd").optional().isISO8601(),
+  body("payDate").optional().isISO8601(),
+  body("baseAmount")
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage("baseAmount must be a non-negative number"),
+  body("bonusAmount")
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage("bonusAmount must be a non-negative number"),
+  body("deductionAmount")
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage("deductionAmount must be a non-negative number"),
+  body("label").optional({ nullable: true }).trim().isLength({ max: 200 }),
+  body("notes").optional({ nullable: true }).trim().isLength({ max: 1000 }),
+  body("paymentMethod")
+    .optional()
+    .isIn(RETAINED_PAYMENT_METHODS)
+    .withMessage(
+      `paymentMethod must be one of: ${RETAINED_PAYMENT_METHODS.join(", ")}`,
+    ),
+  validate,
+];
+
+// POST /api/retained-staff/:memberId/cycles/:cycleId/pay
+export const validatePayRetainedCycle = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  param("cycleId").isUUID(4).withMessage("cycleId must be a valid UUID"),
+  body("paymentMethod")
+    .optional()
+    .isIn(RETAINED_PAYMENT_METHODS)
+    .withMessage(
+      `paymentMethod must be one of: ${RETAINED_PAYMENT_METHODS.join(", ")}`,
+    ),
+  body("provider")
+    .optional()
+    .isIn(["bank_transfer", "crypto", "wallet"])
+    .withMessage("provider must be bank_transfer, crypto, or wallet"),
+  body("providerPayload").optional().isObject(),
+  validate,
+];
+
+// POST /api/retained-staff/cycles/:cycleId/release
+export const validateReleaseRetainedCycle = [
+  param("cycleId").isUUID(4).withMessage("cycleId must be a valid UUID"),
+  body("amount")
+    .notEmpty()
+    .withMessage("amount is required")
+    .isFloat({ min: 0.01 })
+    .withMessage("amount must be greater than zero"),
+  body("note").optional({ nullable: true }).trim().isLength({ max: 500 }),
+  validate,
+];
+
+// POST /api/retained-staff/:memberId/documents
+export const validateUploadRetainedDocument = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  body("type")
+    .notEmpty()
+    .withMessage("type is required")
+    .isIn(RETAINED_DOCUMENT_TYPES)
+    .withMessage(`type must be one of: ${RETAINED_DOCUMENT_TYPES.join(", ")}`),
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("title is required")
+    .isLength({ min: 2, max: 200 }),
+  body("fileUrl").trim().notEmpty().withMessage("fileUrl is required").isURL(),
+  body("mimeType").optional({ nullable: true }).trim().isLength({ max: 100 }),
+  body("sizeBytes").optional({ nullable: true }).isInt({ min: 0 }),
+  body("expiresAt").optional({ nullable: true }).isISO8601(),
+  body("meta").optional().isObject(),
+  validate,
+];
+
+// PATCH /api/retained-staff/:memberId/documents/:docId
+export const validateUpdateRetainedDocument = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  param("docId").isUUID(4).withMessage("docId must be a valid UUID"),
+  body("status")
+    .optional()
+    .isIn(RETAINED_DOCUMENT_STATUSES)
+    .withMessage(
+      `status must be one of: ${RETAINED_DOCUMENT_STATUSES.join(", ")}`,
+    ),
+  body("title").optional().trim().isLength({ min: 2, max: 200 }),
+  body("expiresAt").optional({ nullable: true }).isISO8601(),
+  body("rejectionNote")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 500 }),
+  body("meta").optional().isObject(),
+  validate,
+];
+
+// POST /api/retained-staff/:memberId/notes
+export const validateAddRetainedNote = [
+  param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("title is required")
+    .isLength({ min: 2, max: 150 }),
+  body("body")
+    .trim()
+    .notEmpty()
+    .withMessage("body is required")
+    .isLength({ min: 2, max: 5000 }),
+  body("category")
+    .optional()
+    .isIn(["GENERAL", "PERFORMANCE", "DISCIPLINE", "PRAISE"])
+    .withMessage(
+      "category must be GENERAL, PERFORMANCE, DISCIPLINE, or PRAISE",
+    ),
+  body("isPrivate").optional().isBoolean(),
+  validate,
+];
