@@ -1,17 +1,6 @@
 // src/services/retainedStaffCycle.service.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Retained Staff — payroll cycle engine
-//
-// Responsibilities:
-//   • Auto-generate cycles via cron (idempotent, per-member)
-//   • Manual cycle creation
-//   • Pay a cycle (creates Booking + delegates to payment flow)
-//   • Release funds (delegates to existing staged-release logic)
-//   • Cancel an unpaid cycle
-//   • Reconcile on full release
-//
-// KEY INVARIANT: every paid cycle has exactly one Booking (source=RETAINED_STAFF)
-// and one or more Payment rows. All money motion reuses existing services.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import prisma from "../config/database.js";
@@ -30,14 +19,6 @@ const DAY_MS = 86_400_000;
 // CRON — auto-generate cycles
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Walk all ACTIVE members whose nextCycleAt is due and create one cycle each.
- * Idempotent via `cronLockKey = "${memberId}:${YYYY-MM-DD(payDate)}"`.
- *
- * @param {Object} [opts]
- * @param {"CRON"|"ADMIN_MANUAL"} [opts.trigger]
- * @param {string} [opts.actorId] — adminId for manual trigger audits
- */
 export async function runRetainedCycleGeneration({
   trigger = "CRON",
   actorId = null,
@@ -121,7 +102,7 @@ async function generateCycleForMember(member, { trigger, actorId }) {
   });
 
   await logAdminAction({
-    req: null, // No request in cron context
+    req: null,
     adminId: actorId ?? member.hirerId,
     action: "RETAINED_CYCLE_CRON_GENERATED",
     targetType: "RETAINED_STAFF_CYCLE",
@@ -227,11 +208,6 @@ export async function createManualCycle(memberId, hirerId, payload, ctx = {}) {
 // PAY CYCLE  — creates Booking (financial shell)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Pay a cycle. This creates the financial shell (Booking) and updates the
- * cycle status. The frontend will then call the standard payment endpoints
- * (e.g., POST /api/payments/initiate/:bookingId) to trigger the actual provider checkout.
- */
 export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
   const cycle = await prisma.retainedPayrollCycle.findFirst({
     where: { id: cycleId, hirerId },
@@ -273,7 +249,9 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         address: null,
         scheduledAt: cycle.periodStart,
         estimatedHours: null,
-        agreedRate: cycle.netAmount,
+        // ✅ Agreed rate is the worker's payout. The standard payment controller
+        // will automatically apply the platform fee on top of this.
+        agreedRate: cycle.workerPayout,
         currency: cycle.currency,
         status: "AWAITING_PAYMENT",
         notes: cycle.notes ?? null,
@@ -334,10 +312,6 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
 // RELEASE FUNDS — delegates to existing staged release
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Release funds for a retained cycle. Wraps the existing staged release logic
- * so all rules (partial, remainingBefore/After, wallet credit) stay in one place.
- */
 export async function releaseCycleFunds(
   cycleId,
   hirerId,
@@ -373,7 +347,6 @@ export async function releaseCycleFunds(
     note,
   });
 
-  // ── Determine final state
   const updatedPayment = await prisma.payment.findUnique({
     where: { id: payment.id },
   });
@@ -390,13 +363,11 @@ export async function releaseCycleFunds(
   });
 
   if (fullyReleased) {
-    // Update booking status to PAID (terminal for retained)
     await prisma.booking.update({
       where: { id: cycle.bookingId },
       data: { status: "PAID", completedAt: new Date() },
     });
 
-    // Member rollups
     await prisma.retainedStaffMember.update({
       where: { id: cycle.memberId },
       data: {

@@ -15,8 +15,8 @@
 import prisma from "../config/database.js";
 import { logAdminAction } from "../utils/auditLog.js";
 import { createNotification } from "./notification.service.js";
+import { FEE_CONFIG } from "../config/fees.js"; // ✅ Import central fee config
 
-const DEFAULT_PLATFORM_FEE_PCT = 5;
 const DAY_MS = 86_400_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ export function nextCycleDate(frequency, from = new Date()) {
 
   switch (frequency) {
     case "WEEKLY": {
-      // next Monday strictly after `from`
       const day = d.getDay(); // 0=Sun..6=Sat
       const add = day === 1 ? 7 : (8 - day) % 7 || 7;
       return new Date(d.getTime() + add * DAY_MS);
@@ -45,7 +44,6 @@ export function nextCycleDate(frequency, from = new Date()) {
       return new Date(d.getTime() + add * DAY_MS);
     }
     case "SEMI_MONTHLY": {
-      // next 1st or 15th
       const y = d.getFullYear();
       const m = d.getMonth();
       const day = d.getDate();
@@ -79,7 +77,6 @@ export function endOfPeriod(frequency, start) {
     case "BIWEEKLY":
       return new Date(s.getTime() + 13 * DAY_MS);
     case "SEMI_MONTHLY": {
-      // If start is 1st → end is 14th; if 15th → end of month
       const day = s.getDate();
       if (day === 1) return new Date(s.getFullYear(), s.getMonth(), 14);
       return new Date(s.getFullYear(), s.getMonth() + 1, 0);
@@ -100,34 +97,42 @@ export function endOfPeriod(frequency, start) {
 
 /**
  * Compute the money breakdown for a cycle.
- * platformFee is deducted from workerPayout (not added to hirer total)
- * — matches how direct bookings work in your Payment model.
+ * Uses the central FEE_CONFIG to ensure platform fees stay in sync.
  */
 export function computeCycleAmounts(member, overrides = {}) {
   const {
     baseAmount = member.payRate,
     bonusAmount = 0,
     deductionAmount = 0,
-    platformFeePct = DEFAULT_PLATFORM_FEE_PCT,
     platformFee: explicitFee,
   } = overrides;
 
   const gross = baseAmount + bonusAmount;
-  const net = Math.max(0, gross - deductionAmount);
+
+  // What the worker actually receives (gross minus deductions)
+  const workerPayout = Math.max(
+    0,
+    parseFloat((gross - deductionAmount).toFixed(2)),
+  );
+
+  // Platform fee is calculated based on the central config (e.g. 1% or 15%)
+  // We calculate it from the workerPayout (what the worker earns)
   const platformFee =
     typeof explicitFee === "number"
       ? explicitFee
-      : Math.round(((net * platformFeePct) / 100) * 100) / 100;
-  const workerPayout = Math.max(0, Math.round((net - platformFee) * 100) / 100);
+      : FEE_CONFIG.computeHirerFee(workerPayout);
+
+  // The hirer pays the worker payout + the platform fee
+  const netAmount = parseFloat((workerPayout + platformFee).toFixed(2));
 
   return {
     baseAmount,
     bonusAmount,
     deductionAmount,
     grossAmount: gross,
-    netAmount: net,
-    platformFee,
-    workerPayout,
+    netAmount, // What the hirer is charged (Total to pay)
+    platformFee, // The platform's cut
+    workerPayout, // What the worker receives
   };
 }
 
@@ -135,9 +140,6 @@ export function computeCycleAmounts(member, overrides = {}) {
 // Member lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Add a worker to a hirer's retained staff.
- */
 export async function addMember(input, ctx = {}) {
   const {
     hirerId,
@@ -234,7 +236,6 @@ export async function addMember(input, ctx = {}) {
       },
     });
   } catch (err) {
-    // Non-fatal
     console.warn("[retainedStaff] conversation create failed:", err.message);
   }
 
@@ -496,7 +497,6 @@ export async function endMember(
 
   let finalCycleId = null;
   if (finalCycle && finalAmount > 0) {
-    // Delegate to cycle service — imported lazily to avoid circular import
     const cycleSvc = await import("./retainedStaffCycle.service.js");
     const cycle = await cycleSvc.createManualCycle(
       memberId,
