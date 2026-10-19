@@ -2215,6 +2215,8 @@ model RetainedStaffMember {
   department         String?
   employmentType     String               @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
   description        String?
+  locationType       String               @default("ON_SITE")   // ✅ Add this: ON_SITE | REMOTE | HYBRID
+
 
   // ── Compensation
   payRate            Float

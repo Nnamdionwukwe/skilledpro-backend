@@ -3903,6 +3903,10 @@ export const validateAddRetainedStaff = [
     .trim()
     .isLength({ max: 2000 })
     .withMessage("notes must not exceed 2000 characters"),
+  body("locationType")
+    .optional()
+    .isIn(["ON_SITE", "REMOTE", "HYBRID"])
+    .withMessage("locationType must be ON_SITE, REMOTE, or HYBRID"),
   validate,
 ];
 
@@ -3970,6 +3974,10 @@ export const validateUpdateRetainedStaff = [
     .optional({ nullable: true })
     .trim()
     .isLength({ max: 500 }),
+  body("locationType")
+    .optional()
+    .isIn(["ON_SITE", "REMOTE", "HYBRID"])
+    .withMessage("locationType must be ON_SITE, REMOTE, or HYBRID"),
   validate,
 ];
 
