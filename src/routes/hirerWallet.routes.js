@@ -15,6 +15,9 @@ const router = express.Router();
 // ─── Public Webhook (no auth) ─────────────────────────────────────────────
 router.post("/webhook/flutterwave", walletController.flutterwaveWebhook);
 
+// src/routes/hirerWallet.routes.js
+router.post("/debug/credit/:reference", walletController.debugCreditDeposit);
+
 // ─── Admin Routes ──────────────────────────────────────────────────────────
 router.get(
   "/admin/withdrawals",

@@ -359,37 +359,63 @@ export const flutterwaveWebhook = async (req, res) => {
     const signature = req.headers["verif-hash"];
     const secretHash = process.env.FLUTTERWAVE_SECRET_HASH;
 
-    // ✅ Only reject if both a hash is configured AND it doesn't match
+    console.log(
+      "[flutterwaveWalletWebhook] received",
+      JSON.stringify({
+        hasSignature: !!signature,
+        hasSecret: !!secretHash,
+        bodyKeys: Object.keys(payload || {}),
+        txRef: payload?.data?.tx_ref ?? payload?.tx_ref ?? null,
+        status: payload?.data?.status ?? payload?.status ?? null,
+      }),
+    );
+
     if (secretHash && signature !== secretHash) {
-      console.error("Invalid webhook signature");
+      console.error("[flutterwaveWalletWebhook] invalid signature");
       return res
         .status(401)
         .json({ status: "error", message: "Invalid signature" });
     }
 
-    const { tx_ref, status, transaction_id } = payload.data || payload;
+    // Flutterwave can send either { data: {...} } or flat {...}
+    const raw = payload?.data ?? payload ?? {};
+    const tx_ref = raw.tx_ref ?? raw.txRef;
+    const status = raw.status;
+    const transaction_id = raw.id ?? raw.transaction_id;
 
     if (!tx_ref) {
+      console.error("[flutterwaveWalletWebhook] missing tx_ref", payload);
       return res
         .status(400)
         .json({ status: "error", message: "Missing tx_ref" });
     }
 
-    const fundingAttempt = await prisma.hirerFundingAttempt.findUnique({
+    // Look up by providerRef (our DEP-...), and fall back to the numeric
+    // transaction_id in case the webhook overwrote it in an earlier run.
+    let fundingAttempt = await prisma.hirerFundingAttempt.findUnique({
       where: { providerRef: tx_ref },
     });
 
+    if (!fundingAttempt && transaction_id) {
+      fundingAttempt = await prisma.hirerFundingAttempt.findFirst({
+        where: { providerRef: String(transaction_id) },
+      });
+    }
+
     if (!fundingAttempt) {
-      console.error(`Funding attempt not found: ${tx_ref}`);
+      console.error(
+        `[flutterwaveWalletWebhook] funding attempt not found for tx_ref=${tx_ref}`,
+      );
       return res
         .status(404)
         .json({ status: "error", message: "Funding attempt not found" });
     }
 
     if (fundingAttempt.status === "SUCCESS") {
-      return res
-        .status(200)
-        .json({ status: "success", message: "Already processed" });
+      console.log(
+        `[flutterwaveWalletWebhook] already processed ${fundingAttempt.id}`,
+      );
+      return res.status(200).json({ status: "success" });
     }
 
     const isSuccessful = status === "successful" || status === "success";
@@ -399,23 +425,31 @@ export const flutterwaveWebhook = async (req, res) => {
         where: { id: fundingAttempt.id },
         data: { status: "FAILED", callbackData: payload },
       });
+      console.log(
+        `[flutterwaveWalletWebhook] marked FAILED ${fundingAttempt.id}`,
+      );
       return res.status(200).json({ status: "success" });
     }
 
-    // ✅ Credit the wallet in a transaction
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      const fresh = await tx.hirerFundingAttempt.findUnique({
+        where: { id: fundingAttempt.id },
+      });
+      if (fresh.status === "SUCCESS") {
+        return { alreadyDone: true };
+      }
+
       const wallet = await tx.hirerWallet.findUnique({
         where: { id: fundingAttempt.walletId },
       });
 
       const balanceBefore = wallet.balance;
-      const balanceAfter = wallet.balance + fundingAttempt.amount;
+      const balanceAfter = balanceBefore + fundingAttempt.amount;
 
       await tx.hirerFundingAttempt.update({
         where: { id: fundingAttempt.id },
         data: {
           status: "SUCCESS",
-          providerRef: transaction_id || fundingAttempt.providerRef,
           completedAt: new Date(),
           callbackData: payload,
         },
@@ -447,8 +481,8 @@ export const flutterwaveWebhook = async (req, res) => {
           completedAt: new Date(),
           meta: {
             paymentProvider: "FLUTTERWAVE",
-            transactionId: transaction_id,
-            channel: payload.data?.payment_type || "card",
+            transactionId: transaction_id ? String(transaction_id) : null,
+            channel: raw.payment_type || "card",
           },
         },
       });
@@ -457,15 +491,21 @@ export const flutterwaveWebhook = async (req, res) => {
         where: { id: fundingAttempt.id },
         data: { transactionId: txRecord.id },
       });
+
+      return { txRecord, balanceAfter };
     });
 
+    if (result.alreadyDone) {
+      return res.status(200).json({ status: "success" });
+    }
+
     console.log(
-      `✅ Wallet funded: ${fundingAttempt.hirerId} - ${fundingAttempt.currency} ${fundingAttempt.amount}`,
+      `✅ Wallet funded (webhook): hirer=${fundingAttempt.hirerId} amount=${fundingAttempt.amount} ${fundingAttempt.currency} balance=${result.balanceAfter}`,
     );
 
     return res.status(200).json({ status: "success" });
   } catch (error) {
-    console.error("Flutterwave webhook error:", error);
+    console.error("[flutterwaveWalletWebhook] ERROR", error);
     return res.status(500).json({ status: "error", message: error.message });
   }
 };
@@ -490,7 +530,7 @@ export const verifyTransaction = async (req, res) => {
       where: { id: fundingAttempt.walletId },
     });
 
-    // Already processed — just return current state
+    // Already terminal — return current state
     if (
       fundingAttempt.status === "SUCCESS" ||
       fundingAttempt.status === "FAILED"
@@ -521,7 +561,9 @@ export const verifyTransaction = async (req, res) => {
 
     try {
       const flutterwaveResponse = await axios.get(
-        `https://api.flutterwave.com/v3/transactions/${fundingAttempt.providerRef}/verify`,
+        `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(
+          fundingAttempt.providerRef,
+        )}/verify`,
         {
           headers: {
             Authorization: `Bearer ${getFlutterwaveSecret()}`,
@@ -535,7 +577,10 @@ export const verifyTransaction = async (req, res) => {
         flutterwaveData.data?.status === "successful";
       channel = flutterwaveData.data?.payment_type || "card";
     } catch (err) {
-      console.error("Flutterwave verification error:", err.message);
+      console.error(
+        "[verifyTransaction] FLW verify error:",
+        err.response?.data || err.message,
+      );
       if (isTestMode) {
         isSuccessful = true;
       } else {
@@ -561,13 +606,23 @@ export const verifyTransaction = async (req, res) => {
       });
     }
 
-    // ✅ Credit wallet in a transaction
     const result = await prisma.$transaction(async (tx) => {
+      const fresh = await tx.hirerFundingAttempt.findUnique({
+        where: { id: fundingAttempt.id },
+      });
+      if (fresh.status === "SUCCESS") {
+        return {
+          alreadyDone: true,
+          txRecord: null,
+          balanceAfter: wallet?.balance || 0,
+        };
+      }
+
       const freshWallet = await tx.hirerWallet.findUnique({
         where: { id: fundingAttempt.walletId },
       });
       const balanceBefore = freshWallet.balance;
-      const balanceAfter = freshWallet.balance + fundingAttempt.amount;
+      const balanceAfter = balanceBefore + fundingAttempt.amount;
 
       await tx.hirerWallet.update({
         where: { id: fundingAttempt.walletId },
@@ -614,6 +669,10 @@ export const verifyTransaction = async (req, res) => {
       return { txRecord, balanceAfter };
     });
 
+    console.log(
+      `✅ Wallet funded (verify): hirer=${fundingAttempt.hirerId} amount=${fundingAttempt.amount} ${fundingAttempt.currency} balance=${result.balanceAfter} testMode=${isTestMode}`,
+    );
+
     return response.success(res, "Transaction verified and completed", {
       status: "SUCCESS",
       amount: fundingAttempt.amount,
@@ -630,6 +689,90 @@ export const verifyTransaction = async (req, res) => {
       "Failed to verify transaction: " + error.message,
       500,
     );
+  }
+};
+
+// src/controllers/hirerWallet.controller.js
+export const debugCreditDeposit = async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const fundingAttempt = await prisma.hirerFundingAttempt.findUnique({
+      where: { providerRef: reference },
+    });
+    if (!fundingAttempt) {
+      return response.error(res, "Funding attempt not found", 404);
+    }
+    if (fundingAttempt.status === "SUCCESS") {
+      const wallet = await prisma.hirerWallet.findUnique({
+        where: { id: fundingAttempt.walletId },
+      });
+      return response.success(res, "Already credited", {
+        status: "SUCCESS",
+        balance: wallet?.balance || 0,
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const wallet = await tx.hirerWallet.findUnique({
+        where: { id: fundingAttempt.walletId },
+      });
+      const balanceBefore = wallet.balance;
+      const balanceAfter = balanceBefore + fundingAttempt.amount;
+
+      await tx.hirerWallet.update({
+        where: { id: fundingAttempt.walletId },
+        data: {
+          balance: balanceAfter,
+          totalDeposited: wallet.totalDeposited + fundingAttempt.amount,
+          lastTransactionAt: new Date(),
+        },
+      });
+
+      const txRecord = await tx.hirerTransaction.create({
+        data: {
+          walletId: fundingAttempt.walletId,
+          hirerId: fundingAttempt.hirerId,
+          type: "DEPOSIT",
+          amount: fundingAttempt.amount,
+          currency: fundingAttempt.currency,
+          fee: 0,
+          netAmount: fundingAttempt.amount,
+          reference: fundingAttempt.providerRef,
+          status: "COMPLETED",
+          description: `Manual wallet credit (debug) — ${fundingAttempt.currency}`,
+          balanceBefore,
+          balanceAfter,
+          completedAt: new Date(),
+          meta: {
+            paymentProvider: "FLUTTERWAVE",
+            manual: true,
+            channel: "card",
+          },
+        },
+      });
+
+      await tx.hirerFundingAttempt.update({
+        where: { id: fundingAttempt.id },
+        data: {
+          status: "SUCCESS",
+          completedAt: new Date(),
+          transactionId: txRecord.id,
+        },
+      });
+
+      return { txRecord, balanceAfter };
+    });
+
+    return response.success(res, "Manually credited", {
+      status: "SUCCESS",
+      amount: fundingAttempt.amount,
+      currency: fundingAttempt.currency,
+      balance: result.balanceAfter,
+    });
+  } catch (error) {
+    console.error("debugCreditDeposit error:", error);
+    return response.error(res, "Failed to credit: " + error.message, 500);
   }
 };
 
