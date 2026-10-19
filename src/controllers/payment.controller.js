@@ -564,10 +564,10 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// § 6  FLUTTERWAVE REDIRECT CALLBACK
-// GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
-// ─────────────────────────────────────────────────────────────────────────────
+// src/controllers/payment.controller.js
+
+// ... (keep all your imports and helper functions above) ...
+
 // ─────────────────────────────────────────────────────────────────────────────
 // § 7  PAYSTACK REDIRECT CALLBACK (improved)
 // GET /api/payments/verify/paystack?reference=...
@@ -591,6 +591,7 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
   // 2. Find the payment record
   const payment = await prisma.payment.findFirst({
     where: { providerRef: reference },
+    include: { booking: true }, // ✅ Include booking to check source
   });
   if (!payment) {
     return res
@@ -607,18 +608,24 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
 
   // 3. Update in a transaction
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const updatedPayment = await tx.payment.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.update({
         where: { id: payment.id },
         data: { status: "HELD" },
       });
 
-      const updatedBooking = await tx.booking.update({
+      await tx.booking.update({
         where: { id: payment.bookingId },
         data: { status: "ACCEPTED" },
       });
 
-      return { updatedPayment, updatedBooking };
+      // ✅ Check if this is a retained staff booking and update the cycle
+      if (payment.booking?.source === "RETAINED_STAFF") {
+        await tx.retainedPayrollCycle.updateMany({
+          where: { bookingId: payment.bookingId },
+          data: { status: "HELD", paidAt: new Date() },
+        });
+      }
     });
 
     await _notifyPaymentHeld(payment.bookingId).catch(() => {});
@@ -678,6 +685,7 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
   // 2. Find the payment record
   const payment = await prisma.payment.findFirst({
     where: { providerRef: tx_ref ?? txData.tx_ref },
+    include: { booking: true }, // ✅ Include booking
   });
   if (!payment) {
     return res
@@ -694,18 +702,24 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
 
   // 3. Update in a transaction
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const updatedPayment = await tx.payment.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.update({
         where: { id: payment.id },
         data: { status: "HELD" },
       });
 
-      const updatedBooking = await tx.booking.update({
+      await tx.booking.update({
         where: { id: payment.bookingId },
         data: { status: "ACCEPTED" },
       });
 
-      return { updatedPayment, updatedBooking };
+      // ✅ Update retained cycle if applicable
+      if (payment.booking?.source === "RETAINED_STAFF") {
+        await tx.retainedPayrollCycle.updateMany({
+          where: { bookingId: payment.bookingId },
+          data: { status: "HELD", paidAt: new Date() },
+        });
+      }
     });
 
     await _notifyPaymentHeld(payment.bookingId).catch(() => {});
@@ -732,9 +746,7 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
 // § 8  WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// POST /api/payments/webhook/flutterwave
 export const flutterwaveWebhook = asyncHandler(async (req, res) => {
-  // Verify signature
   const hash = req.headers["verif-hash"];
   if (hash !== process.env.FLW_WEBHOOK_HASH) {
     return res.status(401).json({ success: false, message: "Unauthorised" });
@@ -743,26 +755,34 @@ export const flutterwaveWebhook = asyncHandler(async (req, res) => {
   const payload = req.body;
   const { event, data } = payload;
 
-  // ── Charge (payment) events ──────────────────────────────────────────────
   if (event === "charge.completed" && data?.status === "successful") {
     const txRef = data.tx_ref;
     const payment = await prisma.payment.findFirst({
       where: { providerRef: txRef },
+      include: { booking: true },
     });
     if (payment && payment.status !== "HELD") {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: "HELD" },
-      });
-      await prisma.booking.update({
-        where: { id: payment.bookingId },
-        data: { status: "ACCEPTED" },
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: "HELD" },
+        });
+        await tx.booking.update({
+          where: { id: payment.bookingId },
+          data: { status: "ACCEPTED" },
+        });
+        // ✅ Update retained cycle
+        if (payment.booking?.source === "RETAINED_STAFF") {
+          await tx.retainedPayrollCycle.updateMany({
+            where: { bookingId: payment.bookingId },
+            data: { status: "HELD", paidAt: new Date() },
+          });
+        }
       });
       await _notifyPaymentHeld(payment.bookingId);
     }
   }
 
-  // ── Transfer (payout) events ─────────────────────────────────────────────
   if (event === "transfer.completed") {
     const ref = data.reference;
     const withdrawal = await prisma.withdrawal.findFirst({
@@ -797,9 +817,7 @@ export const flutterwaveWebhook = asyncHandler(async (req, res) => {
   res.status(200).json({ received: true });
 });
 
-// POST /api/payments/webhook/paystack
 export const paystackWebhook = asyncHandler(async (req, res) => {
-  // Verify signature
   const expected = crypto
     .createHmac("sha512", PS_SECRET)
     .update(JSON.stringify(req.body))
@@ -814,15 +832,25 @@ export const paystackWebhook = asyncHandler(async (req, res) => {
     const ref = data.reference;
     const payment = await prisma.payment.findFirst({
       where: { providerRef: ref },
+      include: { booking: true },
     });
     if (payment && payment.status !== "HELD") {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: "HELD" },
-      });
-      await prisma.booking.update({
-        where: { id: payment.bookingId },
-        data: { status: "ACCEPTED" },
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: "HELD" },
+        });
+        await tx.booking.update({
+          where: { id: payment.bookingId },
+          data: { status: "ACCEPTED" },
+        });
+        // ✅ Update retained cycle
+        if (payment.booking?.source === "RETAINED_STAFF") {
+          await tx.retainedPayrollCycle.updateMany({
+            where: { bookingId: payment.bookingId },
+            data: { status: "HELD", paidAt: new Date() },
+          });
+        }
       });
       await _notifyPaymentHeld(payment.bookingId);
     }
@@ -2637,9 +2665,9 @@ export const getWithdrawalPinStatus = asyncHandler(async (req, res) => {
   });
 });
 
-// src/controllers/payment.controller.js
-// ... existing imports ...
-
+// ─────────────────────────────────────────────────────────────────────────────
+// PAY FROM WALLET
+// ─────────────────────────────────────────────────────────────────────────────
 export const payFromWallet = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
@@ -2660,7 +2688,6 @@ export const payFromWallet = asyncHandler(async (req, res) => {
     computeBookingTotal(booking);
   const currency = booking.currency;
 
-  // Find the hirer's wallet
   const wallet = await prisma.hirerWallet.findUnique({
     where: { hirerId_currency: { hirerId, currency } },
   });
@@ -2672,11 +2699,9 @@ export const payFromWallet = asyncHandler(async (req, res) => {
     });
   }
 
-  // Execute payment transaction
   const reference = uniqueRef("WALLET");
 
   await prisma.$transaction(async (tx) => {
-    // 1. Deduct from wallet
     const newBalance = wallet.balance - total;
     await tx.hirerWallet.update({
       where: { id: wallet.id },
@@ -2687,7 +2712,6 @@ export const payFromWallet = asyncHandler(async (req, res) => {
       },
     });
 
-    // 2. Create Hirer Transaction
     const hirerTx = await tx.hirerTransaction.create({
       data: {
         walletId: wallet.id,
@@ -2706,8 +2730,7 @@ export const payFromWallet = asyncHandler(async (req, res) => {
       },
     });
 
-    // 3. Create Payment
-    const payment = await tx.payment.create({
+    await tx.payment.create({
       data: {
         bookingId,
         userId: hirerId,
@@ -2722,13 +2745,18 @@ export const payFromWallet = asyncHandler(async (req, res) => {
       },
     });
 
-    // 4. Update booking status
     await tx.booking.update({
       where: { id: bookingId },
-      data: { status: "ACCEPTED" }, // Moves to ACCEPTED so worker can proceed
+      data: { status: "ACCEPTED" },
     });
 
-    return payment;
+    // ✅ Update retained cycle
+    if (booking.source === "RETAINED_STAFF") {
+      await tx.retainedPayrollCycle.updateMany({
+        where: { bookingId },
+        data: { status: "HELD", paidAt: new Date() },
+      });
+    }
   });
 
   await _notifyPaymentHeld(bookingId).catch(() => {});
