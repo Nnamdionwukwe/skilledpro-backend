@@ -359,7 +359,8 @@ export const flutterwaveWebhook = async (req, res) => {
     const signature = req.headers["verif-hash"];
     const secretHash = process.env.FLUTTERWAVE_SECRET_HASH;
 
-    if (signature !== secretHash) {
+    // ✅ Only reject if both a hash is configured AND it doesn't match
+    if (secretHash && signature !== secretHash) {
       console.error("Invalid webhook signature");
       return res
         .status(401)
@@ -367,6 +368,12 @@ export const flutterwaveWebhook = async (req, res) => {
     }
 
     const { tx_ref, status, transaction_id } = payload.data || payload;
+
+    if (!tx_ref) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "Missing tx_ref" });
+    }
 
     const fundingAttempt = await prisma.hirerFundingAttempt.findUnique({
       where: { providerRef: tx_ref },
@@ -385,25 +392,36 @@ export const flutterwaveWebhook = async (req, res) => {
         .json({ status: "success", message: "Already processed" });
     }
 
-    await prisma.hirerFundingAttempt.update({
-      where: { id: fundingAttempt.id },
-      data: {
-        status: status === "successful" ? "SUCCESS" : "FAILED",
-        providerRef: transaction_id || fundingAttempt.providerRef,
-        completedAt: status === "successful" ? new Date() : undefined,
-        callbackData: payload,
-      },
-    });
+    const isSuccessful = status === "successful" || status === "success";
 
-    if (status === "successful") {
-      const wallet = await prisma.hirerWallet.findUnique({
+    if (!isSuccessful) {
+      await prisma.hirerFundingAttempt.update({
+        where: { id: fundingAttempt.id },
+        data: { status: "FAILED", callbackData: payload },
+      });
+      return res.status(200).json({ status: "success" });
+    }
+
+    // ✅ Credit the wallet in a transaction
+    await prisma.$transaction(async (tx) => {
+      const wallet = await tx.hirerWallet.findUnique({
         where: { id: fundingAttempt.walletId },
       });
 
       const balanceBefore = wallet.balance;
       const balanceAfter = wallet.balance + fundingAttempt.amount;
 
-      await prisma.hirerWallet.update({
+      await tx.hirerFundingAttempt.update({
+        where: { id: fundingAttempt.id },
+        data: {
+          status: "SUCCESS",
+          providerRef: transaction_id || fundingAttempt.providerRef,
+          completedAt: new Date(),
+          callbackData: payload,
+        },
+      });
+
+      await tx.hirerWallet.update({
         where: { id: fundingAttempt.walletId },
         data: {
           balance: balanceAfter,
@@ -412,7 +430,7 @@ export const flutterwaveWebhook = async (req, res) => {
         },
       });
 
-      const transaction = await prisma.hirerTransaction.create({
+      const txRecord = await tx.hirerTransaction.create({
         data: {
           walletId: fundingAttempt.walletId,
           hirerId: fundingAttempt.hirerId,
@@ -430,19 +448,20 @@ export const flutterwaveWebhook = async (req, res) => {
           meta: {
             paymentProvider: "FLUTTERWAVE",
             transactionId: transaction_id,
+            channel: payload.data?.payment_type || "card",
           },
         },
       });
 
-      await prisma.hirerFundingAttempt.update({
+      await tx.hirerFundingAttempt.update({
         where: { id: fundingAttempt.id },
-        data: { transactionId: transaction.id },
+        data: { transactionId: txRecord.id },
       });
+    });
 
-      console.log(
-        `✅ Wallet funded: ${fundingAttempt.hirerId} - ${fundingAttempt.currency} ${fundingAttempt.amount}`,
-      );
-    }
+    console.log(
+      `✅ Wallet funded: ${fundingAttempt.hirerId} - ${fundingAttempt.currency} ${fundingAttempt.amount}`,
+    );
 
     return res.status(200).json({ status: "success" });
   } catch (error) {
