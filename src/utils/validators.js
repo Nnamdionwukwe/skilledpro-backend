@@ -3960,7 +3960,9 @@ export const validateUpdateRetainedStaff = [
     .trim()
     .isLength({ max: 200 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  // ✅ NEW: Allow the hirer to update pending cycles with the new rate
   body("applyToPending").optional().isBoolean(),
+  // ✅ NEW: Allow the hirer to provide a reason for the rate change
   body("rateChangeReason")
     .optional({ nullable: true })
     .trim()

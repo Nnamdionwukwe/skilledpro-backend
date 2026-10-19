@@ -230,13 +230,55 @@ export const getStaff = wrap(async (req, res) => {
  */
 export const updateStaff = wrap(async (req, res) => {
   const hirerId = req.user.id;
-  const member = await updateMember(
-    req.params.memberId,
-    hirerId,
-    req.body,
-    ctxOf(req),
-  );
-  return ok(res, { member });
+  const { memberId } = req.params;
+
+  // 1. Run the service update logic (handles rate changes, pending cycles, audit logs)
+  await updateMember(memberId, hirerId, req.body, ctxOf(req));
+
+  // 2. Re-fetch the member with full relations so the frontend gets the exact same shape as getStaff
+  const updatedMember = await prisma.retainedStaffMember.findFirst({
+    where: { id: memberId, hirerId },
+    include: {
+      worker: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          avatar: true,
+          phone: true,
+          country: true,
+          city: true,
+          role: true,
+          isEmailVerified: true,
+          isPhoneVerified: true,
+          workerProfile: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              hourlyRate: true,
+              currency: true,
+              verificationStatus: true,
+              avgRating: true,
+              totalReviews: true,
+              completedJobs: true,
+              yearsExperience: true,
+              totalEarnings: true,
+            },
+          },
+        },
+      },
+      documents: { orderBy: { createdAt: "desc" }, take: 20 },
+      staffNotes: { orderBy: { createdAt: "desc" }, take: 20 },
+      revisions: { orderBy: { createdAt: "desc" }, take: 10 },
+      _count: { select: { cycles: true } },
+    },
+  });
+
+  if (!updatedMember) throw httpError(404, "Member not found after update");
+
+  return ok(res, { member: updatedMember });
 });
 
 /**

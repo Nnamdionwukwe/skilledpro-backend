@@ -295,54 +295,15 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
     if (patch[k] !== undefined) data[k] = patch[k];
   }
 
+  let rateChanged = false;
+  let oldRate = member.payRate;
+
   // ── Rate change (special handling)
   if (patch.payRate !== undefined && patch.payRate !== member.payRate) {
     if (typeof patch.payRate !== "number" || patch.payRate <= 0)
       throw httpError(400, "payRate must be > 0");
     data.payRate = patch.payRate;
-
-    // Optionally update pending cycles
-    if (patch.applyToPending) {
-      const pending = await prisma.retainedPayrollCycle.findMany({
-        where: { memberId, status: "AWAITING_PAYMENT" },
-      });
-      for (const c of pending) {
-        const amounts = computeCycleAmounts(
-          { payRate: patch.payRate },
-          {
-            baseAmount: patch.payRate,
-            bonusAmount: c.bonusAmount,
-            deductionAmount: c.deductionAmount,
-          },
-        );
-        await prisma.retainedPayrollCycle.update({
-          where: { id: c.id },
-          data: amounts,
-        });
-      }
-    }
-
-    await prisma.retainedStaffRevision.create({
-      data: {
-        memberId,
-        changedById: hirerId,
-        field: "payRate",
-        oldValue: member.payRate,
-        newValue: patch.payRate,
-        reason: patch.rateChangeReason ?? null,
-      },
-    });
-
-    await logAdminAction({
-      req: ctx.req,
-      adminId: hirerId,
-      action: "RETAINED_STAFF_RATE_CHANGED",
-      targetType: "RETAINED_STAFF_MEMBER",
-      targetId: memberId,
-      description: `Changed pay rate from ${member.payRate} to ${patch.payRate} ${member.currency}`,
-      before: { payRate: member.payRate },
-      after: { payRate: patch.payRate },
-    });
+    rateChanged = true;
   }
 
   // ── Frequency change
@@ -352,17 +313,6 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
   ) {
     data.payFrequency = patch.payFrequency;
     data.nextCycleAt = nextCycleDate(patch.payFrequency, new Date());
-
-    await prisma.retainedStaffRevision.create({
-      data: {
-        memberId,
-        changedById: hirerId,
-        field: "payFrequency",
-        oldValue: member.payFrequency,
-        newValue: patch.payFrequency,
-        reason: patch.frequencyChangeReason ?? null,
-      },
-    });
   }
 
   // ── Currency change (locked after first cycle)
@@ -370,37 +320,71 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
     if (member.currencyLocked)
       throw httpError(409, "Currency is locked once a cycle exists");
     data.currency = patch.currency;
+  }
 
+  // ── Update the member profile
+  let updatedMember = member;
+  if (Object.keys(data).length > 0) {
+    updatedMember = await prisma.retainedStaffMember.update({
+      where: { id: memberId },
+      data,
+    });
+  }
+
+  // ── If rate changed, handle pending cycles and write revision
+  if (rateChanged) {
+    // 1. Write revision history
     await prisma.retainedStaffRevision.create({
       data: {
         memberId,
         changedById: hirerId,
-        field: "currency",
-        oldValue: member.currency,
-        newValue: patch.currency,
+        field: "payRate",
+        oldValue: oldRate,
+        newValue: patch.payRate,
+        reason: patch.rateChangeReason ?? "Rate updated via edit form",
       },
     });
+
+    // 2. Optionally update pending cycles
+    if (patch.applyToPending) {
+      const pendingCycles = await prisma.retainedPayrollCycle.findMany({
+        where: { memberId, status: "AWAITING_PAYMENT" },
+      });
+
+      for (const cycle of pendingCycles) {
+        const amounts = computeCycleAmounts(
+          { payRate: patch.payRate },
+          {
+            baseAmount: patch.payRate, // Use new rate
+            bonusAmount: cycle.bonusAmount,
+            deductionAmount: cycle.deductionAmount,
+          },
+        );
+        await prisma.retainedPayrollCycle.update({
+          where: { id: cycle.id },
+          data: amounts,
+        });
+      }
+    }
   }
 
-  if (Object.keys(data).length === 0) return member;
-
-  const updated = await prisma.retainedStaffMember.update({
-    where: { id: memberId },
-    data,
-  });
-
+  // ── Audit Log
   await logAdminAction({
     req: ctx.req,
     adminId: hirerId,
-    action: "RETAINED_STAFF_UPDATED",
+    action: rateChanged
+      ? "RETAINED_STAFF_RATE_CHANGED"
+      : "RETAINED_STAFF_UPDATED",
     targetType: "RETAINED_STAFF_MEMBER",
     targetId: memberId,
-    description: `Updated retained staff: ${Object.keys(data).join(", ")}`,
+    description: rateChanged
+      ? `Changed pay rate from ${oldRate} to ${patch.payRate} ${member.currency}`
+      : `Updated retained staff details`,
     before: pick(member, Object.keys(data)),
     after: pick(data, Object.keys(data)),
   });
 
-  return updated;
+  return updatedMember;
 }
 
 export async function pauseMember(memberId, hirerId, reason, ctx = {}) {
@@ -555,12 +539,15 @@ export async function deleteMember(memberId, hirerId, ctx = {}) {
     where: { id: memberId, hirerId },
     include: { _count: { select: { cycles: true } } },
   });
+
   if (!member) throw httpError(404, "Retained staff member not found");
-  if (member._count.cycles > 0)
+
+  if (member._count.cycles > 0) {
     throw httpError(
       409,
-      "Cannot delete: member has payroll cycles. End the membership instead.",
+      "Cannot delete: this member has payroll cycles. Please 'End Employment' instead to preserve financial history.",
     );
+  }
 
   await prisma.retainedStaffMember.delete({ where: { id: memberId } });
 
@@ -576,7 +563,6 @@ export async function deleteMember(memberId, hirerId, ctx = {}) {
 
   return { deleted: true };
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Rollup reconciliation (called by nightly cron)
 // ─────────────────────────────────────────────────────────────────────────────
