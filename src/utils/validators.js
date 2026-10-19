@@ -2208,7 +2208,10 @@ export const validateInitiatePayment = [
   body("callbackUrl")
     .optional({ nullable: true, checkFalsy: true })
     .trim()
-    .isURL()
+    .isURL({
+      require_tld: false, // ✅ This allows localhost
+      require_protocol: true, // Requires http:// or https://
+    })
     .withMessage("callbackUrl must be a valid URL"),
 
   body("currency")
