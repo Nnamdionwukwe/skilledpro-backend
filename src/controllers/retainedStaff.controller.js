@@ -749,9 +749,12 @@ export const listAllCycles = wrap(async (req, res) => {
   return ok(res, { cycles: items, meta: paginationMeta(total, page, limit) });
 });
 
-/**
- * GET /api/retained-staff/dashboard
- */
+// src/controllers/retainedStaff.controller.js
+// ... (keep all your imports and other functions above) ...
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ═══ HIRER DASHBOARD ════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 export const getHirerDashboard = wrap(async (req, res) => {
   const hirerId = req.user.id;
   const now = new Date();
@@ -784,11 +787,13 @@ export const getHirerDashboard = wrap(async (req, res) => {
     prisma.retainedPayrollCycle.count({
       where: { hirerId, status: "AWAITING_PAYMENT" },
     }),
-    prisma.retainedPayrollCycle.aggregate({
+    prisma.retainedPayrollCycle.groupBy({
+      by: ["currency"],
       where: { hirerId, status: { in: ["HELD", "PARTIALLY_RELEASED"] } },
       _sum: { netAmount: true },
     }),
-    prisma.retainedPayrollCycle.aggregate({
+    prisma.retainedPayrollCycle.groupBy({
+      by: ["currency"],
       where: {
         hirerId,
         status: "RELEASED",
@@ -825,16 +830,38 @@ export const getHirerDashboard = wrap(async (req, res) => {
     monthlyBurn[m.currency] = (monthlyBurn[m.currency] || 0) + m.payRate * f;
   }
 
+  const heldMap = {};
+  heldInEscrow.forEach((h) => {
+    heldMap[h.currency] = h._sum.netAmount || 0;
+  });
+
+  const releasedMap = {};
+  releasedThisMonth.forEach((r) => {
+    releasedMap[r.currency] = r._sum.netAmount || 0;
+  });
+
+  // ✅ Get all unique currencies currently in play
+  const activeCurrencies = new Set([
+    ...Object.keys(monthlyBurn),
+    ...Object.keys(heldMap),
+    ...Object.keys(releasedMap),
+    ...upcomingCycles.map((c) => c.currency),
+  ]);
+
+  // Default to NGN if no currencies are found
+  if (activeCurrencies.size === 0) activeCurrencies.add("NGN");
+
   return ok(res, {
     dashboard: {
       staffCount: Object.fromEntries(
         statusCounts.map((s) => [s.status, s._count]),
       ),
       activeCount: statusCounts.find((s) => s.status === "ACTIVE")?._count || 0,
+      activeCurrencies: Array.from(activeCurrencies),
       monthlyBurnByCurrency: monthlyBurn,
+      heldInEscrowByCurrency: heldMap,
+      releasedThisMonthByCurrency: releasedMap,
       pendingPayments: cyclesDue,
-      heldInEscrowByCycle: heldInEscrow._sum.netAmount || 0,
-      releasedThisMonth: releasedThisMonth._sum.netAmount || 0,
       upcomingCycles: upcomingCycles.map((c) => ({
         memberId: c.id,
         jobTitle: c.jobTitle,
