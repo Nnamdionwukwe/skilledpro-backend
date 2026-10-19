@@ -208,6 +208,8 @@ export async function createManualCycle(memberId, hirerId, payload, ctx = {}) {
 // PAY CYCLE  — creates Booking (financial shell)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// src/services/retainedStaffCycle.service.js
+
 export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
   const cycle = await prisma.retainedPayrollCycle.findFirst({
     where: { id: cycleId, hirerId },
@@ -216,7 +218,14 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
   if (!cycle) throw httpError(404, "Payroll cycle not found");
   if (cycle.status !== "AWAITING_PAYMENT")
     throw httpError(400, `Cycle is not payable (status: ${cycle.status})`);
-  if (cycle.bookingId) throw httpError(409, "Cycle already has a booking row");
+
+  // ✅ If Booking already exists, just return it so the frontend can proceed
+  if (cycle.bookingId) {
+    const existingBooking = await prisma.booking.findUnique({
+      where: { id: cycle.bookingId },
+    });
+    return { booking: existingBooking, cycleId: cycle.id };
+  }
 
   const paymentMethod = opts.paymentMethod ?? cycle.paymentMethod ?? "ESCROW";
 
@@ -227,14 +236,10 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
     include: { category: true },
   });
 
-  // ✅ Fallback: If worker has no category, grab the first category in the system
   if (!category) {
     const anyCategory = await prisma.category.findFirst();
     if (!anyCategory)
-      throw httpError(
-        500,
-        "No categories exist in the system to assign to this booking.",
-      );
+      throw httpError(500, "No categories exist in the system.");
     category = { categoryId: anyCategory.id, category: anyCategory };
   }
 
@@ -251,7 +256,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
       data: {
         hirerId,
         workerId: cycle.workerId,
-        categoryId: category.categoryId, // ✅ Guaranteed to be valid now
+        categoryId: category.categoryId,
         title,
         description,
         address: null,
@@ -259,7 +264,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         estimatedHours: null,
         agreedRate: cycle.workerPayout,
         currency: cycle.currency,
-        status: "ACCEPTED", // ✅ Change to ACCEPTED so it can be paid
+        status: "ACCEPTED",
         notes: cycle.notes ?? null,
         quantity: 1,
         source: "RETAINED_STAFF",
@@ -281,8 +286,6 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
     return b;
   });
 
-  // ✅ Remove the hardcoded status override to HELD here, the payment controller handles it.
-
   await logAdminAction({
     req: ctx.req,
     adminId: hirerId,
@@ -295,7 +298,6 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
 
   return { booking, cycleId: cycle.id };
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // RELEASE FUNDS — delegates to existing staged release
 // ─────────────────────────────────────────────────────────────────────────────

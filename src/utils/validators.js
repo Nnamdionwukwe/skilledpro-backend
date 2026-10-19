@@ -4019,6 +4019,8 @@ export const validateCreateRetainedCycle = [
   validate,
 ];
 
+// src/utils/validators.js
+
 // POST /api/retained-staff/:memberId/cycles/:cycleId/pay
 export const validatePayRetainedCycle = [
   param("memberId").isUUID(4).withMessage("memberId must be a valid UUID"),
@@ -4031,8 +4033,8 @@ export const validatePayRetainedCycle = [
     ),
   body("provider")
     .optional()
-    .isIn(["bank_transfer", "crypto", "wallet"])
-    .withMessage("provider must be bank_transfer, crypto, or wallet"),
+    .isIn(["card", "bank_transfer", "crypto", "wallet"]) // ✅ Added "card"
+    .withMessage("provider must be card, bank_transfer, crypto, or wallet"),
   body("providerPayload").optional().isObject(),
   validate,
 ];
