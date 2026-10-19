@@ -409,10 +409,12 @@ function computeBookingTotal(booking) {
 // § 5  HIRER — INITIATE BOOKING PAYMENT  (smart routing)
 // POST /api/payments/initiate/:bookingId
 // ─────────────────────────────────────────────────────────────────────────────
+// src/controllers/payment.controller.js
+
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
-  const { referralAmount = 0 } = req.body;
+  const { referralAmount = 0, callbackUrl: customCallbackUrl } = req.body; // ✅ Added customCallbackUrl
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -449,11 +451,9 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
 
   const currency = (booking.currency ?? "USD").toUpperCase();
 
-  // ── Compute full job value (job-post aware) ─────────────────────────
   const { subtotal, platformFee, workerPayout, total, isJobPostBooking } =
     computeBookingTotal(booking);
 
-  // ── Apply referral amount from frontend ─────────────────────────────
   const totalAmount = parseFloat(
     Math.max(0, total - referralAmount).toFixed(2),
   );
@@ -463,7 +463,11 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const hirerEmail = booking.hirer.email;
 
   if (shouldUsePaystack(currency)) {
-    const callbackUrl = `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
+    // ✅ Use custom callback if provided, otherwise default to verify page
+    const callbackUrl =
+      customCallbackUrl ||
+      `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
+
     const psRes = await psInitializePayment({
       email: hirerEmail,
       amount: totalAmount,
@@ -509,8 +513,11 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  // Flutterwave remains as is – webhook will handle success
-  const redirectUrl = `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
+  // ✅ Use custom callback if provided, otherwise default to booking page
+  const redirectUrl =
+    customCallbackUrl ||
+    `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
+
   const flwRes = await flwInitiatePayment({
     txRef,
     amount: totalAmount,
@@ -2659,12 +2666,10 @@ export const payFromWallet = asyncHandler(async (req, res) => {
   });
 
   if (!wallet || wallet.balance < total) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `Insufficient wallet balance. You need ${currency} ${total.toLocaleString()}`,
-      });
+    return res.status(400).json({
+      success: false,
+      message: `Insufficient wallet balance. You need ${currency} ${total.toLocaleString()}`,
+    });
   }
 
   // Execute payment transaction
