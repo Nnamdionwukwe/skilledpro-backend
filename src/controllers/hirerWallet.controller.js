@@ -281,7 +281,7 @@ export const fundWallet = async (req, res) => {
       amount: amount,
       currency: currency,
       redirect_url:
-        redirectUrl || `${process.env.CLIENT_URL}/wallet/deposit/callback`,
+        redirectUrl || `${process.env.CLIENT_URL}/wallet?ref=${reference}`,
       payment_options: "card, banktransfer, ussd, mobilemoney, qr",
       meta: {
         consumer_id: req.user.id,
