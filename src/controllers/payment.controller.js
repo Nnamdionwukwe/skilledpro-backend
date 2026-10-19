@@ -2630,6 +2630,111 @@ export const getWithdrawalPinStatus = asyncHandler(async (req, res) => {
   });
 });
 
+// src/controllers/payment.controller.js
+// ... existing imports ...
+
+export const payFromWallet = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const hirerId = req.user.id;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { hirer: true },
+  });
+
+  if (!booking)
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+  if (booking.hirerId !== hirerId)
+    return res.status(403).json({ success: false, message: "Forbidden" });
+
+  const { subtotal, platformFee, workerPayout, total } =
+    computeBookingTotal(booking);
+  const currency = booking.currency;
+
+  // Find the hirer's wallet
+  const wallet = await prisma.hirerWallet.findUnique({
+    where: { hirerId_currency: { hirerId, currency } },
+  });
+
+  if (!wallet || wallet.balance < total) {
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: `Insufficient wallet balance. You need ${currency} ${total.toLocaleString()}`,
+      });
+  }
+
+  // Execute payment transaction
+  const reference = uniqueRef("WALLET");
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Deduct from wallet
+    const newBalance = wallet.balance - total;
+    await tx.hirerWallet.update({
+      where: { id: wallet.id },
+      data: {
+        balance: newBalance,
+        totalSpent: wallet.totalSpent + total,
+        lastTransactionAt: new Date(),
+      },
+    });
+
+    // 2. Create Hirer Transaction
+    const hirerTx = await tx.hirerTransaction.create({
+      data: {
+        walletId: wallet.id,
+        hirerId,
+        type: "PAYMENT",
+        amount: total,
+        currency,
+        fee: 0,
+        netAmount: total,
+        reference,
+        status: "COMPLETED",
+        description: `Payment for booking ${bookingId}`,
+        balanceBefore: wallet.balance,
+        balanceAfter: newBalance,
+        completedAt: new Date(),
+      },
+    });
+
+    // 3. Create Payment
+    const payment = await tx.payment.create({
+      data: {
+        bookingId,
+        userId: hirerId,
+        amount: total,
+        currency,
+        platformFee,
+        workerPayout,
+        status: "HELD",
+        provider: "wallet",
+        providerRef: reference,
+        walletPaymentId: hirerTx.id,
+      },
+    });
+
+    // 4. Update booking status
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: { status: "ACCEPTED" }, // Moves to ACCEPTED so worker can proceed
+    });
+
+    return payment;
+  });
+
+  await _notifyPaymentHeld(bookingId).catch(() => {});
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment successful from wallet",
+    data: { reference, bookingId },
+  });
+});
+
 function _parseMeta(value) {
   if (!value) return {};
   if (typeof value === "object") return value;

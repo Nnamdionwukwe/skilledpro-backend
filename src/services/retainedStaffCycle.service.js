@@ -221,14 +221,22 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
   const paymentMethod = opts.paymentMethod ?? cycle.paymentMethod ?? "ESCROW";
 
   // Find the worker's primary category (required FK on Booking)
-  const workerCategory = await prisma.workerCategory.findFirst({
+  let category = await prisma.workerCategory.findFirst({
     where: { workerProfile: { userId: cycle.workerId } },
     orderBy: { isPrimary: "desc" },
+    include: { category: true },
   });
-  const fallbackCategory =
-    workerCategory ?? (await prisma.category.findFirst());
-  if (!fallbackCategory)
-    throw httpError(400, "No category available — cannot create booking");
+
+  // ✅ Fallback: If worker has no category, grab the first category in the system
+  if (!category) {
+    const anyCategory = await prisma.category.findFirst();
+    if (!anyCategory)
+      throw httpError(
+        500,
+        "No categories exist in the system to assign to this booking.",
+      );
+    category = { categoryId: anyCategory.id, category: anyCategory };
+  }
 
   const title =
     cycle.label ??
@@ -243,23 +251,21 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
       data: {
         hirerId,
         workerId: cycle.workerId,
-        categoryId: fallbackCategory.id,
+        categoryId: category.categoryId, // ✅ Guaranteed to be valid now
         title,
         description,
         address: null,
         scheduledAt: cycle.periodStart,
         estimatedHours: null,
-        // ✅ Agreed rate is the worker's payout. The standard payment controller
-        // will automatically apply the platform fee on top of this.
         agreedRate: cycle.workerPayout,
         currency: cycle.currency,
-        status: "AWAITING_PAYMENT",
+        status: "ACCEPTED", // ✅ Change to ACCEPTED so it can be paid
         notes: cycle.notes ?? null,
         quantity: 1,
         source: "RETAINED_STAFF",
         jobPostId: null,
-        snapshotCategoryName: fallbackCategory.name,
-        snapshotCategoryIcon: fallbackCategory.icon,
+        snapshotCategoryName: category.category.name,
+        snapshotCategoryIcon: category.category.icon,
       },
     });
 
@@ -275,14 +281,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
     return b;
   });
 
-  // Update cycle status to HELD (intent to pay established)
-  await prisma.retainedPayrollCycle.update({
-    where: { id: cycle.id },
-    data: {
-      status: "HELD",
-      paidAt: new Date(),
-    },
-  });
+  // ✅ Remove the hardcoded status override to HELD here, the payment controller handles it.
 
   await logAdminAction({
     req: ctx.req,
@@ -293,17 +292,6 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
     description: `Created payment booking for retained cycle`,
     after: { bookingId: booking.id, netAmount: cycle.netAmount },
   });
-
-  try {
-    await createNotification({
-      userId: cycle.workerId,
-      title: "Payroll payment received 💳",
-      body: `A payroll payment of ${formatMoney(cycle.netAmount, cycle.currency)} is being processed.`,
-      type: "RETAINED_CYCLE_PAYMENT_RECEIVED",
-      icon: "FaHandHoldingUsd",
-      data: { cycleId: cycle.id, bookingId: booking.id },
-    });
-  } catch {}
 
   return { booking, cycleId: cycle.id };
 }

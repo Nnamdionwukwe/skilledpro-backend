@@ -31,6 +31,7 @@ import {
   setWithdrawalPin,
   changeWithdrawalPin,
   getWithdrawalPinStatus,
+  payFromWallet,
 } from "../controllers/payment.controller.js";
 import { getPaymentInvoice } from "../controllers/invoice.controller.js";
 import {
@@ -110,6 +111,8 @@ router.patch(
   validateConfirmCryptoPayment,
   confirmCryptoPayment,
 );
+
+router.post("/wallet/:bookingId", protect, payFromWallet);
 
 // ── Escrow release ────────────────────────────────────────────────────────────
 router.post(
