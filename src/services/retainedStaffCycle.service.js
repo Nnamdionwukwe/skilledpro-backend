@@ -286,6 +286,11 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         // ✅ NEW: Role metadata snapshot
         employmentType: cycle.member.employmentType ?? null,
         department: cycle.member.department ?? null,
+
+        // ✅ NEW: Cycle amounts snapshot
+        bonusAmount: cycle.bonusAmount > 0 ? cycle.bonusAmount : null,
+        deductionAmount:
+          cycle.deductionAmount > 0 ? cycle.deductionAmount : null,
       },
     });
 
