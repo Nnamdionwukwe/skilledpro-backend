@@ -353,9 +353,10 @@ export async function releaseCycleFunds(
   });
 
   if (fullyReleased) {
+    // ✅ FIX: Mark the booking as COMPLETED (not PAID)
     await prisma.booking.update({
       where: { id: cycle.bookingId },
-      data: { status: "PAID", completedAt: new Date() },
+      data: { status: "COMPLETED", completedAt: new Date() },
     });
 
     await prisma.retainedStaffMember.update({
@@ -406,6 +407,8 @@ export async function releaseCycleFunds(
     cycle: { id: cycle.id, status: cycleStatus, fullyReleased },
   };
 }
+
+// ... (keep everything below) ...
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CANCEL
