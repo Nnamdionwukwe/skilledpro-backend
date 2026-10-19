@@ -409,12 +409,10 @@ function computeBookingTotal(booking) {
 // § 5  HIRER — INITIATE BOOKING PAYMENT  (smart routing)
 // POST /api/payments/initiate/:bookingId
 // ─────────────────────────────────────────────────────────────────────────────
-// src/controllers/payment.controller.js
-
 export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const hirerId = req.user.id;
-  const { referralAmount = 0, callbackUrl: customCallbackUrl } = req.body; // ✅ Added customCallbackUrl
+  const { referralAmount = 0, callbackUrl: customCallbackUrl } = req.body;
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
@@ -462,19 +460,19 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
   const hirerName = `${booking.hirer.firstName} ${booking.hirer.lastName}`;
   const hirerEmail = booking.hirer.email;
 
-  if (shouldUsePaystack(currency)) {
-    // ✅ Use custom callback if provided, otherwise default to verify page
-    const callbackUrl =
-      customCallbackUrl ||
-      `${CLIENT_URL}/payments/verify/paystack?reference=${txRef}`;
+  // ✅ Define the final destination: the booking detail page
+  const finalRedirectUrl =
+    customCallbackUrl || `${CLIENT_URL}/bookings/${bookingId}`;
 
+  if (shouldUsePaystack(currency)) {
+    // ✅ Pass the absolute redirect URL to Paystack
     const psRes = await psInitializePayment({
       email: hirerEmail,
       amount: totalAmount,
       reference: txRef,
       currency,
       bookingId,
-      callbackUrl,
+      callbackUrl: finalRedirectUrl,
     });
 
     if (psRes.status !== true) {
@@ -513,11 +511,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  // ✅ Use custom callback if provided, otherwise default to booking page
-  const redirectUrl =
-    customCallbackUrl ||
-    `${CLIENT_URL}/bookings/${bookingId}?payment=flw_ok&tx_ref=${txRef}`;
-
+  // Flutterwave path
   const flwRes = await flwInitiatePayment({
     txRef,
     amount: totalAmount,
@@ -525,7 +519,7 @@ export const initiateBookingPayment = asyncHandler(async (req, res) => {
     email: hirerEmail,
     name: hirerName,
     bookingId,
-    redirectUrl,
+    redirectUrl: finalRedirectUrl,
   });
 
   if (flwRes.status !== "success") {
