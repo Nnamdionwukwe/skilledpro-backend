@@ -259,7 +259,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         categoryId: category.categoryId,
         title,
         description,
-        address: null,
+        address: cycle.member.location ?? null,
         scheduledAt: cycle.periodStart,
         estimatedHours: null,
         agreedRate: cycle.workerPayout,
@@ -271,6 +271,19 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         jobPostId: null,
         snapshotCategoryName: category.category.name,
         snapshotCategoryIcon: category.category.icon,
+
+        // ✅ NEW: Location + schedule + HR snapshot
+        location: cycle.member.location ?? null,
+        latitude: cycle.member.latitude ?? null,
+        longitude: cycle.member.longitude ?? null,
+        locationType: cycle.member.locationType ?? "ON_SITE",
+        workDays: cycle.member.workDays ?? [],
+        workStart: cycle.member.workStart ?? null,
+        workEnd: cycle.member.workEnd ?? null,
+        timezone: cycle.member.timezone ?? null,
+        employeeNumber: cycle.member.employeeNumber ?? null,
+        managerName: cycle.member.managerName ?? null,
+        emergencyContact: cycle.member.emergencyContact ?? null,
       },
     });
 

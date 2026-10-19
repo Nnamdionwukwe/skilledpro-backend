@@ -1043,6 +1043,24 @@ model Booking {
   snapshotBudgetType BudgetType?
 
   retainedCycle RetainedPayrollCycle? @relation("RetainedCycleBooking")
+
+    // ── Retained Staff Snapshot ──────────────────────────────────────────────
+  location      String?
+  latitude      Float?
+  longitude     Float?
+  locationType  String?   // "ON_SITE" | "REMOTE" | "HYBRID"
+  
+  // Work schedule snapshot
+  workDays      String[]  @default([])
+  workStart     String?
+  workEnd       String?
+  timezone      String?
+  
+  // HR snapshot
+  employeeNumber   String?
+  managerName      String?
+  emergencyContact String?
+
 }
 
 model Payment {
