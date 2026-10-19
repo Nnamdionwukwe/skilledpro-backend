@@ -2223,9 +2223,11 @@ model RetainedStaffMember {
   jobTitle           String
   department         String?
   employmentType     String               @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
+  locationType       String               @default("ON_SITE")   // ON_SITE | REMOTE | HYBRID
+  location           String?
+  latitude           Float?
+  longitude          Float?
   description        String?
-  locationType       String               @default("ON_SITE")   // ✅ Add this: ON_SITE | REMOTE | HYBRID
-
 
   // ── Compensation
   payRate            Float
@@ -2266,15 +2268,10 @@ model RetainedStaffMember {
   documents          RetainedStaffDocument[]
   staffNotes         RetainedStaffNote[]
   revisions          RetainedStaffRevision[]
-  conversation       Conversation?          @relation("RetainedStaffConversation")
+  conversation       Conversation?        @relation("RetainedStaffConversation")
 
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
-
-  locationType       String               @default("ON_SITE")
-  location           String?
-  latitude           Float?
-  longitude          Float?
 
   @@index([hirerId, status])
   @@index([workerId, status])
