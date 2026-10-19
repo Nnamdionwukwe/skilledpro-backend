@@ -148,6 +148,7 @@ export async function addMember(input, ctx = {}) {
     jobTitle,
     department,
     employmentType = "FULL_TIME",
+    locationType = "ON_SITE",
     description,
     payRate,
     currency = "NGN",
@@ -208,6 +209,7 @@ export async function addMember(input, ctx = {}) {
       jobTitle,
       department,
       employmentType,
+      locationType,
       description,
       payRate,
       currency,
@@ -247,7 +249,14 @@ export async function addMember(input, ctx = {}) {
     targetType: "RETAINED_STAFF_MEMBER",
     targetId: member.id,
     description: `Added ${worker.firstName} ${worker.lastName} to retained staff as ${jobTitle}`,
-    after: { jobTitle, payRate, currency, payFrequency, employmentType },
+    after: {
+      jobTitle,
+      payRate,
+      currency,
+      payFrequency,
+      employmentType,
+      locationType,
+    },
   });
 
   // ── Notify worker
@@ -277,6 +286,7 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
     "jobTitle",
     "department",
     "employmentType",
+    "locationType",
     "description",
     "overtimeRate",
     "bonusEnabled",
