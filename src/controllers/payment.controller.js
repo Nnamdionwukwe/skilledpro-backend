@@ -649,103 +649,13 @@ export const verifyPaystack = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// § 6  FLUTTERWAVE REDIRECT CALLBACK (improved)
-// GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
-// ─────────────────────────────────────────────────────────────────────────────
-export const verifyFlutterwave = asyncHandler(async (req, res) => {
-  const { tx_ref, transaction_id, status } = req.query;
-
-  if (status === "cancelled") {
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment cancelled by user" });
-  }
-
-  if (!tx_ref && !transaction_id) {
-    return res
-      .status(400)
-      .json({ success: false, message: "tx_ref or transaction_id required" });
-  }
-
-  // 1. Verify with Flutterwave
-  let txData;
-  if (transaction_id) {
-    const result = await flwVerifyTransaction(transaction_id);
-    txData = result.status === "success" ? result.data : null;
-  } else {
-    txData = await flwVerifyByTxRef(tx_ref);
-  }
-
-  if (!txData || txData.status !== "successful") {
-    return res
-      .status(400)
-      .json({ success: false, message: "Payment not successful" });
-  }
-
-  // 2. Find the payment record
-  const payment = await prisma.payment.findFirst({
-    where: { providerRef: tx_ref ?? txData.tx_ref },
-    include: { booking: true }, // ✅ Include booking
-  });
-  if (!payment) {
-    return res
-      .status(404)
-      .json({ success: false, message: "Payment record not found" });
-  }
-  if (payment.status === "HELD") {
-    return res.status(200).json({
-      success: true,
-      message: "Already verified",
-      data: { bookingId: payment.bookingId, status: "HELD" },
-    });
-  }
-
-  // 3. Update in a transaction
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: { status: "HELD" },
-      });
-
-      await tx.booking.update({
-        where: { id: payment.bookingId },
-        data: { status: "ACCEPTED" },
-      });
-
-      // ✅ Update retained cycle if applicable
-      if (payment.booking?.source === "RETAINED_STAFF") {
-        await tx.retainedPayrollCycle.updateMany({
-          where: { bookingId: payment.bookingId },
-          data: { status: "HELD", paidAt: new Date() },
-        });
-      }
-    });
-
-    await _notifyPaymentHeld(payment.bookingId).catch(() => {});
-
-    return res.status(200).json({
-      success: true,
-      message: "Payment verified and held in escrow",
-      data: {
-        bookingId: payment.bookingId,
-        paymentStatus: "HELD",
-        bookingStatus: "ACCEPTED",
-      },
-    });
-  } catch (error) {
-    console.error("Flutterwave verification transaction failed:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update payment and booking. Please contact support.",
-    });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // § 8  WEBHOOKS
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// § 6  FLUTTERWAVE REDIRECT CALLBACK (improved)
+// GET /api/payments/verify/flutterwave?tx_ref=...&transaction_id=...&status=...
+// ─────────────────────────────────────────────────────────────────────────────
 export const flutterwaveWebhook = asyncHandler(async (req, res) => {
   const hash = req.headers["verif-hash"];
   if (hash !== process.env.FLW_WEBHOOK_HASH) {
