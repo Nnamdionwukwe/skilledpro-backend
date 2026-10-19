@@ -149,6 +149,9 @@ export async function addMember(input, ctx = {}) {
     department,
     employmentType = "FULL_TIME",
     locationType = "ON_SITE",
+    location,
+    latitude,
+    longitude,
     description,
     payRate,
     currency = "NGN",
@@ -210,6 +213,9 @@ export async function addMember(input, ctx = {}) {
       department,
       employmentType,
       locationType,
+      location: location ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
       description,
       payRate,
       currency,
@@ -256,6 +262,9 @@ export async function addMember(input, ctx = {}) {
       payFrequency,
       employmentType,
       locationType,
+      location: location ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
     },
   });
 
@@ -287,6 +296,9 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
     "department",
     "employmentType",
     "locationType",
+    "location",
+    "latitude",
+    "longitude",
     "description",
     "overtimeRate",
     "bonusEnabled",
@@ -365,7 +377,7 @@ export async function updateMember(memberId, hirerId, patch, ctx = {}) {
         const amounts = computeCycleAmounts(
           { payRate: patch.payRate },
           {
-            baseAmount: patch.payRate, // Use new rate
+            baseAmount: patch.payRate,
             bonusAmount: cycle.bonusAmount,
             deductionAmount: cycle.deductionAmount,
           },

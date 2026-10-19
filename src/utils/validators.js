@@ -3907,6 +3907,19 @@ export const validateAddRetainedStaff = [
     .optional()
     .isIn(["ON_SITE", "REMOTE", "HYBRID"])
     .withMessage("locationType must be ON_SITE, REMOTE, or HYBRID"),
+  body("location")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 300 })
+    .withMessage("location must not exceed 300 characters"),
+  body("latitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage("latitude must be between -90 and 90"),
+  body("longitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage("longitude must be between -180 and 180"),
   validate,
 ];
 
@@ -3978,6 +3991,19 @@ export const validateUpdateRetainedStaff = [
     .optional()
     .isIn(["ON_SITE", "REMOTE", "HYBRID"])
     .withMessage("locationType must be ON_SITE, REMOTE, or HYBRID"),
+  body("location")
+    .optional({ nullable: true, checkFalsy: true })
+    .trim()
+    .isLength({ max: 300 })
+    .withMessage("location must not exceed 300 characters"),
+  body("latitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage("latitude must be between -90 and 90"),
+  body("longitude")
+    .optional({ nullable: true, checkFalsy: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage("longitude must be between -180 and 180"),
   validate,
 ];
 
