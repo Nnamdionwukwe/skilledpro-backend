@@ -2271,6 +2271,11 @@ model RetainedStaffMember {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
 
+  locationType       String               @default("ON_SITE")
+  location           String?
+  latitude           Float?
+  longitude          Float?
+
   @@index([hirerId, status])
   @@index([workerId, status])
   @@index([hirerId, workerId])
