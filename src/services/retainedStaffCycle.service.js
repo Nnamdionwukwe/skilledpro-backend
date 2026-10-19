@@ -208,8 +208,6 @@ export async function createManualCycle(memberId, hirerId, payload, ctx = {}) {
 // PAY CYCLE  — creates Booking (financial shell)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// src/services/retainedStaffCycle.service.js
-
 export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
   const cycle = await prisma.retainedPayrollCycle.findFirst({
     where: { id: cycleId, hirerId },
@@ -272,7 +270,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         snapshotCategoryName: category.category.name,
         snapshotCategoryIcon: category.category.icon,
 
-        // ✅ NEW: Location + schedule + HR snapshot
+        // ✅ Location + schedule + HR snapshot
         location: cycle.member.location ?? null,
         latitude: cycle.member.latitude ?? null,
         longitude: cycle.member.longitude ?? null,
@@ -284,6 +282,10 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
         employeeNumber: cycle.member.employeeNumber ?? null,
         managerName: cycle.member.managerName ?? null,
         emergencyContact: cycle.member.emergencyContact ?? null,
+
+        // ✅ NEW: Role metadata snapshot
+        employmentType: cycle.member.employmentType ?? null,
+        department: cycle.member.department ?? null,
       },
     });
 
@@ -311,6 +313,7 @@ export async function payCycle(cycleId, hirerId, opts = {}, ctx = {}) {
 
   return { booking, cycleId: cycle.id };
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RELEASE FUNDS — delegates to existing staged release
 // ─────────────────────────────────────────────────────────────────────────────
@@ -421,8 +424,6 @@ export async function releaseCycleFunds(
   };
 }
 
-// ... (keep everything below) ...
-
 // ─────────────────────────────────────────────────────────────────────────────
 // CANCEL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -485,8 +486,6 @@ async function getSettingInt(key, fallback) {
     return fallback;
   }
 }
-
-// src/services/retainedStaffCycle.service.js
 
 export async function deleteCycle(cycleId, hirerId, ctx = {}) {
   const cycle = await prisma.retainedPayrollCycle.findFirst({
