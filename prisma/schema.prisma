@@ -1045,13 +1045,15 @@ model Booking {
   retainedCycle RetainedPayrollCycle? @relation("RetainedCycleBooking")
 
   // ── Retained Staff Snapshot ──────────────────────────────────────────────
-  location     String?
-  workDays     String[] @default([])
-  workStart    String?
-  workEnd      String?
-  timezone     String?
+  location       String?
+  workDays       String[] @default([])
+  workStart      String?
+  workEnd        String?
+  timezone       String?
   employeeNumber String?
   managerName    String?
+  employmentType String?
+  department     String?
 }
 
 model Payment {
