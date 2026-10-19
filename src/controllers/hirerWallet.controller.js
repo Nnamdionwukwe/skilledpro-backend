@@ -475,7 +475,6 @@ export const flutterwaveWebhook = async (req, res) => {
 export const verifyTransaction = async (req, res) => {
   try {
     const { reference } = req.params;
-
     if (!reference) {
       return response.error(res, "Transaction reference is required", 400);
     }
@@ -483,7 +482,6 @@ export const verifyTransaction = async (req, res) => {
     const fundingAttempt = await prisma.hirerFundingAttempt.findUnique({
       where: { providerRef: reference },
     });
-
     if (!fundingAttempt) {
       return response.error(res, "Transaction not found", 404);
     }
@@ -492,7 +490,11 @@ export const verifyTransaction = async (req, res) => {
       where: { id: fundingAttempt.walletId },
     });
 
-    if (fundingAttempt.status === "SUCCESS") {
+    // Already processed — just return current state
+    if (
+      fundingAttempt.status === "SUCCESS" ||
+      fundingAttempt.status === "FAILED"
+    ) {
       let transaction = null;
       if (fundingAttempt.transactionId) {
         transaction = await prisma.hirerTransaction.findUnique({
@@ -500,21 +502,11 @@ export const verifyTransaction = async (req, res) => {
         });
       }
       return response.success(res, "Transaction already completed", {
-        status: "SUCCESS",
+        status: fundingAttempt.status,
         amount: fundingAttempt.amount,
         currency: fundingAttempt.currency,
         reference: fundingAttempt.providerRef,
-        transaction: transaction,
-        balance: wallet?.balance || 0,
-      });
-    }
-
-    if (fundingAttempt.status === "FAILED") {
-      return response.success(res, "Transaction failed", {
-        status: "FAILED",
-        amount: fundingAttempt.amount,
-        currency: fundingAttempt.currency,
-        reference: fundingAttempt.providerRef,
+        transaction,
         balance: wallet?.balance || 0,
       });
     }
@@ -522,8 +514,10 @@ export const verifyTransaction = async (req, res) => {
     const isTestMode =
       process.env.NODE_ENV !== "production" ||
       !process.env.FLUTTERWAVE_SECRET_KEY;
+
     let isSuccessful = false;
     let flutterwaveData = null;
+    let channel = "card";
 
     try {
       const flutterwaveResponse = await axios.get(
@@ -535,19 +529,14 @@ export const verifyTransaction = async (req, res) => {
           timeout: 10000,
         },
       );
-
       flutterwaveData = flutterwaveResponse.data;
       isSuccessful =
         flutterwaveData.status === "success" &&
         flutterwaveData.data?.status === "successful";
-    } catch (flutterwaveError) {
-      console.error(
-        "Flutterwave verification error:",
-        flutterwaveError.message,
-      );
-
+      channel = flutterwaveData.data?.payment_type || "card";
+    } catch (err) {
+      console.error("Flutterwave verification error:", err.message);
       if (isTestMode) {
-        console.log("🔧 Test mode: Auto-verifying transaction:", reference);
         isSuccessful = true;
       } else {
         return response.success(res, "Transaction verification pending", {
@@ -555,34 +544,41 @@ export const verifyTransaction = async (req, res) => {
           amount: fundingAttempt.amount,
           currency: fundingAttempt.currency,
           reference: fundingAttempt.providerRef,
-          message: "Payment verification is pending. Please check back later.",
         });
       }
     }
 
-    await prisma.hirerFundingAttempt.update({
-      where: { id: fundingAttempt.id },
-      data: {
-        status: isSuccessful ? "SUCCESS" : "FAILED",
-        completedAt: isSuccessful ? new Date() : undefined,
-        callbackData: flutterwaveData || { testMode: true },
-      },
-    });
+    if (!isSuccessful) {
+      await prisma.hirerFundingAttempt.update({
+        where: { id: fundingAttempt.id },
+        data: { status: "FAILED", callbackData: flutterwaveData },
+      });
+      return response.success(res, "Transaction verification failed", {
+        status: "FAILED",
+        amount: fundingAttempt.amount,
+        currency: fundingAttempt.currency,
+        reference: fundingAttempt.providerRef,
+      });
+    }
 
-    if (isSuccessful) {
-      const balanceBefore = wallet.balance;
-      const balanceAfter = wallet.balance + fundingAttempt.amount;
+    // ✅ Credit wallet in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const freshWallet = await tx.hirerWallet.findUnique({
+        where: { id: fundingAttempt.walletId },
+      });
+      const balanceBefore = freshWallet.balance;
+      const balanceAfter = freshWallet.balance + fundingAttempt.amount;
 
-      await prisma.hirerWallet.update({
+      await tx.hirerWallet.update({
         where: { id: fundingAttempt.walletId },
         data: {
           balance: balanceAfter,
-          totalDeposited: wallet.totalDeposited + fundingAttempt.amount,
+          totalDeposited: freshWallet.totalDeposited + fundingAttempt.amount,
           lastTransactionAt: new Date(),
         },
       });
 
-      const newTransaction = await prisma.hirerTransaction.create({
+      const txRecord = await tx.hirerTransaction.create({
         data: {
           walletId: fundingAttempt.walletId,
           hirerId: fundingAttempt.hirerId,
@@ -593,46 +589,39 @@ export const verifyTransaction = async (req, res) => {
           netAmount: fundingAttempt.amount,
           reference: fundingAttempt.providerRef,
           status: "COMPLETED",
-          description: isTestMode
-            ? `Wallet funding via Flutterwave (TEST MODE) - ${fundingAttempt.currency}`
-            : `Wallet funding via Flutterwave (${fundingAttempt.currency})`,
+          description: `Wallet funding via Flutterwave (${fundingAttempt.currency})`,
           balanceBefore,
           balanceAfter,
           completedAt: new Date(),
           meta: {
             paymentProvider: "FLUTTERWAVE",
-            verified: true,
+            channel,
             testMode: isTestMode,
           },
         },
       });
 
-      await prisma.hirerFundingAttempt.update({
+      await tx.hirerFundingAttempt.update({
         where: { id: fundingAttempt.id },
-        data: { transactionId: newTransaction.id },
+        data: {
+          status: "SUCCESS",
+          completedAt: new Date(),
+          callbackData: flutterwaveData || { testMode: true },
+          transactionId: txRecord.id,
+        },
       });
 
-      return response.success(
-        res,
-        "Transaction verified and completed" +
-          (isTestMode ? " (Test Mode)" : ""),
-        {
-          status: "SUCCESS",
-          amount: fundingAttempt.amount,
-          currency: fundingAttempt.currency,
-          reference: fundingAttempt.providerRef,
-          transaction: newTransaction,
-          balance: balanceAfter,
-          testMode: isTestMode,
-        },
-      );
-    }
+      return { txRecord, balanceAfter };
+    });
 
-    return response.success(res, "Transaction verification failed", {
-      status: "FAILED",
+    return response.success(res, "Transaction verified and completed", {
+      status: "SUCCESS",
       amount: fundingAttempt.amount,
       currency: fundingAttempt.currency,
       reference: fundingAttempt.providerRef,
+      transaction: result.txRecord,
+      balance: result.balanceAfter,
+      testMode: isTestMode,
     });
   } catch (error) {
     console.error("Verify transaction error:", error);
