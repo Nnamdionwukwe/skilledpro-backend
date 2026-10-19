@@ -18,6 +18,7 @@ import {
   payCycle,
   releaseCycleFunds,
   cancelCycle,
+  deleteCycle, // ✅ Added import
 } from "../services/retainedStaffCycle.service.js";
 import {
   uploadDocument,
@@ -232,10 +233,10 @@ export const updateStaff = wrap(async (req, res) => {
   const hirerId = req.user.id;
   const { memberId } = req.params;
 
-  // 1. Run the service update logic (handles rate changes, pending cycles, audit logs)
+  // Run the service update logic
   await updateMember(memberId, hirerId, req.body, ctxOf(req));
 
-  // 2. Re-fetch the member with full relations so the frontend gets the exact same shape as getStaff
+  // Re-fetch the member with full relations
   const updatedMember = await prisma.retainedStaffMember.findFirst({
     where: { id: memberId, hirerId },
     include: {
@@ -690,6 +691,15 @@ export const cancelCycleHandler = wrap(async (req, res) => {
     req.body?.reason,
     ctxOf(req),
   );
+  return ok(res, result);
+});
+
+/**
+ * DELETE /api/retained-staff/cycles/:cycleId
+ */
+export const deleteCycleHandler = wrap(async (req, res) => {
+  const hirerId = req.user.id;
+  const result = await deleteCycle(req.params.cycleId, hirerId, ctxOf(req));
   return ok(res, result);
 });
 

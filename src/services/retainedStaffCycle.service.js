@@ -479,3 +479,43 @@ async function getSettingInt(key, fallback) {
     return fallback;
   }
 }
+
+// src/services/retainedStaffCycle.service.js
+
+export async function deleteCycle(cycleId, hirerId, ctx = {}) {
+  const cycle = await prisma.retainedPayrollCycle.findFirst({
+    where: { id: cycleId, hirerId },
+  });
+
+  if (!cycle) throw httpError(404, "Payroll cycle not found");
+
+  // Only allow deleting cycles that haven't been paid yet
+  if (cycle.status !== "AWAITING_PAYMENT" && cycle.status !== "CANCELLED") {
+    throw httpError(
+      409,
+      "Cannot delete a cycle that is already paid or in progress. Cancel it instead.",
+    );
+  }
+
+  await prisma.retainedPayrollCycle.delete({
+    where: { id: cycleId },
+  });
+
+  // Update the member's cycle count
+  await prisma.retainedStaffMember.update({
+    where: { id: cycle.memberId },
+    data: { cyclesCount: { decrement: 1 } },
+  });
+
+  await logAdminAction({
+    req: ctx.req,
+    adminId: hirerId,
+    action: "RETAINED_CYCLE_CANCELLED", // Reusing the cancel action for audit
+    targetType: "RETAINED_STAFF_CYCLE",
+    targetId: cycleId,
+    description: `Deleted an unpaid payroll cycle`,
+    before: { status: cycle.status, amount: cycle.netAmount },
+  });
+
+  return { deleted: true };
+}

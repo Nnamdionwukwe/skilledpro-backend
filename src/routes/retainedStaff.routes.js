@@ -37,6 +37,7 @@ import {
   payCycleHandler,
   releaseCycle,
   cancelCycleHandler,
+  deleteCycleHandler, // ✅ Import handler
   listAllCycles,
   getHirerDashboard,
 
@@ -58,7 +59,7 @@ import {
   validateUpdateRetainedDocument,
   validateAddRetainedNote,
   validateUUIDParam,
-} from "../utils/validators.js"; // ← append the block from §4.3 below
+} from "../utils/validators.js";
 
 const router = express.Router();
 
@@ -99,6 +100,13 @@ router.post(
   requireRole("HIRER"),
   validateUUIDParam("cycleId"),
   cancelCycleHandler,
+);
+// ✅ Add DELETE route for cycle
+router.delete(
+  "/cycles/:cycleId",
+  requireRole("HIRER"),
+  validateUUIDParam("cycleId"),
+  deleteCycleHandler,
 );
 
 router.get("/lookup", requireRole("HIRER"), lookupWorker);
