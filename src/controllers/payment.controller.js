@@ -2201,19 +2201,27 @@ export const confirmBankTransfer = asyncHandler(async (req, res) => {
 const CRYPTO_WALLETS = {
   USDC: {
     network: "BSC (BEP20)",
-    address: process.env.CRYPTO_WALLET_USDC ?? "0xPLACEHOLDER",
+    address:
+      process.env.CRYPTO_WALLET_USDC ??
+      "0xc38a15f419E6CE6Adea0cd97f37428E971cDd291",
   },
   USDT: {
     network: "BSC (BEP20)",
-    address: process.env.CRYPTO_WALLET_USDT ?? "0xPLACEHOLDER",
+    address:
+      process.env.CRYPTO_WALLET_USDT ??
+      "0xc38a15f419E6CE6Adea0cd97f37428E971cDd291",
   },
   BTC: {
     network: "Bitcoin",
-    address: process.env.CRYPTO_WALLET_BTC ?? "bc1qPLACEHOLDER",
+    address:
+      process.env.CRYPTO_WALLET_BTC ??
+      "bc1q3j7exza9zntmghm8xj3ava54nyt0q6h9kf77j3",
   },
   ETH: {
     network: "BSC (BEP20)",
-    address: process.env.CRYPTO_WALLET_ETH ?? "0xPLACEHOLDER",
+    address:
+      process.env.CRYPTO_WALLET_ETH ??
+      "0xc38a15f419E6CE6Adea0cd97f37428E971cDd291",
   },
 };
 
