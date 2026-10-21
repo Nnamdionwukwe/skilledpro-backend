@@ -1,5 +1,6 @@
+// src/routes/support.routes.js
 import express from "express";
-import { authenticate, requireRole } from "../middleware/auth.js";
+import { protect, requireRole } from "../middleware/auth.middleware.js";
 import { supportUpload } from "../middleware/supportUpload.js";
 import {
   createTicketSchema,
@@ -17,54 +18,54 @@ import * as ctrl from "../controllers/support.controller.js";
 
 const router = express.Router();
 
-// ── User — tickets ──────────────────────────────────────────────────────────
+// ── User-facing tickets ──────────────────────────────────────────────────────
 router.post(
   "/tickets",
-  authenticate,
+  protect,
   supportUpload("ticket"),
   validate(createTicketSchema),
   ctrl.createTicket,
 );
-router.get("/tickets", authenticate, ctrl.getMyTickets);
-router.get("/tickets/:id", authenticate, ctrl.getTicket);
+router.get("/tickets", protect, ctrl.getMyTickets);
+router.get("/tickets/:id", protect, ctrl.getTicket);
 router.post(
   "/tickets/:id/reply",
-  authenticate,
+  protect,
   supportUpload("ticket"),
   validate(replyTicketSchema),
   ctrl.replyToTicket,
 );
-router.post("/tickets/:id/close", authenticate, ctrl.closeTicket);
-router.post("/tickets/:id/reopen", authenticate, ctrl.reopenTicket);
+router.post("/tickets/:id/close", protect, ctrl.closeTicket);
+router.post("/tickets/:id/reopen", protect, ctrl.reopenTicket);
 router.post(
   "/tickets/:id/csat",
-  authenticate,
+  protect,
   validate(csatSchema),
   ctrl.submitTicketCsat,
 );
 
-// ── Admin — tickets ─────────────────────────────────────────────────────────
+// ── Admin-facing tickets ─────────────────────────────────────────────────────
 router.get(
   "/admin/tickets",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   ctrl.adminListTickets,
 );
 router.get(
   "/admin/tickets/stats",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   ctrl.adminTicketStats,
 );
 router.get(
   "/admin/tickets/:id",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   ctrl.adminGetTicket,
 );
 router.post(
   "/admin/tickets/:id/reply",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   supportUpload("ticket"),
   validate(adminReplyTicketSchema),
@@ -72,64 +73,60 @@ router.post(
 );
 router.patch(
   "/admin/tickets/:id/assign",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   validate(assignTicketSchema),
   ctrl.adminAssignTicket,
 );
 router.patch(
   "/admin/tickets/:id/status",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   validate(updateStatusSchema),
   ctrl.adminUpdateTicketStatus,
 );
 router.patch(
   "/admin/tickets/:id/priority",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   validate(updatePrioritySchema),
   ctrl.adminUpdateTicketPriority,
 );
 
-// ── Live chat REST bootstrap ────────────────────────────────────────────────
-router.post(
-  "/chat/start",
-  authenticate,
-  validate(startChatSchema),
-  ctrl.startChat,
-);
-router.get("/chat/my", authenticate, ctrl.getMyChats);
-router.get("/chat/:id", authenticate, ctrl.getChat);
+// ── Live chat REST bootstrap ─────────────────────────────────────────────────
+router.post("/chat/start", protect, validate(startChatSchema), ctrl.startChat);
+router.get("/chat/my", protect, ctrl.getMyChats);
+router.get("/chat/:id", protect, ctrl.getChat);
 router.post(
   "/chat/:id/escalate",
-  authenticate,
+  protect,
   validate(escalateChatSchema),
   ctrl.escalateChat,
 );
 router.post(
   "/chat/:id/csat",
-  authenticate,
+  protect,
   validate(csatSchema),
-  ctrl.submitChatCsat,
+  ctrl.submitChatCsatCtrl,
 );
+
 router.post(
   "/chat/upload",
-  authenticate,
+  protect,
   supportUpload("chat"),
   ctrl.uploadChatAttachments,
 );
 
-// ── Admin — live chat ───────────────────────────────────────────────────────
+// ── Admin — live chat ────────────────────────────────────────────────────────
 router.get(
   "/admin/chats",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   ctrl.adminListChatsCtrl,
 );
 router.get(
   "/admin/chats/:id",
-  authenticate,
+  protect,
   requireRole("ADMIN"),
   ctrl.adminGetChat,
 );

@@ -1,5 +1,5 @@
 // src/middleware/security.middleware.js
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 // ─── Rate Limiters ──────────────────────────────────────────────────────────
 
@@ -132,4 +132,21 @@ export const paymentLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// ── Support rate limiter ─────────────────────────────────────────────────────
+// Limits ticket creation and file uploads.
+// Read operations (GET) are skipped so users can browse their tickets freely.
+export const supportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === "GET" || req.method === "OPTIONS",
+  message: {
+    success: false,
+    message: "Too many support requests. Please wait an hour and try again.",
+  },
+  // Fix: use the helper for IP fallback to support IPv6
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req),
 });

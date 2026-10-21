@@ -2421,6 +2421,10 @@ model RetainedStaffRevision {
   @@index([memberId, createdAt(sort: Desc)])
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT SYSTEM — Tickets + threaded messages
+// ═════════════════════════════════════════════════════════════════════
+
 enum SupportTicketCategory {
   ACCOUNT
   PAYMENT
@@ -2465,26 +2469,33 @@ enum SupportChatStatus {
   ESCALATED
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT TICKETS
+// ═════════════════════════════════════════════════════════════════════
+
 model SupportTicket {
-  id            String                @id @default(uuid())
-  ticketNumber  String                @unique // SKP-000123
-  userId        String
-  user          User                  @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+  id           String                @id @default(uuid())
+  ticketNumber String                @unique // "SKP-000123"
+  userId       String
+  user         User                  @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
 
-  category      SupportTicketCategory
-  priority      SupportTicketPriority @default(NORMAL)
-  status        SupportTicketStatus   @default(OPEN)
-  subject       String
-  description   String
-  attachments   Json?
+  category    SupportTicketCategory
+  priority    SupportTicketPriority @default(NORMAL)
+  status      SupportTicketStatus   @default(OPEN)
+  subject     String
+  description String
+  attachments Json?                 // [{ url, name, mime, size, type, thumbnailUrl?, duration?, publicId }]
 
+  // Assignment
   assignedAdminId String?
   assignedAdmin   User?    @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
 
-  relatedType   String?
-  relatedId     String?
+  // Optional linkage to a domain object (booking, payment, withdrawal, etc.)
+  relatedType String?
+  relatedId   String?
 
+  // Lifecycle timestamps
   firstResponseAt DateTime?
   lastReplyAt     DateTime?
   resolvedAt      DateTime?
@@ -2492,15 +2503,19 @@ model SupportTicket {
   reopenedCount   Int       @default(0)
   autoCloseAt     DateTime?
 
+  // ── Escalation link (OWNING side — FK column lives here) ─────────────
+  // If this ticket was created by escalating a live chat, this holds the
+  // chat's id. Unique so a chat can only ever produce one ticket.
   chatConversationId String?              @unique
   chatConversation   SupportConversation? @relation("ChatEscalatedToTicket", fields: [chatConversationId], references: [id], onDelete: SetNull)
 
+  // CSAT
   csatRating      Int?
   csatComment     String?
   csatSubmittedAt DateTime?
 
-  messages   SupportMessage[]
-  auditLogs  SupportTicketAudit[]
+  messages  SupportMessage[]
+  auditLogs SupportTicketAudit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2522,10 +2537,12 @@ model SupportMessage {
   authorType SupportAuthorType
   body       String
   attachments Json?
-  isInternal Boolean            @default(false)
+  isInternal Boolean            @default(false) // internal admin notes — hidden from user
+
   readByUserAt  DateTime?
   readByAdminAt DateTime?
-  createdAt  DateTime           @default(now())
+
+  createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])
   @@index([authorId])
@@ -2537,39 +2554,53 @@ model SupportTicketAudit {
   ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   actorId   String
   actor     User          @relation("SupportTicketAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
-  action    String
+
+  action    String // "STATUS_CHANGED" | "ASSIGNED" | "PRIORITY_CHANGED" | "REOPENED" | "ESCALATED" | "CSAT_SUBMITTED"
   fromValue String?
   toValue   String?
   note      String?
   meta      Json?
-  createdAt DateTime      @default(now())
+
+  createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])
 }
 
-model SupportConversation {
-  id       String              @id @default(uuid())
-  userId   String
-  user     User                @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
-  status   SupportChatStatus   @default(ACTIVE)
-  subject  String?
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT LIVE CHAT
+// ═════════════════════════════════════════════════════════════════════
 
+model SupportConversation {
+  id     String            @id @default(uuid())
+  userId String
+  user   User              @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
+
+  status  SupportChatStatus @default(ACTIVE)
+  subject String?
+
+  // Agent assignment
   assignedAdminId String?
   assignedAdmin   User?    @relation("AssignedSupportChats", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
 
+  // Pre-chat context
   preChatCategory SupportTicketCategory?
   preChatMessage  String?
-  source          String @default("WEB")
+  source          String @default("WEB") // "WEB" | "MOBILE" | "APP"
 
+  // Read receipts & denormalized preview
   userLastReadAt     DateTime?
   adminLastReadAt    DateTime?
   lastMessageAt      DateTime?
   lastMessagePreview String?
 
-  escalatedTicketId String?        @unique
-  escalatedTicket   SupportTicket? @relation("ChatEscalatedToTicket", fields: [escalatedTicketId], references: [id], onDelete: SetNull)
+  // ── Escalation link (BACK-REFERENCE side — NO fields/references/onDelete) ──
+  // This is a virtual field. The actual FK lives on
+  // SupportTicket.chatConversationId. Prisma resolves this by querying
+  // SupportTicket WHERE chatConversationId = this.id.
+  escalatedTicket SupportTicket? @relation("ChatEscalatedToTicket")
 
+  // CSAT
   csatRating      Int?
   csatComment     String?
   csatSubmittedAt DateTime?
@@ -2596,12 +2627,15 @@ model SupportChatMessage {
   senderId       String
   sender         User                @relation("SupportChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
   senderType     SupportAuthorType
-  body           String?
-  attachments    Json?
-  systemEvent    String?
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  createdAt      DateTime            @default(now())
+
+  body        String?
+  attachments Json?
+  systemEvent String? // "AGENT_JOINED" | "AGENT_LEFT" | "ESCALATED" | "ENDED"
+
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  createdAt DateTime @default(now())
 
   @@index([conversationId, createdAt])
   @@index([senderId])
@@ -2613,10 +2647,11 @@ model SupportChatParticipant {
   conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   userId         String
   user           User                @relation("SupportChatParticipants", fields: [userId], references: [id], onDelete: Cascade)
-  role           String              @default("AGENT")
-  joinedAt       DateTime            @default(now())
-  leftAt         DateTime?
-  lastReadAt     DateTime?
+
+  role       String    @default("AGENT") // "USER" | "AGENT" | "SUPERVISOR"
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  lastReadAt DateTime?
 
   @@unique([conversationId, userId])
   @@index([conversationId])

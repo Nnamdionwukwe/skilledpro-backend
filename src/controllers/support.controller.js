@@ -1,3 +1,4 @@
+// src/controllers/support.controller.js
 import {
   createTicket as svcCreateTicket,
   addMessage as svcAddMessage,
@@ -19,7 +20,7 @@ import {
 } from "../services/support.chat.service.js";
 import { processSupportAttachments } from "../utils/supportAttachments.js";
 import { PrismaClient } from "../generated/prisma/index.js";
-import { createAuditLog } from "../utils/audit.js";
+import { logAdminAction } from "../utils/auditLog.js";
 
 const prisma = new PrismaClient();
 
@@ -48,7 +49,8 @@ export async function createTicket(req, res, next) {
       payload: req.body,
       attachments,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_TICKET_CREATED",
       targetType: "SUPPORT_TICKET",
@@ -102,7 +104,8 @@ export async function replyToTicket(req, res, next) {
       attachments,
       isInternal: false,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_TICKET_REPLIED",
       targetType: "SUPPORT_TICKET",
@@ -269,7 +272,8 @@ export async function adminReplyToTicket(req, res, next) {
       attachments,
       isInternal,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_TICKET_REPLIED",
       targetType: "SUPPORT_TICKET",
@@ -289,7 +293,8 @@ export async function adminAssignTicket(req, res, next) {
       actorId: req.user.id,
       adminId: req.body.adminId,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_TICKET_ASSIGNED",
       targetType: "SUPPORT_TICKET",
@@ -310,7 +315,8 @@ export async function adminUpdateTicketStatus(req, res, next) {
       status: req.body.status,
       note: req.body.note,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_TICKET_STATUS_CHANGED",
       targetType: "SUPPORT_TICKET",
@@ -384,7 +390,8 @@ export async function escalateChat(req, res, next) {
       role: req.user.role,
       payload: req.body,
     });
-    await createAuditLog({
+    await logAdminAction({
+      req,
       adminId: req.user.id,
       action: "SUPPORT_CHAT_ESCALATED",
       targetType: "SUPPORT_CHAT",
@@ -397,7 +404,7 @@ export async function escalateChat(req, res, next) {
   }
 }
 
-export async function submitChatCsat(req, res, next) {
+export async function submitChatCsatCtrl(req, res, next) {
   try {
     const chat = await submitChatCsat({
       conversationId: req.params.id,
