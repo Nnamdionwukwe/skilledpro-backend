@@ -227,3 +227,23 @@ export const categorySuggestLimiter = rateLimit({
   ),
   skip: () => process.env.NODE_ENV === "test",
 });
+
+// ── Support — tighter limits for creation and uploads ────────────────────
+// Rationale:
+//   • Ticket creation is rare per-user (a bug report, a complaint) → 10/hour
+//   • Chat uploads hit Cloudinary (paid) → 30/hour, burst 5
+//   • Listing/reading falls through to globalLimiter
+export const supportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30, // 30 write actions per hour per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip GETs — reads use globalLimiter
+  skip: (req) => req.method === "GET" || req.method === "OPTIONS",
+  message: {
+    success: false,
+    message: "Too many support requests. Please wait an hour and try again.",
+  },
+  // If you already have a keyGenerator, keep using it; otherwise:
+  keyGenerator: (req) => req.user?.id || req.ip,
+});

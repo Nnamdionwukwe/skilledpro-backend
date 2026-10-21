@@ -4,12 +4,14 @@
 //
 // Registers:
 //   • Auth middleware on the default namespace
-//   • The /voice-calls namespace (which attaches the same auth middleware)
+//   • The /voice-calls namespace (voice/video call signaling)
+//   • The /support namespace (support live chat)
 //   • Chat/message handlers on the default namespace
 //
 // NOTE: `io.use(mw)` only applies to the DEFAULT namespace. Custom namespaces
-// (created with `io.of(...)`) need their own `.use(mw)` call. The voice
-// namespace handles this inside registerVoiceCallSocket().
+// (created with `io.of(...)`) need their own `.use(mw)` call. Both
+// registerVoiceCallSocket() and registerSupportChatSocket() handle this
+// internally via nsp.use(socketAuthMiddleware).
 //
 // Timings:
 //   • pingInterval / pingTimeout are tuned for mobile. Mobile browsers
@@ -20,6 +22,7 @@
 
 import { Server } from "socket.io";
 import registerVoiceCallSocket from "./voiceCallSocket.js";
+import registerSupportChatSocket from "./supportChatSocket.js"; // ← NEW
 import socketAuthMiddleware from "./authMiddleware.js";
 
 let io;
@@ -36,34 +39,22 @@ export const initSocket = (httpServer) => {
       ],
       credentials: true,
     },
-    // ── Heartbeat tuning ─────────────────────────────────────────────
-    // Default is 25s / 20s. We loosen it to tolerate mobile hiccups and
-    // long GC pauses on low-end devices. The client sends a ping every
-    // 20s; if we don't hear back within 25s, we consider the connection
-    // dead. Higher values = more forgiving, slightly slower to detect
-    // true dead sockets.
     pingInterval: 20000,
     pingTimeout: 25000,
-    // Accept polling upgrade then switch to websocket. WebSocket-first
-    // would be faster but breaks behind some corporate proxies.
     transports: ["polling", "websocket"],
-    // Increase max payload size for SDP / ICE (default 1MB is plenty but
-    // we're explicit here to avoid surprises).
     maxHttpBufferSize: 1e6,
-    // Allow upgrades from polling → websocket. If a proxy blocks the
-    // upgrade, we silently stay on polling instead of dying.
     allowUpgrades: true,
-    // Don't kill idle connections aggressively. Mobile apps stay
-    // connected for long stretches with no activity.
     connectTimeout: 45000,
   });
 
   // Auth middleware for the default namespace ("/").
   io.use(socketAuthMiddleware);
 
-  // Register the /voice-calls namespace. It attaches the same auth
-  // middleware internally via nsp.use(socketAuthMiddleware).
+  // Register the /voice-calls namespace.
   registerVoiceCallSocket(io);
+
+  // Register the /support namespace (support live chat).
+  registerSupportChatSocket(io); // ← NEW
 
   // ── Default namespace: chat / messaging ─────────────────────────────
   io.on("connection", (socket) => {

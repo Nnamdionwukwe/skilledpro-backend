@@ -228,6 +228,16 @@ enum AuditAction {
   RETAINED_CYCLE_REFUNDED
   RETAINED_CYCLE_DISPUTED
   RETAINED_CYCLE_CRON_GENERATED
+
+  SUPPORT_TICKET_CREATED
+  SUPPORT_TICKET_ASSIGNED
+  SUPPORT_TICKET_STATUS_CHANGED
+  SUPPORT_TICKET_PRIORITY_CHANGED
+  SUPPORT_TICKET_REPLIED
+  SUPPORT_TICKET_REOPENED
+  SUPPORT_TICKET_CLOSED
+  SUPPORT_CHAT_ENDED
+  SUPPORT_CHAT_ESCALATED
 }
 
 enum AuditTargetType {
@@ -253,6 +263,8 @@ enum AuditTargetType {
   RETAINED_STAFF_MEMBER
   RETAINED_STAFF_CYCLE
   RETAINED_STAFF_DOCUMENT
+  SUPPORT_TICKET
+  SUPPORT_CHAT
 }
 
 // Add new enums
@@ -514,6 +526,16 @@ model User {
   uploadedRetainedDocs    RetainedStaffDocument[] @relation("UploadedRetainedDocs")
   retainedNotesAuthored   RetainedStaffNote[]     @relation("RetainedNotes")
   retainedRevisionsMade   RetainedStaffRevision[] @relation("RetainedRevisions")
+
+    supportTickets          SupportTicket[]          @relation("UserSupportTickets")
+  assignedSupportTickets  SupportTicket[]          @relation("AssignedSupportTickets")
+  supportMessages         SupportMessage[]         @relation("SupportMessageAuthor")
+  supportTicketAudits     SupportTicketAudit[]     @relation("SupportTicketAuditActor")
+  supportChats            SupportConversation[]    @relation("UserSupportChats")
+  assignedSupportChats    SupportConversation[]    @relation("AssignedSupportChats")
+  endedSupportChats       SupportConversation[]    @relation("SupportChatEndedBy")
+  supportChatMessages     SupportChatMessage[]     @relation("SupportChatMessageSender")
+  supportChatParticipants SupportChatParticipant[] @relation("SupportChatParticipants")
 }
 
 model Referral {
@@ -2397,4 +2419,206 @@ model RetainedStaffRevision {
   createdAt    DateTime             @default(now())
 
   @@index([memberId, createdAt(sort: Desc)])
+}
+
+enum SupportTicketCategory {
+  ACCOUNT
+  PAYMENT
+  BOOKING
+  TECHNICAL
+  VERIFICATION
+  WITHDRAWAL
+  REFERRAL
+  RETAINED_STAFF
+  ABUSE_REPORT
+  FEATURE_REQUEST
+  OTHER
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  WAITING_ADMIN
+  RESOLVED
+  CLOSED
+}
+
+enum SupportAuthorType {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+enum SupportChatStatus {
+  ACTIVE
+  WAITING_AGENT
+  AGENT_ASSIGNED
+  ENDED
+  ESCALATED
+}
+
+model SupportTicket {
+  id            String                @id @default(uuid())
+  ticketNumber  String                @unique // SKP-000123
+  userId        String
+  user          User                  @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+
+  category      SupportTicketCategory
+  priority      SupportTicketPriority @default(NORMAL)
+  status        SupportTicketStatus   @default(OPEN)
+  subject       String
+  description   String
+  attachments   Json?
+
+  assignedAdminId String?
+  assignedAdmin   User?    @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
+
+  relatedType   String?
+  relatedId     String?
+
+  firstResponseAt DateTime?
+  lastReplyAt     DateTime?
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  reopenedCount   Int       @default(0)
+  autoCloseAt     DateTime?
+
+  chatConversationId String?              @unique
+  chatConversation   SupportConversation? @relation("ChatEscalatedToTicket", fields: [chatConversationId], references: [id], onDelete: SetNull)
+
+  csatRating      Int?
+  csatComment     String?
+  csatSubmittedAt DateTime?
+
+  messages   SupportMessage[]
+  auditLogs  SupportTicketAudit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([assignedAdminId, status])
+  @@index([category, status])
+  @@index([priority, status])
+  @@index([lastReplyAt(sort: Desc)])
+}
+
+model SupportMessage {
+  id         String             @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User               @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorType SupportAuthorType
+  body       String
+  attachments Json?
+  isInternal Boolean            @default(false)
+  readByUserAt  DateTime?
+  readByAdminAt DateTime?
+  createdAt  DateTime           @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+}
+
+model SupportTicketAudit {
+  id        String        @id @default(uuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId   String
+  actor     User          @relation("SupportTicketAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action    String
+  fromValue String?
+  toValue   String?
+  note      String?
+  meta      Json?
+  createdAt DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model SupportConversation {
+  id       String              @id @default(uuid())
+  userId   String
+  user     User                @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
+  status   SupportChatStatus   @default(ACTIVE)
+  subject  String?
+
+  assignedAdminId String?
+  assignedAdmin   User?    @relation("AssignedSupportChats", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
+
+  preChatCategory SupportTicketCategory?
+  preChatMessage  String?
+  source          String @default("WEB")
+
+  userLastReadAt     DateTime?
+  adminLastReadAt    DateTime?
+  lastMessageAt      DateTime?
+  lastMessagePreview String?
+
+  escalatedTicketId String?        @unique
+  escalatedTicket   SupportTicket? @relation("ChatEscalatedToTicket", fields: [escalatedTicketId], references: [id], onDelete: SetNull)
+
+  csatRating      Int?
+  csatComment     String?
+  csatSubmittedAt DateTime?
+
+  endedAt   DateTime?
+  endedById String?
+  endedBy   User?    @relation("SupportChatEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+
+  messages     SupportChatMessage[]
+  participants SupportChatParticipant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, lastMessageAt(sort: Desc)])
+  @@index([assignedAdminId, status])
+}
+
+model SupportChatMessage {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User                @relation("SupportChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderType     SupportAuthorType
+  body           String?
+  attachments    Json?
+  systemEvent    String?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model SupportChatParticipant {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation("SupportChatParticipants", fields: [userId], references: [id], onDelete: Cascade)
+  role           String              @default("AGENT")
+  joinedAt       DateTime            @default(now())
+  leftAt         DateTime?
+  lastReadAt     DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
 }

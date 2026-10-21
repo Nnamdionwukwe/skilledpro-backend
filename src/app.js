@@ -47,11 +47,13 @@ import analyticsRoutes from "./routes/analytics.routes.js";
 import adminAnalyticsRoutes from "./routes/adminAnalytics.routes.js";
 import voiceCallRoutes from "./routes/voicecall.routes.js";
 import retainedStaffRoutes from "./routes/retainedStaff.routes.js";
+import supportRoutes from "./routes/support.routes.js"; // ← NEW
 
 // ── Cron service imports ─────────────────────────────────────────────────────
-import "./services/expiry.service.js"; // auto-starts on import
+import "./services/expiry.service.js";
 import { startDebtCron } from "./services/debtCron.service.js";
 import { startDeletionCron } from "./services/deletionCron.service.js";
+import { startSupportJobs } from "./jobs/support.jobs.js"; // ← NEW
 
 // ── Config & middleware ──────────────────────────────────────────────────────
 import { helmetConfig } from "./config/helmet.config.js";
@@ -71,43 +73,27 @@ import {
   feedbackLimiter,
   emailLimiter,
   surveyLimiter,
+  supportLimiter, // ← NEW
 } from "./middleware/security.middleware.js";
 
 const app = express();
 
-// ─── Trust proxy (Hetzner + Cloudflare both proxy; trust the first hop) ─────
 app.set("trust proxy", 1);
 
-// ─── Start cron jobs (once per process) ─────────────────────────────────────
 startDebtCron();
 startDeletionCron();
+startSupportJobs(); // ← NEW
 
-// ─── Request Logging ────────────────────────────────────────────────────────
 app.use(requestLogger);
-
-// Log startup
 logger.info("🚀 Server starting...");
 logger.info(`📡 Environment: ${process.env.NODE_ENV || "development"}`);
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  CORS — MUST be the FIRST middleware that touches response headers.
-//
-//  Any middleware mounted before this that writes Access-Control-* headers
-//  will pre-empt cors() and break preflight. securityHeaders and
-//  corsSecurityHeaders in particular must run AFTER cors().
-//
-//  Also: OPTIONS preflight requests are handled explicitly before any
-//  route/middleware so a 404 or 500 from elsewhere can't strip the CORS
-//  headers Cloudflare is expecting to forward to the browser.
-// ═══════════════════════════════════════════════════════════════════════════
-
+// ─── CORS ───────────────────────────────────────────────────────────────────
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow same-origin / server-to-server / curl (no Origin header)
     if (!origin) return callback(null, true);
-
     const allowed = [
       process.env.CLIENT_URL,
       "https://skilledproz.com",
@@ -120,20 +106,11 @@ const corsOptions = {
       "http://127.0.0.1:5173",
       "http://167.172.142.200:5000",
     ].filter(Boolean);
-
-    if (allowed.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // In non-production, accept ANY localhost / 127.0.0.1 / [::1] port.
-    // Useful when Vite picks a random port or a teammate runs on 5174.
+    if (allowed.includes(origin)) return callback(null, true);
     if (process.env.NODE_ENV !== "production" && LOCALHOST_RE.test(origin)) {
       return callback(null, true);
     }
-
     console.warn(`[CORS] Blocked origin: ${origin}`);
-    // Reject the CORS handshake but don't throw — throwing would surface
-    // as a 500 with no ACAO header, which is worse than a clean 403.
     return callback(null, false);
   },
   credentials: true,
@@ -146,34 +123,28 @@ const corsOptions = {
     "Origin",
   ],
   exposedHeaders: ["Content-Length", "X-Request-Id"],
-  maxAge: 86400, // cache preflight for 24h — reduces OPTIONS traffic
+  maxAge: 86400,
   optionsSuccessStatus: 204,
   preflightContinue: false,
 };
 
-// Handle every OPTIONS request explicitly with CORS headers.
-// `preflightContinue: false` means cors() short-circuits OPTIONS and
-// responds directly — nothing downstream runs.
 app.options("/*splat", cors(corsOptions));
 app.use(cors(corsOptions));
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Security headers — AFTER CORS so they don't clobber Access-Control-*
-// ═══════════════════════════════════════════════════════════════════════════
 app.use(securityHeaders);
 app.use(corsSecurityHeaders);
 
-// ── Health (public, no auth) ────────────────────────────────────────────────
+// ── Health ──────────────────────────────────────────────────────────────────
 app.use("/health", healthRouter);
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-// ── Stripe webhook — raw body BEFORE express.json() ───────────────────────────
+// ── Stripe webhook ──────────────────────────────────────────────────────────
 app.use(
   "/api/payments/webhook/stripe",
   express.raw({ type: "application/json" }),
 );
 
-// ── Helmet + per-request performance logging ────────────────────────────────
+// ── Helmet + perf logging ───────────────────────────────────────────────────
 app.use(helmet(helmetConfig));
 app.use((req, res, next) => {
   const start = Date.now();
@@ -187,7 +158,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Body parsers ──────────────────────────────────────────────────────────────
+// ── Body parsers ────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -209,13 +180,19 @@ app.use("/api/admin", adminLimiter);
 app.use("/api/feedback", feedbackLimiter);
 app.use("/api/survey", surveyLimiter);
 
+// ── Support write-path limiter (skips GETs internally) ─────────────────────
+app.use("/api/support/tickets", supportLimiter); // ← NEW
+app.use("/api/support/chat/start", supportLimiter); // ← NEW
+app.use("/api/support/chat/upload", supportLimiter); // ← NEW
+app.use("/api/support/chat/:id/escalate", supportLimiter); // ← NEW
+
 app.use("/api/notifications/broadcast", emailLimiter);
 app.use("/api/waitlist/admin/broadcast", emailLimiter);
 
-// ── Root ──────────────────────────────────────────────────────────────────────
+// ── Root ────────────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ message: "SkilledPro API v1.0 🚀" }));
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// ── Routes ──────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/workers", workerRoutes);
@@ -229,9 +206,6 @@ app.use("/api/verification", verificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/disputes", disputeRoutes);
 
-// ── Analytics — MUST be mounted BEFORE /api/admin so the more-specific
-//    /api/admin/analytics/* paths win over the older /admin/analytics/*
-//    handlers inside adminRoutes. ──
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/admin/analytics", adminAnalyticsRoutes);
 
@@ -262,10 +236,9 @@ app.use("/api/admin/worker-debts", adminDebtRoutes);
 app.use("/api/worker/refunds", workerRefundRoutes);
 app.use("/api/voice-calls", voiceCallRoutes);
 app.use("/api/retained-staff", retainedStaffRoutes);
+app.use("/api/support", supportRoutes); // ← NEW
 
-// ── 404 fallback (after all routes, before error handler) ────────────────────
-// Runs only if nothing above matched. Keeps the shape consistent with the
-// rest of the API so the frontend can handle it predictably.
+// ── 404 fallback ────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -273,7 +246,7 @@ app.use((req, res) => {
   });
 });
 
-// ── Global error handler (must be last middleware) ────────────────────────────
+// ── Global error handler ───────────────────────────────────────────────────
 app.use(errorHandler);
 
 export default app;
