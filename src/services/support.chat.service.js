@@ -273,6 +273,8 @@ export async function submitChatCsat({
   });
 }
 
+// src/services/support.chat.service.js
+
 export async function adminListChats({ status, page = 1, limit = 20 }) {
   const where = status ? { status } : {};
   const skip = (Number(page) - 1) * Number(limit);
@@ -295,9 +297,75 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
+        // ADD THIS: Count unread messages from the user
+        _count: {
+          select: {
+            messages: {
+              where: {
+                senderType: "USER",
+                readAt: null, // Only unread messages
+              },
+            },
+          },
+        },
       },
     }),
     prisma.supportConversation.count({ where }),
   ]);
-  return { chats, total, page: Number(page), limit: Number(limit) };
+
+  // Map the chats to include unreadCount at the top level
+  const mappedChats = chats.map((c) => ({
+    ...c,
+    unreadCount: c._count.messages,
+  }));
+
+  return {
+    chats: mappedChats,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+  };
+}
+
+export async function getChatForUser({ conversationId, userId, role }) {
+  const conv = await prisma.supportConversation.findUnique({
+    where: { id: conversationId },
+    include: {
+      user: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
+      assignedAdmin: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
+      participants: {
+        include: {
+          user: {
+            select: { id: true, firstName: true, lastName: true, avatar: true },
+          },
+        },
+      },
+      messages: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true,
+            },
+          },
+          replyTo: { select: { id: true, body: true, senderType: true } },
+        },
+      },
+    },
+  });
+
+  if (!conv) throw Object.assign(new Error("Chat not found"), { status: 404 });
+  if (role !== "ADMIN" && conv.userId !== userId) {
+    throw Object.assign(new Error("Forbidden"), { status: 403 });
+  }
+
+  return conv;
 }
