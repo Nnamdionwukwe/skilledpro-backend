@@ -1257,6 +1257,8 @@ export const getAllWithdrawals = async (req, res) => {
   }
 };
 
+// src/controllers/admin.controller.js
+
 export const approveWithdrawal = async (req, res) => {
   try {
     const withdrawal = await prisma.withdrawal.findUnique({
@@ -1264,14 +1266,29 @@ export const approveWithdrawal = async (req, res) => {
       include: { worker: true },
     });
     if (!withdrawal) return sendError(res, "Withdrawal not found", 404);
+    if (withdrawal.status !== "PENDING")
+      return sendError(res, "Withdrawal is not pending", 400);
 
+    // Update status
     await prisma.withdrawal.update({
       where: { id: req.params.withdrawalId },
       data: { status: "PROCESSING", processedAt: new Date() },
     });
 
-    // ... notification ...
+    // Notify worker (REAL CODE — not a comment)
+    await prisma.notification
+      .create({
+        data: {
+          userId: withdrawal.workerId,
+          title: "Withdrawal Processing 💸",
+          body: `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} is being processed. It should arrive in your account shortly.`,
+          type: "WITHDRAWAL_PROCESSING",
+          data: { withdrawalId: withdrawal.id },
+        },
+      })
+      .catch(() => {}); // Catch notification failures so they don't break the request
 
+    // Audit log
     await logAdminAction({
       req,
       adminId: req.user.id,
@@ -1286,19 +1303,24 @@ export const approveWithdrawal = async (req, res) => {
         currency: withdrawal.currency,
         method: withdrawal.method,
       },
-    });
+    }).catch((err) => console.error("Audit log failed:", err)); // Don't fail the request if audit fails
 
     return sendResponse(res, { message: "Withdrawal approved — processing" });
   } catch (err) {
-    return sendError(res, "Failed to approve withdrawal");
+    console.error("approveWithdrawal error:", err); // LOG THE ACTUAL ERROR
+    return sendError(res, "Failed to approve withdrawal", 500);
   }
 };
 
 export const rejectWithdrawal = async (req, res) => {
   try {
     const { reason } = req.body;
+    if (!reason || !reason.trim())
+      return sendError(res, "Rejection reason is required", 400);
+
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id: req.params.withdrawalId },
+      include: { worker: true },
     });
     if (!withdrawal) return sendError(res, "Withdrawal not found", 404);
     if (withdrawal.status !== "PENDING")
@@ -1306,23 +1328,43 @@ export const rejectWithdrawal = async (req, res) => {
 
     await prisma.withdrawal.update({
       where: { id: req.params.withdrawalId },
-      data: { status: "FAILED" },
+      data: { status: "FAILED", failureNote: reason.trim() },
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: withdrawal.workerId,
-        title: "Withdrawal Rejected",
-        body:
-          reason ||
-          "Your withdrawal request was rejected. Please contact support.",
-        type: "WITHDRAWAL_REJECTED",
+    // Notify worker
+    await prisma.notification
+      .create({
+        data: {
+          userId: withdrawal.workerId,
+          title: "Withdrawal Rejected",
+          body: `Your withdrawal request was rejected. Reason: ${reason}`,
+          type: "WITHDRAWAL_REJECTED",
+          data: { withdrawalId: withdrawal.id, reason },
+        },
+      })
+      .catch(() => {});
+
+    // Audit log
+    await logAdminAction({
+      req,
+      adminId: req.user.id,
+      action: "WITHDRAWAL_REJECTED",
+      targetType: "WITHDRAWAL",
+      targetId: req.params.withdrawalId,
+      description: `Rejected withdrawal of ${withdrawal.currency} ${withdrawal.amount} — ${reason}`,
+      before: { status: "PENDING" },
+      after: { status: "FAILED" },
+      meta: {
+        amount: withdrawal.amount,
+        currency: withdrawal.currency,
+        reason,
       },
-    });
+    }).catch((err) => console.error("Audit log failed:", err));
 
     return sendResponse(res, { message: "Withdrawal rejected" });
   } catch (err) {
-    return sendError(res, "Failed to reject withdrawal");
+    console.error("rejectWithdrawal error:", err); // LOG THE ACTUAL ERROR
+    return sendError(res, "Failed to reject withdrawal", 500);
   }
 };
 
