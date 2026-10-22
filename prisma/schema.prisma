@@ -2662,3 +2662,20 @@ model SupportChatParticipant {
   @@index([conversationId])
   @@index([userId])
 }
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  subject   String?
+  message   String
+  status    String   @default("PENDING") // PENDING | REVIEWED | RESOLVED
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}

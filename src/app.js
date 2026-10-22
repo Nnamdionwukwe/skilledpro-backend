@@ -48,6 +48,7 @@ import adminAnalyticsRoutes from "./routes/adminAnalytics.routes.js";
 import voiceCallRoutes from "./routes/voicecall.routes.js";
 import retainedStaffRoutes from "./routes/retainedStaff.routes.js";
 import supportRoutes from "./routes/support.routes.js"; // ← NEW
+import contactRoutes from "./routes/contact.routes.js";
 
 // ── Cron service imports ─────────────────────────────────────────────────────
 import "./services/expiry.service.js";
@@ -237,6 +238,7 @@ app.use("/api/worker/refunds", workerRefundRoutes);
 app.use("/api/voice-calls", voiceCallRoutes);
 app.use("/api/retained-staff", retainedStaffRoutes);
 app.use("/api/support", supportRoutes); // ← NEW
+app.use("/api/contact", contactRoutes);
 
 // ── 404 fallback ────────────────────────────────────────────────────────────
 app.use((req, res) => {
