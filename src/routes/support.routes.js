@@ -131,4 +131,12 @@ router.get(
   ctrl.adminGetChat,
 );
 
+// Inside src/routes/support.routes.js
+router.get(
+  "/admin/stale-messages",
+  protect,
+  requireRole("ADMIN"),
+  ctrl.getStaleMessages,
+);
+
 export default router;

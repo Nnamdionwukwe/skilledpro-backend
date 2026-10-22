@@ -452,3 +452,62 @@ export async function uploadChatAttachments(req, res, next) {
     next(err);
   }
 }
+
+// src/controllers/support.controller.js
+
+export async function getStaleMessages(req, res, next) {
+  try {
+    const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
+
+    // 1. Find chats where the last message is from the USER, older than 5 mins, and admin hasn't replied
+    const staleChats = await prisma.supportConversation.findMany({
+      where: {
+        status: "AGENT_ASSIGNED", // Only active chats
+        lastMessageAt: { lt: FIVE_MINUTES_AGO },
+        messages: {
+          some: { senderType: "USER" }, // Has user messages
+          none: {
+            // No admin reply AFTER the last user message
+            senderType: "ADMIN",
+            createdAt: { gte: prisma.supportConversation.fields.lastMessageAt },
+          },
+        },
+      },
+      select: { id: true, lastMessagePreview: true, lastMessageAt: true },
+      take: 10,
+    });
+
+    // 2. Find tickets where the last message is from the USER, older than 5 mins, and status is OPEN or WAITING_ADMIN
+    const staleTickets = await prisma.supportTicket.findMany({
+      where: {
+        status: { in: ["OPEN", "WAITING_ADMIN", "IN_PROGRESS"] },
+        lastReplyAt: { lt: FIVE_MINUTES_AGO },
+        messages: {
+          some: { authorType: "USER" },
+          none: {
+            authorType: "ADMIN",
+            createdAt: { gte: prisma.supportTicket.fields.lastReplyAt },
+          },
+        },
+      },
+      select: {
+        id: true,
+        subject: true,
+        ticketNumber: true,
+        lastReplyAt: true,
+      },
+      take: 10,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        staleChats,
+        staleTickets,
+        totalStale: staleChats.length + staleTickets.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
