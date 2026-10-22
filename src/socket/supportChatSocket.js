@@ -13,7 +13,7 @@
 //
 // Client → server:
 //   support:join    { conversationId }                    → { ok, conversation }
-//   support:message { conversationId, body, attachments } → { ok, message }
+//   support:message { conversationId, body, attachments, replyToId, tempId } → { ok, message }
 //   support:typing  { conversationId, isTyping }          (fire-and-forget)
 //   support:read    { conversationId }                    (fire-and-forget)
 //   support:end     { conversationId, reason }            → { ok }
@@ -133,7 +133,10 @@ export default function registerSupportChatSocket(io) {
     // ── support:message ─────────────────────────────────────────────────
     socket.on(
       "support:message",
-      async ({ conversationId, body, attachments } = {}, ack) => {
+      async (
+        { conversationId, body, attachments, replyToId, tempId } = {},
+        ack,
+      ) => {
         try {
           if (!conversationId)
             return ack?.({ error: "conversationId required" });
@@ -164,6 +167,8 @@ export default function registerSupportChatSocket(io) {
               senderType: isAdmin ? "ADMIN" : "USER",
               body: body?.trim() || null,
               attachments: attachments || undefined,
+              replyToId: replyToId || undefined, // <-- Save Reply ID
+              tempId: tempId || undefined, // <-- Save Temp ID for optimistic UI
               deliveredAt: new Date(),
             },
             include: {
@@ -174,6 +179,14 @@ export default function registerSupportChatSocket(io) {
                   lastName: true,
                   avatar: true,
                   role: true,
+                },
+              },
+              replyTo: {
+                // <-- Include the replied message details
+                select: {
+                  id: true,
+                  body: true,
+                  senderType: true,
                 },
               },
             },

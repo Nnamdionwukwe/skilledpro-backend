@@ -23,14 +23,14 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   DISPUTED
-  AWAITING_PAYMENT        // ← NEW  (retained cycle, no payment yet)
-  PAID                    // ← NEW  (retained cycle, fully released)
+  AWAITING_PAYMENT // ← NEW  (retained cycle, no payment yet)
+  PAID // ← NEW  (retained cycle, fully released)
 }
 
 enum BookingSource {
   DIRECT
   JOB_POST
-  RETAINED_STAFF 
+  RETAINED_STAFF
 }
 
 enum PaymentStatus {
@@ -513,8 +513,8 @@ model User {
   profileInsight     UserProfileInsight?
   segmentMemberships UserSegmentMembership[]
 
-    voiceCallsInitiated VoiceCall[]      @relation("VoiceCallsInitiated")
-  voiceCallsReceived  VoiceCall[]      @relation("VoiceCallsReceived")
+  voiceCallsInitiated VoiceCall[] @relation("VoiceCallsInitiated")
+  voiceCallsReceived  VoiceCall[] @relation("VoiceCallsReceived")
 
   releasesMade PaymentRelease[] @relation("ReleasedBy")
 
@@ -527,7 +527,7 @@ model User {
   retainedNotesAuthored   RetainedStaffNote[]     @relation("RetainedNotes")
   retainedRevisionsMade   RetainedStaffRevision[] @relation("RetainedRevisions")
 
-    supportTickets          SupportTicket[]          @relation("UserSupportTickets")
+  supportTickets          SupportTicket[]          @relation("UserSupportTickets")
   assignedSupportTickets  SupportTicket[]          @relation("AssignedSupportTickets")
   supportMessages         SupportMessage[]         @relation("SupportMessageAuthor")
   supportTicketAudits     SupportTicketAudit[]     @relation("SupportTicketAuditActor")
@@ -1026,11 +1026,11 @@ model Booking {
   jobRateSnapshot    Json? // optional: snapshot the job's price fields at booking time
 
   // ── Job-post snapshot fields ─────────────────────────────────────────────
-  skills                String[]  @default([])
-  qualifications        String[]  @default([])
+  skills                String[] @default([])
+  qualifications        String[] @default([])
   languageRequirement   String?
-  providesAccommodation Boolean   @default(false)
-  providesMeals         Boolean   @default(false)
+  providesAccommodation Boolean  @default(false)
+  providesMeals         Boolean  @default(false)
 
   // ── NEW snapshot fields (mirrors JobPost) ────────────────────────────────
   snapshotCategoryName String?
@@ -1066,17 +1066,17 @@ model Booking {
 
   retainedCycle RetainedPayrollCycle? @relation("RetainedCycleBooking")
 
-   // ── Retained Staff Snapshot ──────────────────────────────────────────────
-  location       String?
-  workDays       String[] @default([])
-  workStart      String?
-  workEnd        String?
-  timezone       String?
-  employeeNumber String?
-  managerName    String?
-  employmentType String?
-  department     String?
-  bonusAmount    Float?
+  // ── Retained Staff Snapshot ──────────────────────────────────────────────
+  location        String?
+  workDays        String[] @default([])
+  workStart       String?
+  workEnd         String?
+  timezone        String?
+  employeeNumber  String?
+  managerName     String?
+  employmentType  String?
+  department      String?
+  bonusAmount     Float?
   deductionAmount Float?
 }
 
@@ -1123,9 +1123,9 @@ model Payment {
   walletPaymentId    String?
 
   // Inside model Payment { ... }
-  refunds Refund[]
-  releasedAmount Float              @default(0)
-  releaseCount   Int                @default(0)
+  refunds        Refund[]
+  releasedAmount Float            @default(0)
+  releaseCount   Int              @default(0)
   releases       PaymentRelease[]
 }
 
@@ -1134,9 +1134,9 @@ model PaymentRelease {
   paymentId String
   payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
 
-  amount   Float                  // the released amount, in currency units
-  currency String   @default("NGN")
-  note     String?                // optional reason from the hirer
+  amount   Float // the released amount, in currency units
+  currency String  @default("NGN")
+  note     String? // optional reason from the hirer
 
   releasedById String
   releasedBy   User   @relation("ReleasedBy", fields: [releasedById], references: [id])
@@ -1152,7 +1152,7 @@ model PaymentRelease {
   @@index([paymentId])
   @@index([releasedById])
   @@index([createdAt(sort: Desc)])
-} 
+}
 
 model Withdrawal {
   id          String           @id @default(uuid())
@@ -1281,17 +1281,17 @@ model JobPost {
   applicationWhatsApp String? // WhatsApp number (with country code)
   applicationPhone    String? // phone number to call for application
 
-  minQualification    String?
-  experienceLevel     String? // "Entry level", "Mid level", "Senior level"
-  experienceLength    String? // e.g., "1 year" 
-  workingHours        String? // e.g., "Part Time - Flexible Hours"
-  applicantLocation   String?
-  responsibilities    String? // rich text
-  requirements        String? // rich text
-  expiryDate          DateTime?
-  isExternal          Boolean   @default(false) // true for admin-created external jobs
-  postedByAdminId     String? // admin user ID who created it (optional)
-  postedByAdmin       User?     @relation("AdminJobPosts", fields: [postedByAdminId], references: [id], onDelete: SetNull)
+  minQualification  String?
+  experienceLevel   String? // "Entry level", "Mid level", "Senior level"
+  experienceLength  String? // e.g., "1 year" 
+  workingHours      String? // e.g., "Part Time - Flexible Hours"
+  applicantLocation String?
+  responsibilities  String? // rich text
+  requirements      String? // rich text
+  expiryDate        DateTime?
+  isExternal        Boolean   @default(false) // true for admin-created external jobs
+  postedByAdminId   String? // admin user ID who created it (optional)
+  postedByAdmin     User?     @relation("AdminJobPosts", fields: [postedByAdminId], references: [id], onDelete: SetNull)
 
   // Many-to-many with Category (instead of single categoryId)
   categories  JobCategory[]
@@ -1312,14 +1312,12 @@ model JobPost {
   // locationType already exists (LocationType enum)
   // experienceLevel already exists (String) – could later change to enum
 
-    // ── NEW: Work conditions ────────────────────────────────────────────
+  // ── NEW: Work conditions ────────────────────────────────────────────
   providesAccommodation Boolean @default(false) // true = job comes with housing
   providesMeals         Boolean @default(false) // true = job comes with meals
 
-  languageRequirement String?   @default("en")
-  qualifications      String[]  @default([])
-
-
+  languageRequirement String?  @default("en")
+  qualifications      String[] @default([])
 
   externalJobClicks ExternalJobClick[]
   bookings          Booking[]          @relation("JobPostBookings")
@@ -1529,8 +1527,8 @@ model VoiceCall {
   receiverId String
   receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
 
-  status   String  @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
-  callType String  @default("voice")   // "voice" | "video"
+  status   String @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+  callType String @default("voice") // "voice" | "video"
 
   startedAt DateTime?
   endedAt   DateTime?
@@ -1963,6 +1961,9 @@ model Refund {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleRefunds", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
   @@index([bookingId])
   @@index([paymentId])
   @@index([hirerId])
@@ -1971,10 +1972,6 @@ model Refund {
   @@index([status])
   @@index([reference])
   @@index([createdAt(sort: Desc)])
-
-  retainedCycleId String?
-  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleRefunds", fields: [retainedCycleId], references: [id], onDelete: SetNull)
-
   @@index([retainedCycleId])
 }
 
@@ -2016,15 +2013,14 @@ model Dispute {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleDisputes", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
   @@index([bookingId])
   @@index([raisedById])
   @@index([againstId])
   @@index([status])
   @@index([createdAt(sort: Desc)])
-
-  retainedCycleId String?
-  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleDisputes", fields: [retainedCycleId], references: [id], onDelete: SetNull)
-
   @@index([retainedCycleId])
 }
 
@@ -2239,65 +2235,65 @@ model UserSegmentMembership {
 // ═════════════════════════════════════════════════════════════════════
 
 model RetainedStaffMember {
-  id                 String               @id @default(uuid())
-  hirerId            String
-  hirer              User                 @relation("HirerRetainedStaff", fields: [hirerId], references: [id], onDelete: Cascade)
-  workerId           String
-  worker             User                 @relation("WorkerRetainedBy", fields: [workerId], references: [id], onDelete: Restrict)
+  id       String @id @default(uuid())
+  hirerId  String
+  hirer    User   @relation("HirerRetainedStaff", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   User   @relation("WorkerRetainedBy", fields: [workerId], references: [id], onDelete: Restrict)
 
   // ── Role / position
-  jobTitle           String
-  department         String?
-  employmentType     String               @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
-  locationType       String               @default("ON_SITE")   // ON_SITE | REMOTE | HYBRID
-  location           String?
-  latitude           Float?
-  longitude          Float?
-  description        String?
+  jobTitle       String
+  department     String?
+  employmentType String  @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
+  locationType   String  @default("ON_SITE") // ON_SITE | REMOTE | HYBRID
+  location       String?
+  latitude       Float?
+  longitude      Float?
+  description    String?
 
   // ── Compensation
-  payRate            Float
-  currency           String               @default("NGN")
-  payFrequency       PayFrequency         @default(MONTHLY)
-  overtimeRate       Float?
-  bonusEnabled       Boolean              @default(true)
-  currencyLocked     Boolean              @default(false)
+  payRate        Float
+  currency       String       @default("NGN")
+  payFrequency   PayFrequency @default(MONTHLY)
+  overtimeRate   Float?
+  bonusEnabled   Boolean      @default(true)
+  currencyLocked Boolean      @default(false)
 
   // ── Schedule (informational)
-  workDays           String[]             @default([])
-  workStart          String?
-  workEnd            String?
-  timezone           String               @default("Africa/Lagos")
+  workDays  String[] @default([])
+  workStart String?
+  workEnd   String?
+  timezone  String   @default("Africa/Lagos")
 
   // ── Lifecycle
-  status             RetainedStaffStatus  @default(ACTIVE)
-  startedAt          DateTime             @default(now())
-  pausedAt           DateTime?
-  endedAt            DateTime?
-  endReason          String?
-  nextCycleAt        DateTime?
+  status      RetainedStaffStatus @default(ACTIVE)
+  startedAt   DateTime            @default(now())
+  pausedAt    DateTime?
+  endedAt     DateTime?
+  endReason   String?
+  nextCycleAt DateTime?
 
   // ── Finance rollups (denormalized)
-  totalPaidLifetime  Float                @default(0)
-  totalHeld          Float                @default(0)
-  cyclesCount        Int                  @default(0)
-  lastPaidAt         DateTime?
+  totalPaidLifetime Float     @default(0)
+  totalHeld         Float     @default(0)
+  cyclesCount       Int       @default(0)
+  lastPaidAt        DateTime?
 
   // ── HR file
-  employeeNumber     String?
-  managerName        String?
-  emergencyContact   String?
-  notes              String?
+  employeeNumber   String?
+  managerName      String?
+  emergencyContact String?
+  notes            String?
 
   // ── Relations
-  cycles             RetainedPayrollCycle[]
-  documents          RetainedStaffDocument[]
-  staffNotes         RetainedStaffNote[]
-  revisions          RetainedStaffRevision[]
-  conversation       Conversation?        @relation("RetainedStaffConversation")
+  cycles       RetainedPayrollCycle[]
+  documents    RetainedStaffDocument[]
+  staffNotes   RetainedStaffNote[]
+  revisions    RetainedStaffRevision[]
+  conversation Conversation?           @relation("RetainedStaffConversation")
 
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([hirerId, status])
   @@index([workerId, status])
@@ -2307,56 +2303,56 @@ model RetainedStaffMember {
 }
 
 model RetainedPayrollCycle {
-  id                 String               @id @default(uuid())
-  memberId           String
-  member             RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  hirerId            String
-  hirer              User                 @relation("HirerRetainedCycles", fields: [hirerId], references: [id], onDelete: Cascade)
-  workerId           String
-  worker             User                 @relation("WorkerRetainedCycles", fields: [workerId], references: [id], onDelete: Restrict)
+  id       String              @id @default(uuid())
+  memberId String
+  member   RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  hirerId  String
+  hirer    User                @relation("HirerRetainedCycles", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   User                @relation("WorkerRetainedCycles", fields: [workerId], references: [id], onDelete: Restrict)
 
   // ── Cycle definition
-  type               RetainedCycleType   @default(REGULAR)
-  periodStart        DateTime
-  periodEnd          DateTime
-  payDate            DateTime
-  label              String?
+  type        RetainedCycleType @default(REGULAR)
+  periodStart DateTime
+  periodEnd   DateTime
+  payDate     DateTime
+  label       String?
 
   // ── Amounts (snapshot)
-  baseAmount         Float
-  bonusAmount        Float                @default(0)
-  deductionAmount    Float                @default(0)
-  grossAmount        Float
-  netAmount          Float
-  currency           String               @default("NGN")
-  platformFee        Float                @default(0)
-  workerPayout       Float
-  notes              String?
+  baseAmount      Float
+  bonusAmount     Float   @default(0)
+  deductionAmount Float   @default(0)
+  grossAmount     Float
+  netAmount       Float
+  currency        String  @default("NGN")
+  platformFee     Float   @default(0)
+  workerPayout    Float
+  notes           String?
 
   // ── Status
-  status             RetainedCycleStatus  @default(AWAITING_PAYMENT)
-  paymentMethod      RetainedPaymentMethod @default(ESCROW)
+  status        RetainedCycleStatus   @default(AWAITING_PAYMENT)
+  paymentMethod RetainedPaymentMethod @default(ESCROW)
 
   // ── Financial shell
-  bookingId          String?              @unique
-  booking            Booking?             @relation("RetainedCycleBooking", fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingId String?  @unique
+  booking   Booking? @relation("RetainedCycleBooking", fields: [bookingId], references: [id], onDelete: SetNull)
 
   // ── Cron idempotency
-  autoGenerated      Boolean              @default(false)
-  cronLockKey        String?              @unique
+  autoGenerated Boolean @default(false)
+  cronLockKey   String? @unique
 
   // ── Timing
-  paidAt             DateTime?
-  releasedAt         DateTime?
-  cancelledAt        DateTime?
-  failureReason      String?
+  paidAt        DateTime?
+  releasedAt    DateTime?
+  cancelledAt   DateTime?
+  failureReason String?
 
   // ── Relations
-  disputes           Dispute[]            @relation("RetainedCycleDisputes")
-  refunds            Refund[]             @relation("RetainedCycleRefunds")
+  disputes Dispute[] @relation("RetainedCycleDisputes")
+  refunds  Refund[]  @relation("RetainedCycleRefunds")
 
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([memberId, status])
   @@index([hirerId, status])
@@ -2368,23 +2364,23 @@ model RetainedPayrollCycle {
 }
 
 model RetainedStaffDocument {
-  id             String                  @id @default(uuid())
-  memberId       String
-  member         RetainedStaffMember     @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  type           RetainedDocumentType
-  title          String
-  fileUrl        String
-  mimeType       String?
-  sizeBytes      Int?
-  status         RetainedDocumentStatus  @default(PENDING)
-  uploadedById   String
-  uploadedBy     User                    @relation("UploadedRetainedDocs", fields: [uploadedById], references: [id])
-  signedAt       DateTime?
-  expiresAt      DateTime?
-  rejectionNote  String?
-  meta           Json?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id            String                 @id @default(uuid())
+  memberId      String
+  member        RetainedStaffMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  type          RetainedDocumentType
+  title         String
+  fileUrl       String
+  mimeType      String?
+  sizeBytes     Int?
+  status        RetainedDocumentStatus @default(PENDING)
+  uploadedById  String
+  uploadedBy    User                   @relation("UploadedRetainedDocs", fields: [uploadedById], references: [id])
+  signedAt      DateTime?
+  expiresAt     DateTime?
+  rejectionNote String?
+  meta          Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
 
   @@index([memberId])
   @@index([type])
@@ -2392,31 +2388,31 @@ model RetainedStaffDocument {
 }
 
 model RetainedStaffNote {
-  id           String               @id @default(uuid())
-  memberId     String
-  member       RetainedStaffMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  authorId     String
-  author       User                 @relation("RetainedNotes", fields: [authorId], references: [id])
-  title        String
-  body         String
-  category     String               @default("GENERAL") // PERFORMANCE | DISCIPLINE | PRAISE | GENERAL
-  isPrivate    Boolean              @default(true)
-  createdAt    DateTime             @default(now())
+  id        String              @id @default(uuid())
+  memberId  String
+  member    RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User                @relation("RetainedNotes", fields: [authorId], references: [id])
+  title     String
+  body      String
+  category  String              @default("GENERAL") // PERFORMANCE | DISCIPLINE | PRAISE | GENERAL
+  isPrivate Boolean             @default(true)
+  createdAt DateTime            @default(now())
 
   @@index([memberId, createdAt(sort: Desc)])
 }
 
 model RetainedStaffRevision {
-  id           String               @id @default(uuid())
-  memberId     String
-  member       RetainedStaffMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  changedById  String
-  changedBy    User                 @relation("RetainedRevisions", fields: [changedById], references: [id])
-  field        String
-  oldValue     Json?
-  newValue     Json?
-  reason       String?
-  createdAt    DateTime             @default(now())
+  id          String              @id @default(uuid())
+  memberId    String
+  member      RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  changedById String
+  changedBy   User                @relation("RetainedRevisions", fields: [changedById], references: [id])
+  field       String
+  oldValue    Json?
+  newValue    Json?
+  reason      String?
+  createdAt   DateTime            @default(now())
 
   @@index([memberId, createdAt(sort: Desc)])
 }
@@ -2474,21 +2470,21 @@ enum SupportChatStatus {
 // ═════════════════════════════════════════════════════════════════════
 
 model SupportTicket {
-  id           String                @id @default(uuid())
-  ticketNumber String                @unique // "SKP-000123"
+  id           String @id @default(uuid())
+  ticketNumber String @unique // "SKP-000123"
   userId       String
-  user         User                  @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+  user         User   @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
 
   category    SupportTicketCategory
   priority    SupportTicketPriority @default(NORMAL)
   status      SupportTicketStatus   @default(OPEN)
   subject     String
   description String
-  attachments Json?                 // [{ url, name, mime, size, type, thumbnailUrl?, duration?, publicId }]
+  attachments Json? // [{ url, name, mime, size, type, thumbnailUrl?, duration?, publicId }]
 
   // Assignment
   assignedAdminId String?
-  assignedAdmin   User?    @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAdmin   User?     @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
 
   // Optional linkage to a domain object (booking, payment, withdrawal, etc.)
@@ -2504,8 +2500,6 @@ model SupportTicket {
   autoCloseAt     DateTime?
 
   // ── Escalation link (OWNING side — FK column lives here) ─────────────
-  // If this ticket was created by escalating a live chat, this holds the
-  // chat's id. Unique so a chat can only ever produce one ticket.
   chatConversationId String?              @unique
   chatConversation   SupportConversation? @relation("ChatEscalatedToTicket", fields: [chatConversationId], references: [id], onDelete: SetNull)
 
@@ -2529,15 +2523,21 @@ model SupportTicket {
 }
 
 model SupportMessage {
-  id         String             @id @default(uuid())
-  ticketId   String
-  ticket     SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  authorId   String
-  author     User               @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  authorType SupportAuthorType
-  body       String
+  id          String            @id @default(uuid())
+  ticketId    String
+  ticket      SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User              @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorType  SupportAuthorType
+  body        String
   attachments Json?
-  isInternal Boolean            @default(false) // internal admin notes — hidden from user
+  isInternal  Boolean           @default(false) // internal admin notes — hidden from user
+
+  // ── NEW FIELDS for Reply & Optimistic UI ──
+  tempId    String? // Tracks optimistic UI to prevent duplicates
+  replyToId String?
+  replyTo   SupportMessage?  @relation("SupportMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   SupportMessage[] @relation("SupportMessageReplies")
 
   readByUserAt  DateTime?
   readByAdminAt DateTime?
@@ -2546,16 +2546,17 @@ model SupportMessage {
 
   @@index([ticketId, createdAt])
   @@index([authorId])
+  @@index([tempId])
 }
 
 model SupportTicketAudit {
-  id        String        @id @default(uuid())
-  ticketId  String
-  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  actorId   String
-  actor     User          @relation("SupportTicketAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  id       String        @id @default(uuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId  String
+  actor    User          @relation("SupportTicketAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
 
-  action    String // "STATUS_CHANGED" | "ASSIGNED" | "PRIORITY_CHANGED" | "REOPENED" | "ESCALATED" | "CSAT_SUBMITTED"
+  action    String
   fromValue String?
   toValue   String?
   note      String?
@@ -2571,22 +2572,22 @@ model SupportTicketAudit {
 // ═════════════════════════════════════════════════════════════════════
 
 model SupportConversation {
-  id     String            @id @default(uuid())
+  id     String @id @default(uuid())
   userId String
-  user   User              @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
 
   status  SupportChatStatus @default(ACTIVE)
   subject String?
 
   // Agent assignment
   assignedAdminId String?
-  assignedAdmin   User?    @relation("AssignedSupportChats", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAdmin   User?     @relation("AssignedSupportChats", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   assignedAt      DateTime?
 
   // Pre-chat context
   preChatCategory SupportTicketCategory?
   preChatMessage  String?
-  source          String @default("WEB") // "WEB" | "MOBILE" | "APP"
+  source          String                 @default("WEB")
 
   // Read receipts & denormalized preview
   userLastReadAt     DateTime?
@@ -2594,10 +2595,7 @@ model SupportConversation {
   lastMessageAt      DateTime?
   lastMessagePreview String?
 
-  // ── Escalation link (BACK-REFERENCE side — NO fields/references/onDelete) ──
-  // This is a virtual field. The actual FK lives on
-  // SupportTicket.chatConversationId. Prisma resolves this by querying
-  // SupportTicket WHERE chatConversationId = this.id.
+  // ── Escalation link (BACK-REFERENCE side) ──
   escalatedTicket SupportTicket? @relation("ChatEscalatedToTicket")
 
   // CSAT
@@ -2607,7 +2605,7 @@ model SupportConversation {
 
   endedAt   DateTime?
   endedById String?
-  endedBy   User?    @relation("SupportChatEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+  endedBy   User?     @relation("SupportChatEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
 
   messages     SupportChatMessage[]
   participants SupportChatParticipant[]
@@ -2632,6 +2630,12 @@ model SupportChatMessage {
   attachments Json?
   systemEvent String? // "AGENT_JOINED" | "AGENT_LEFT" | "ESCALATED" | "ENDED"
 
+  // ── NEW FIELDS for Reply & Optimistic UI ──
+  tempId    String? // Tracks optimistic UI to prevent duplicates
+  replyToId String?
+  replyTo   SupportChatMessage?  @relation("SupportChatMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   SupportChatMessage[] @relation("SupportChatMessageReplies")
+
   deliveredAt DateTime?
   readAt      DateTime?
 
@@ -2639,6 +2643,7 @@ model SupportChatMessage {
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+  @@index([tempId])
 }
 
 model SupportChatParticipant {
