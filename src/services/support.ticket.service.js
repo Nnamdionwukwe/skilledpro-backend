@@ -274,10 +274,14 @@ export async function listTickets({ where, page, limit, orderBy }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
+        // FIX: Count unread messages from the USER
         _count: {
           select: {
             messages: {
-              where: { authorType: "USER", readByAdminAt: null },
+              where: {
+                authorType: "USER",
+                readByAdminAt: null,
+              },
             },
           },
         },
@@ -286,11 +290,12 @@ export async function listTickets({ where, page, limit, orderBy }) {
     prisma.supportTicket.count({ where }),
   ]);
 
+  // Map to expose unreadCount
   const mappedTickets = rows.map((t) => {
     const { _count, ...ticketData } = t;
     return {
       ...ticketData,
-      unreadCount: _count.messages,
+      unreadCount: _count?.messages || 0,
     };
   });
 

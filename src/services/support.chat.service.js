@@ -292,7 +292,7 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
-        // Count unread messages from the user
+        // FIX: Count unread user messages
         _count: {
           select: {
             messages: {
@@ -308,12 +308,12 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
     prisma.supportConversation.count({ where }),
   ]);
 
-  // Map the chats to include unreadCount at the top level
+  // Map to expose unreadCount at the top level
   const mappedChats = chats.map((c) => {
     const { _count, ...chatData } = c;
     return {
       ...chatData,
-      unreadCount: _count.messages,
+      unreadCount: _count?.messages || 0,
     };
   });
 
