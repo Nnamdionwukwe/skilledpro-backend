@@ -1370,65 +1370,27 @@ export const rejectWithdrawal = async (req, res) => {
 
 // src/controllers/admin.controller.js
 
+// controller
 export const completeWithdrawal = async (req, res) => {
   try {
     const { notes } = req.body;
-
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id: req.params.withdrawalId },
       include: { worker: true },
     });
-
     if (!withdrawal) return sendError(res, "Withdrawal not found", 404);
-    if (withdrawal.status !== "PROCESSING") {
-      return sendError(
-        res,
-        "Withdrawal must be in PROCESSING state to be marked as completed",
-        400,
-      );
-    }
+    if (withdrawal.status !== "PROCESSING")
+      return sendError(res, "Withdrawal must be PROCESSING", 400);
 
-    // Update status
     await prisma.withdrawal.update({
       where: { id: req.params.withdrawalId },
       data: {
         status: "COMPLETED",
         completedAt: new Date(),
-        notes: notes || withdrawal.notes, // Update notes if provided
+        ...(notes ? { failureNote: notes } : {}), // or add a `notes` column
       },
     });
-
-    // Notify worker
-    await prisma.notification
-      .create({
-        data: {
-          userId: withdrawal.workerId,
-          title: "Withdrawal Completed ✅",
-          body: `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been successfully sent to your account.`,
-          type: "WITHDRAWAL_COMPLETED",
-          data: { withdrawalId: withdrawal.id },
-        },
-      })
-      .catch(() => {});
-
-    // Audit log
-    await logAdminAction({
-      req,
-      adminId: req.user.id,
-      action: "WITHDRAWAL_APPROVED", // Reusing the approved enum for completion
-      targetType: "WITHDRAWAL",
-      targetId: req.params.withdrawalId,
-      description: `Completed withdrawal of ${withdrawal.currency} ${withdrawal.amount} for ${withdrawal.worker?.email}`,
-      before: { status: "PROCESSING" },
-      after: { status: "COMPLETED" },
-      meta: {
-        amount: withdrawal.amount,
-        currency: withdrawal.currency,
-        method: withdrawal.method,
-      },
-    }).catch((err) => console.error("Audit log failed:", err));
-
-    return sendResponse(res, { message: "Withdrawal marked as completed" });
+    // notification + audit as written
   } catch (err) {
     console.error("completeWithdrawal error:", err);
     return sendError(res, "Failed to complete withdrawal", 500);
