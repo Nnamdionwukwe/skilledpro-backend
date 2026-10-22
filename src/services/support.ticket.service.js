@@ -350,6 +350,16 @@ export async function getTicketFull(ticketId) {
 }
 
 export async function getTicketFullAdmin(ticketId) {
+  // Mark messages as read by admin
+  await prisma.supportMessage.updateMany({
+    where: {
+      ticketId,
+      authorType: "USER",
+      readByAdminAt: null,
+    },
+    data: { readByAdminAt: new Date() },
+  });
+
   return prisma.supportTicket.findUnique({
     where: { id: ticketId },
     include: {
