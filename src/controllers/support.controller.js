@@ -459,55 +459,79 @@ export async function getStaleMessages(req, res, next) {
   try {
     const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
 
-    // 1. Find chats where the last message is from the USER, older than 5 mins, and admin hasn't replied
-    const staleChats = await prisma.supportConversation.findMany({
+    // 1. Find chats where the last message is from the USER and older than 5 mins
+    // We fetch recent chats and filter in JS because Prisma can't compare
+    // two column values (createdAt >= lastMessageAt) in a single query.
+    const recentChats = await prisma.supportConversation.findMany({
       where: {
-        status: "AGENT_ASSIGNED", // Only active chats
+        status: { in: ["AGENT_ASSIGNED", "WAITING_AGENT"] },
         lastMessageAt: { lt: FIVE_MINUTES_AGO },
+      },
+      select: {
+        id: true,
+        userId: true,
+        lastMessagePreview: true,
+        lastMessageAt: true,
         messages: {
-          some: { senderType: "USER" }, // Has user messages
-          none: {
-            // No admin reply AFTER the last user message
-            senderType: "ADMIN",
-            createdAt: { gte: prisma.supportConversation.fields.lastMessageAt },
-          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { senderType: true },
         },
       },
-      select: { id: true, lastMessagePreview: true, lastMessageAt: true },
-      take: 10,
+      take: 50,
     });
 
-    // 2. Find tickets where the last message is from the USER, older than 5 mins, and status is OPEN or WAITING_ADMIN
-    const staleTickets = await prisma.supportTicket.findMany({
+    const staleChats = recentChats.filter((chat) => {
+      const lastMsg = chat.messages?.[0];
+      // Stale if last message was sent by USER (no admin reply after)
+      return lastMsg && lastMsg.senderType === "USER";
+    });
+
+    // 2. Find tickets where the last message is from USER and older than 5 mins
+    const recentTickets = await prisma.supportTicket.findMany({
       where: {
-        status: { in: ["OPEN", "WAITING_ADMIN", "IN_PROGRESS"] },
+        status: { in: ["OPEN", "IN_PROGRESS", "WAITING_ADMIN"] },
         lastReplyAt: { lt: FIVE_MINUTES_AGO },
-        messages: {
-          some: { authorType: "USER" },
-          none: {
-            authorType: "ADMIN",
-            createdAt: { gte: prisma.supportTicket.fields.lastReplyAt },
-          },
-        },
       },
       select: {
         id: true,
         subject: true,
         ticketNumber: true,
         lastReplyAt: true,
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { authorType: true },
+        },
       },
-      take: 10,
+      take: 50,
+    });
+
+    const staleTickets = recentTickets.filter((ticket) => {
+      const lastMsg = ticket.messages?.[0];
+      // Stale if last message was sent by USER
+      return lastMsg && lastMsg.authorType === "USER";
     });
 
     res.json({
       success: true,
       data: {
-        staleChats,
-        staleTickets,
+        staleChats: staleChats.map((c) => ({
+          id: c.id,
+          preview: c.lastMessagePreview,
+          lastMessageAt: c.lastMessageAt,
+        })),
+        staleTickets: staleTickets.map((t) => ({
+          id: t.id,
+          subject: t.subject,
+          ticketNumber: t.ticketNumber,
+          lastReplyAt: t.lastReplyAt,
+        })),
         totalStale: staleChats.length + staleTickets.length,
       },
     });
   } catch (err) {
+    console.error("[getStaleMessages] Error:", err);
     next(err);
   }
 }
