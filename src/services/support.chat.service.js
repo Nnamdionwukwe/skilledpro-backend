@@ -1,3 +1,4 @@
+// src/services/support.chat.service.js
 import { PrismaClient } from "../generated/prisma/index.js";
 
 const prisma = new PrismaClient();
@@ -10,10 +11,31 @@ export async function startOrResumeChat({ userId, payload }) {
       status: { in: ["ACTIVE", "WAITING_AGENT", "AGENT_ASSIGNED"] },
     },
     orderBy: { createdAt: "desc" },
+    // INCLUDE MESSAGES HERE so the frontend loads the history immediately
+    include: {
+      messages: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true,
+            },
+          },
+          replyTo: { select: { id: true, body: true, senderType: true } },
+        },
+      },
+    },
   });
 
-  if (existing) return { conversation: existing, created: false };
+  if (existing) {
+    return { conversation: existing, created: false };
+  }
 
+  // Create a new conversation
   const conversation = await prisma.$transaction(async (tx) => {
     const created = await tx.supportConversation.create({
       data: {
@@ -49,7 +71,28 @@ export async function startOrResumeChat({ userId, payload }) {
         },
       });
 
-      return { created, msg };
+      // Re-fetch to include the message history for the newly created chat
+      const withHistory = await tx.supportConversation.findUnique({
+        where: { id: created.id },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              sender: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  role: true,
+                },
+              },
+              replyTo: { select: { id: true, body: true, senderType: true } },
+            },
+          },
+        },
+      });
+      return { created: withHistory, msg };
     }
 
     return { created, msg: null };
@@ -91,6 +134,7 @@ export async function getChatForUser({ conversationId, userId, role }) {
               role: true,
             },
           },
+          replyTo: { select: { id: true, body: true, senderType: true } }, // Include reply data
         },
       },
     },
@@ -171,7 +215,9 @@ export async function escalateChatToTicket({
         category: payload.category,
         priority: payload.priority || "NORMAL",
         subject: payload.subject,
-        description: `Escalated from live chat.\n\n--- Transcript ---\n${transcript || "(no messages)"}`,
+        description: `Escalated from live chat.\n\n--- Transcript ---\n${
+          transcript || "(no messages)"
+        }`,
         lastReplyAt: new Date(),
         chatConversationId: conv.id,
       },

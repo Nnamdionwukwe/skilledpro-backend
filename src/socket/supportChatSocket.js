@@ -1,31 +1,4 @@
 // src/socket/supportChatSocket.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Support live chat — real-time messaging between users and admins.
-//
-// Namespace: /support
-// Room name: support:chat:<conversationId>
-//
-// Mirrors voiceCallSocket.js:
-//   • Namespace registered via io.of("/support")
-//   • JWT auth attached via nsp.use(socketAuthMiddleware)
-//   • Extra middleware loads socket.user (role required for admin gating)
-//   • Reuses the shared io created in socket/index.js — no second server
-//
-// Client → server:
-//   support:join    { conversationId }                    → { ok, conversation }
-//   support:message { conversationId, body, attachments, replyToId, tempId } → { ok, message }
-//   support:typing  { conversationId, isTyping }          (fire-and-forget)
-//   support:read    { conversationId }                    (fire-and-forget)
-//   support:end     { conversationId, reason }            → { ok }
-//
-// Server → client:
-//   support:message             <message object>
-//   support:typing              { conversationId, userId, isTyping }
-//   support:read                { conversationId, byUserId, at }
-//   support:ended               { conversationId, endedAt, byUserId, systemMessage }
-//   support:inbox:new_message   { conversationId, preview, userId }  (admin inbox only)
-// ─────────────────────────────────────────────────────────────────────────────
-
 import prisma from "../config/database.js";
 import socketAuthMiddleware from "./authMiddleware.js";
 
@@ -35,10 +8,8 @@ const ADMIN_INBOX = "support:admin:inbox";
 export default function registerSupportChatSocket(io) {
   const nsp = io.of("/support");
 
-  // Same JWT auth as the default namespace and /voice-calls.
   nsp.use(socketAuthMiddleware);
 
-  // Extra middleware: load full user (we need role for admin gating).
   nsp.use(async (socket, next) => {
     try {
       const userId = socket.userId;
@@ -60,7 +31,6 @@ export default function registerSupportChatSocket(io) {
       socket.user = user;
       next();
     } catch (err) {
-      console.error("[support] auth middleware error:", err.message);
       next(new Error("Unauthorized"));
     }
   });
@@ -69,17 +39,12 @@ export default function registerSupportChatSocket(io) {
     const userId = socket.user.id;
     const role = socket.user.role;
 
-    // Admins auto-join the inbox room for new-message notifications
     if (role === "ADMIN") socket.join(ADMIN_INBOX);
-
-    console.log(`[support] 🔌 connected: ${userId} (${socket.id})`);
 
     // ── support:join ────────────────────────────────────────────────────
     socket.on("support:join", async ({ conversationId } = {}, ack) => {
       try {
-        if (!conversationId || typeof conversationId !== "string") {
-          return ack?.({ error: "conversationId required" });
-        }
+        if (!conversationId) return ack?.({ error: "conversationId required" });
 
         const conv = await prisma.supportConversation.findUnique({
           where: { id: conversationId },
@@ -92,7 +57,6 @@ export default function registerSupportChatSocket(io) {
 
         socket.join(room(conversationId));
 
-        // Admin joins → claim if unassigned
         if (isAdmin && ["ACTIVE", "WAITING_AGENT"].includes(conv.status)) {
           await prisma.supportChatParticipant.upsert({
             where: { conversationId_userId: { conversationId, userId } },
@@ -125,7 +89,6 @@ export default function registerSupportChatSocket(io) {
 
         ack?.({ ok: true, conversation: conv });
       } catch (err) {
-        console.error("support:join error:", err.message);
         ack?.({ error: "server error" });
       }
     });
@@ -140,25 +103,21 @@ export default function registerSupportChatSocket(io) {
         try {
           if (!conversationId)
             return ack?.({ error: "conversationId required" });
-          if (attachments && !Array.isArray(attachments)) {
+          if (attachments && !Array.isArray(attachments))
             return ack?.({ error: "attachments must be an array" });
-          }
 
           const conv = await prisma.supportConversation.findUnique({
             where: { id: conversationId },
           });
           if (!conv) return ack?.({ error: "Conversation not found" });
-          if (["ENDED", "ESCALATED"].includes(conv.status)) {
+          if (["ENDED", "ESCALATED"].includes(conv.status))
             return ack?.({ error: "Conversation is closed" });
-          }
 
           const isAdmin = role === "ADMIN";
-          if (conv.userId !== userId && !isAdmin) {
+          if (conv.userId !== userId && !isAdmin)
             return ack?.({ error: "Forbidden" });
-          }
-          if ((!body || !body.trim()) && !attachments?.length) {
+          if ((!body || !body.trim()) && !attachments?.length)
             return ack?.({ error: "Message cannot be empty" });
-          }
 
           const msg = await prisma.supportChatMessage.create({
             data: {
@@ -167,8 +126,8 @@ export default function registerSupportChatSocket(io) {
               senderType: isAdmin ? "ADMIN" : "USER",
               body: body?.trim() || null,
               attachments: attachments || undefined,
-              replyToId: replyToId || undefined, // <-- Save Reply ID
-              tempId: tempId || undefined, // <-- Save Temp ID for optimistic UI
+              replyToId: replyToId || undefined,
+              tempId: tempId || undefined,
               deliveredAt: new Date(),
             },
             include: {
@@ -181,14 +140,7 @@ export default function registerSupportChatSocket(io) {
                   role: true,
                 },
               },
-              replyTo: {
-                // <-- Include the replied message details
-                select: {
-                  id: true,
-                  body: true,
-                  senderType: true,
-                },
-              },
+              replyTo: { select: { id: true, body: true, senderType: true } },
             },
           });
 
@@ -207,8 +159,7 @@ export default function registerSupportChatSocket(io) {
             },
           });
 
-          // Emit to everyone in the room EXCEPT the sender's socket.
-          // The sender will get this via the `ack` callback instead.
+          // Emit to everyone EXCEPT sender
           socket.to(room(conversationId)).emit("support:message", msg);
 
           if (!isAdmin && conv.status === "WAITING_AGENT") {
@@ -219,9 +170,9 @@ export default function registerSupportChatSocket(io) {
             });
           }
 
+          // Return to sender via ack
           ack?.({ ok: true, message: msg });
         } catch (err) {
-          console.error("support:message error:", err.message);
           ack?.({ error: "server error" });
         }
       },
@@ -302,7 +253,6 @@ export default function registerSupportChatSocket(io) {
 
         ack?.({ ok: true });
       } catch (err) {
-        console.error("support:end error:", err.message);
         ack?.({ error: "server error" });
       }
     });
@@ -310,9 +260,6 @@ export default function registerSupportChatSocket(io) {
     // ── Cleanup ─────────────────────────────────────────────────────────
     socket.on("disconnect", (reason) => {
       if (role === "ADMIN") socket.leave(ADMIN_INBOX);
-      console.log(`[support] 🔴 ${userId} disconnected — ${reason}`);
     });
   });
-
-  console.log("[support] ✅ namespace /support registered");
 }

@@ -1,3 +1,4 @@
+// src/services/support.ticket.service.js
 import { PrismaClient } from "../generated/prisma/index.js";
 import { generateTicketNumber } from "../utils/supportTicketNumber.js";
 import { SUPPORT_POLICY } from "../config/supportConfig.js";
@@ -73,6 +74,7 @@ export async function addMessage({
   body,
   attachments,
   isInternal,
+  replyToId,
 }) {
   return prisma.$transaction(async (tx) => {
     const ticket = await tx.supportTicket.findUnique({
@@ -94,6 +96,7 @@ export async function addMessage({
         body,
         attachments: attachments || undefined,
         isInternal: !!isInternal,
+        replyToId: replyToId || undefined,
       },
       include: {
         author: {
@@ -103,6 +106,13 @@ export async function addMessage({
             lastName: true,
             avatar: true,
             role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            body: true,
+            authorType: true,
           },
         },
       },
@@ -302,6 +312,13 @@ export async function getTicketFull(ticketId) {
               role: true,
             },
           },
+          replyTo: {
+            select: {
+              id: true,
+              body: true,
+              authorType: true,
+            },
+          },
         },
       },
     },
@@ -334,6 +351,13 @@ export async function getTicketFullAdmin(ticketId) {
               lastName: true,
               avatar: true,
               role: true,
+            },
+          },
+          replyTo: {
+            select: {
+              id: true,
+              body: true,
+              authorType: true,
             },
           },
         },
