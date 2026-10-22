@@ -5,7 +5,11 @@ import socketAuthMiddleware from "./authMiddleware.js";
 const room = (convId) => `support:chat:${convId}`;
 const ADMIN_INBOX = "support:admin:inbox";
 
+// Store the io instance so services can emit events to it
+let ioInstance = null;
+
 export default function registerSupportChatSocket(io) {
+  ioInstance = io;
   const nsp = io.of("/support");
 
   nsp.use(socketAuthMiddleware);
@@ -264,4 +268,17 @@ export default function registerSupportChatSocket(io) {
       if (role === "ADMIN") socket.leave(ADMIN_INBOX);
     });
   });
+}
+
+/**
+ * Returns the shared Socket.io instance so other services (like
+ * support.ticket.service.js) can emit events to the /support namespace.
+ */
+export function getSupportIO() {
+  if (!ioInstance) {
+    console.warn(
+      "[support] Socket.io instance requested before initialisation",
+    );
+  }
+  return ioInstance;
 }
