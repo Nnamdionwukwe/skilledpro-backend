@@ -89,3 +89,25 @@ export async function getAllContactMessages(req, res, next) {
     next(err);
   }
 }
+
+export async function updateContactMessageStatus(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // "PENDING" | "REVIEWED" | "RESOLVED"
+
+    if (!["PENDING", "REVIEWED", "RESOLVED"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status" });
+    }
+
+    const updated = await prisma.contactMessage.update({
+      where: { id },
+      data: { status },
+    });
+
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}

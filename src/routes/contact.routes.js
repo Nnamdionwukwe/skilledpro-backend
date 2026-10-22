@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import {
   submitContactForm,
   getAllContactMessages,
+  updateContactMessageStatus,
 } from "../controllers/contact.controller.js";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 
@@ -23,6 +24,13 @@ const contactLimiter = rateLimit({
 router.post("/", contactLimiter, submitContactForm);
 
 // Admin route (optional: to view messages in admin dashboard)
+// Inside src/routes/contact.routes.js
+router.patch(
+  "/admin/:id/status",
+  protect,
+  requireRole("ADMIN"),
+  updateContactMessageStatus,
+);
 router.get("/admin", protect, requireRole("ADMIN"), getAllContactMessages);
 
 export default router;
