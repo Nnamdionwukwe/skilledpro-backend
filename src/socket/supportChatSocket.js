@@ -263,3 +263,34 @@ export default function registerSupportChatSocket(io) {
     });
   });
 }
+
+// src/socket/supportChatSocket.js
+
+// ── support:read ────────────────────────────────────────────────────
+socket.on("support:read", async ({ conversationId } = {}) => {
+  if (!conversationId) return;
+  try {
+    const now = new Date();
+    const isAdmin = role === "ADMIN";
+
+    await prisma.supportConversation.update({
+      where: { id: conversationId },
+      data: isAdmin ? { adminLastReadAt: now } : { userLastReadAt: now },
+    });
+
+    // Update all messages NOT sent by this user to be read
+    await prisma.supportChatMessage.updateMany({
+      where: { conversationId, senderId: { not: userId }, readAt: null },
+      data: { readAt: now },
+    });
+
+    // Tell the other party that their messages were read
+    socket.to(room(conversationId)).emit("support:read", {
+      conversationId,
+      byUserId: userId,
+      at: now,
+    });
+  } catch (err) {
+    console.error("support:read error:", err.message);
+  }
+});
