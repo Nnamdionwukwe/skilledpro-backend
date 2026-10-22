@@ -11,7 +11,6 @@ export async function startOrResumeChat({ userId, payload }) {
       status: { in: ["ACTIVE", "WAITING_AGENT", "AGENT_ASSIGNED"] },
     },
     orderBy: { createdAt: "desc" },
-    // INCLUDE MESSAGES HERE so the frontend loads the history immediately
     include: {
       messages: {
         orderBy: { createdAt: "asc" },
@@ -71,7 +70,6 @@ export async function startOrResumeChat({ userId, payload }) {
         },
       });
 
-      // Re-fetch to include the message history for the newly created chat
       const withHistory = await tx.supportConversation.findUnique({
         where: { id: created.id },
         include: {
@@ -134,7 +132,7 @@ export async function getChatForUser({ conversationId, userId, role }) {
               role: true,
             },
           },
-          replyTo: { select: { id: true, body: true, senderType: true } }, // Include reply data
+          replyTo: { select: { id: true, body: true, senderType: true } },
         },
       },
     },
@@ -201,7 +199,6 @@ export async function escalateChatToTicket({
     await import("../utils/supportTicketNumber.js");
   const ticketNumber = await generateTicketNumber();
 
-  // Build description from chat transcript
   const transcript = conv.messages
     .filter((m) => m.senderType !== "SYSTEM")
     .map((m) => `[${m.senderType}] ${m.body || "(attachment)"}`)
@@ -273,8 +270,6 @@ export async function submitChatCsat({
   });
 }
 
-// src/services/support.chat.service.js
-
 export async function adminListChats({ status, page = 1, limit = 20 }) {
   const where = status ? { status } : {};
   const skip = (Number(page) - 1) * Number(limit);
@@ -297,13 +292,13 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
-        // ADD THIS: Count unread messages from the user
+        // Count unread messages from the user
         _count: {
           select: {
             messages: {
               where: {
                 senderType: "USER",
-                readAt: null, // Only unread messages
+                readAt: null,
               },
             },
           },
@@ -314,10 +309,13 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
   ]);
 
   // Map the chats to include unreadCount at the top level
-  const mappedChats = chats.map((c) => ({
-    ...c,
-    unreadCount: c._count.messages,
-  }));
+  const mappedChats = chats.map((c) => {
+    const { _count, ...chatData } = c;
+    return {
+      ...chatData,
+      unreadCount: _count.messages,
+    };
+  });
 
   return {
     chats: mappedChats,
@@ -325,47 +323,4 @@ export async function adminListChats({ status, page = 1, limit = 20 }) {
     page: Number(page),
     limit: Number(limit),
   };
-}
-
-export async function getChatForUser({ conversationId, userId, role }) {
-  const conv = await prisma.supportConversation.findUnique({
-    where: { id: conversationId },
-    include: {
-      user: {
-        select: { id: true, firstName: true, lastName: true, avatar: true },
-      },
-      assignedAdmin: {
-        select: { id: true, firstName: true, lastName: true, avatar: true },
-      },
-      participants: {
-        include: {
-          user: {
-            select: { id: true, firstName: true, lastName: true, avatar: true },
-          },
-        },
-      },
-      messages: {
-        orderBy: { createdAt: "asc" },
-        include: {
-          sender: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              avatar: true,
-              role: true,
-            },
-          },
-          replyTo: { select: { id: true, body: true, senderType: true } },
-        },
-      },
-    },
-  });
-
-  if (!conv) throw Object.assign(new Error("Chat not found"), { status: 404 });
-  if (role !== "ADMIN" && conv.userId !== userId) {
-    throw Object.assign(new Error("Forbidden"), { status: 403 });
-  }
-
-  return conv;
 }

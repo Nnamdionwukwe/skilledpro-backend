@@ -118,7 +118,6 @@ export async function addMessage({
       },
     });
 
-    // Status transitions
     let newStatus = ticket.status;
     if (authorType === "ADMIN") {
       if (["OPEN", "WAITING_ADMIN"].includes(ticket.status))
@@ -275,12 +274,32 @@ export async function listTickets({ where, page, limit, orderBy }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
-        _count: { select: { messages: true } },
+        _count: {
+          select: {
+            messages: {
+              where: { authorType: "USER", readByAdminAt: null },
+            },
+          },
+        },
       },
     }),
     prisma.supportTicket.count({ where }),
   ]);
-  return { tickets: rows, total, page: Number(page), limit: Number(limit) };
+
+  const mappedTickets = rows.map((t) => {
+    const { _count, ...ticketData } = t;
+    return {
+      ...ticketData,
+      unreadCount: _count.messages,
+    };
+  });
+
+  return {
+    tickets: mappedTickets,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+  };
 }
 
 export async function getTicketFull(ticketId) {
@@ -438,54 +457,6 @@ export async function autoCloseResolvedTickets() {
   }
 
   return due.length;
-}
-
-// src/services/support.ticket.service.js
-
-export async function listTickets({ where, page, limit, orderBy }) {
-  const skip = (Number(page) - 1) * Number(limit);
-  const [rows, total] = await Promise.all([
-    prisma.supportTicket.findMany({
-      where,
-      orderBy: orderBy || { lastReplyAt: "desc" },
-      skip,
-      take: Number(limit),
-      include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            avatar: true,
-          },
-        },
-        assignedAdmin: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
-        },
-        _count: {
-          select: {
-            messages: {
-              where: { authorType: "USER", readByAdminAt: null },
-            },
-          },
-        },
-      },
-    }),
-    prisma.supportTicket.count({ where }),
-  ]);
-
-  const mappedTickets = rows.map((t) => ({
-    ...t,
-    unreadCount: t._count.messages,
-  }));
-
-  return {
-    tickets: mappedTickets,
-    total,
-    page: Number(page),
-    limit: Number(limit),
-  };
 }
 
 export { slaDate };
