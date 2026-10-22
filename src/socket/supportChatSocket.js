@@ -5,7 +5,6 @@ import socketAuthMiddleware from "./authMiddleware.js";
 const room = (convId) => `support:chat:${convId}`;
 const ADMIN_INBOX = "support:admin:inbox";
 
-// Store the io instance so services can emit events to it
 let ioInstance = null;
 
 export default function registerSupportChatSocket(io) {
@@ -112,6 +111,9 @@ export default function registerSupportChatSocket(io) {
 
           const conv = await prisma.supportConversation.findUnique({
             where: { id: conversationId },
+            include: {
+              user: { select: { firstName: true, lastName: true } },
+            },
           });
           if (!conv) return ack?.({ error: "Conversation not found" });
           if (["ENDED", "ESCALATED"].includes(conv.status))
@@ -166,11 +168,15 @@ export default function registerSupportChatSocket(io) {
           // Emit to everyone EXCEPT sender
           socket.to(room(conversationId)).emit("support:message", msg);
 
-          if (!isAdmin && conv.status === "WAITING_AGENT") {
+          // NOTIFY ADMINS GLOBALLY (Fires for EVERY user message)
+          if (!isAdmin) {
             nsp.to(ADMIN_INBOX).emit("support:inbox:new_message", {
               conversationId,
               preview,
               userId: conv.userId,
+              messageId: msg.id,
+              body: msg.body,
+              senderName: `${conv.user.firstName} ${conv.user.lastName}`,
             });
           }
 
@@ -204,13 +210,11 @@ export default function registerSupportChatSocket(io) {
           data: isAdmin ? { adminLastReadAt: now } : { userLastReadAt: now },
         });
 
-        // Update all messages NOT sent by this user to be read
         await prisma.supportChatMessage.updateMany({
           where: { conversationId, senderId: { not: userId }, readAt: null },
           data: { readAt: now },
         });
 
-        // Tell the other party that their messages were read
         socket.to(room(conversationId)).emit("support:read", {
           conversationId,
           byUserId: userId,
@@ -263,17 +267,12 @@ export default function registerSupportChatSocket(io) {
       }
     });
 
-    // ── Cleanup ─────────────────────────────────────────────────────────
     socket.on("disconnect", (reason) => {
       if (role === "ADMIN") socket.leave(ADMIN_INBOX);
     });
   });
 }
 
-/**
- * Returns the shared Socket.io instance so other services (like
- * support.ticket.service.js) can emit events to the /support namespace.
- */
 export function getSupportIO() {
   if (!ioInstance) {
     console.warn(

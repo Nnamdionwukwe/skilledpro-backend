@@ -2,7 +2,7 @@
 import { PrismaClient } from "../generated/prisma/index.js";
 import { generateTicketNumber } from "../utils/supportTicketNumber.js";
 import { SUPPORT_POLICY } from "../config/supportConfig.js";
-import { getSupportIO } from "../socket/supportChatSocket.js"; // Import the socket helper
+import { getSupportIO } from "../socket/supportChatSocket.js";
 
 const prisma = new PrismaClient();
 
@@ -38,6 +38,9 @@ export async function createTicket({ userId, payload, attachments }) {
         relatedType: payload.relatedType || null,
         relatedId: payload.relatedId || null,
         lastReplyAt: new Date(),
+      },
+      include: {
+        user: { select: { firstName: true, lastName: true } },
       },
     });
 
@@ -76,6 +79,8 @@ export async function createTicket({ userId, payload, attachments }) {
           ticketNumber: ticket.ticketNumber,
           subject: ticket.subject,
           userId: userId,
+          body: ticket.description, // Fallback message body
+          senderName: `${ticket.user.firstName} ${ticket.user.lastName}`,
         });
     }
   } catch (err) {
@@ -97,6 +102,7 @@ export async function addMessage({
   return prisma.$transaction(async (tx) => {
     const ticket = await tx.supportTicket.findUnique({
       where: { id: ticketId },
+      include: { user: { select: { firstName: true, lastName: true } } },
     });
     if (!ticket)
       throw Object.assign(new Error("Ticket not found"), { status: 404 });
@@ -163,7 +169,8 @@ export async function addMessage({
               ticketId,
               ticketNumber: ticket.ticketNumber,
               subject: ticket.subject,
-              messagePreview: body,
+              body: body, // Include the body for the banner
+              senderName: `${ticket.user.firstName} ${ticket.user.lastName}`, // Include sender name
             });
         }
       } catch (err) {}
@@ -182,6 +189,8 @@ export async function addMessage({
     return { message, ticketStatus: newStatus };
   });
 }
+
+// ... (setStatus, setPriority, assignTicket remain unchanged)
 
 export async function setStatus({ ticketId, actorId, status, note }) {
   return prisma.$transaction(async (tx) => {
