@@ -218,6 +218,13 @@ router.patch(
   ...validateUUIDParam("withdrawalId"),
   rejectWithdrawal,
 );
+// src/routes/admin.routes.js
+// Add this below the approve/reject routes
+router.patch(
+  "/withdrawals/:withdrawalId/complete",
+  ...validateUUIDParam("withdrawalId"),
+  adminCtrl.completeWithdrawal,
+);
 router.post(
   "/withdrawals/:withdrawalId/payout",
   ...validateUUIDParam("withdrawalId"),
