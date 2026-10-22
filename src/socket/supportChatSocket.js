@@ -194,7 +194,9 @@ export default function registerSupportChatSocket(io) {
             },
           });
 
-          nsp.to(room(conversationId)).emit("support:message", msg);
+          // Emit to everyone in the room EXCEPT the sender's socket.
+          // The sender will get this via the `ack` callback instead.
+          socket.to(room(conversationId)).emit("support:message", msg);
 
           if (!isAdmin && conv.status === "WAITING_AGENT") {
             nsp.to(ADMIN_INBOX).emit("support:inbox:new_message", {
