@@ -2,6 +2,7 @@
 import { PrismaClient } from "../generated/prisma/index.js";
 import { generateTicketNumber } from "../utils/supportTicketNumber.js";
 import { SUPPORT_POLICY } from "../config/supportConfig.js";
+import { getSupportIO } from "../socket/supportChatSocket.js"; // Import the socket helper
 
 const prisma = new PrismaClient();
 
@@ -63,6 +64,23 @@ export async function createTicket({ userId, payload, attachments }) {
 
     return created;
   });
+
+  // NOTIFY ADMINS IN REAL-TIME
+  try {
+    const io = getSupportIO();
+    if (io) {
+      io.of("/support")
+        .to("support:admin:inbox")
+        .emit("support:inbox:new_ticket", {
+          ticketId: ticket.id,
+          ticketNumber: ticket.ticketNumber,
+          subject: ticket.subject,
+          userId: userId,
+        });
+    }
+  } catch (err) {
+    console.error("Failed to emit ticket notification:", err.message);
+  }
 
   return ticket;
 }
@@ -134,6 +152,21 @@ export async function addMessage({
       ) {
         newStatus = "OPEN";
       }
+
+      // Notify Admin Inbox if a user replies to a ticket
+      try {
+        const io = getSupportIO();
+        if (io) {
+          io.of("/support")
+            .to("support:admin:inbox")
+            .emit("support:inbox:new_ticket_reply", {
+              ticketId,
+              ticketNumber: ticket.ticketNumber,
+              subject: ticket.subject,
+              messagePreview: body,
+            });
+        }
+      } catch (err) {}
     }
 
     await tx.supportTicket.update({
@@ -274,7 +307,6 @@ export async function listTickets({ where, page, limit, orderBy }) {
         assignedAdmin: {
           select: { id: true, firstName: true, lastName: true, avatar: true },
         },
-        // FIX: Count unread messages from the USER
         _count: {
           select: {
             messages: {
@@ -290,7 +322,6 @@ export async function listTickets({ where, page, limit, orderBy }) {
     prisma.supportTicket.count({ where }),
   ]);
 
-  // Map to expose unreadCount
   const mappedTickets = rows.map((t) => {
     const { _count, ...ticketData } = t;
     return {
@@ -350,7 +381,6 @@ export async function getTicketFull(ticketId) {
 }
 
 export async function getTicketFullAdmin(ticketId) {
-  // Mark messages as read by admin
   await prisma.supportMessage.updateMany({
     where: {
       ticketId,
