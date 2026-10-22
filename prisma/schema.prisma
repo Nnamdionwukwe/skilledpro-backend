@@ -1169,6 +1169,7 @@ model Withdrawal {
   failureNote String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  processedAt DateTime?
 }
 
 model Review {
