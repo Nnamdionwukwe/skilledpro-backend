@@ -5,21 +5,21 @@ export const FEE_CONFIG = {
   phase: 1,
 
   // ── Booking fees ──────────────────────────────────────────────────────────
-  // Default rate (applies to NGN or any currency without an override)
-  HIRER_FEE_RATE: process.env.HIRER_FEE_RATE
-    ? parseFloat(process.env.HIRER_FEE_RATE)
-    : 0.02, // Changed default to 2% to cover Paystack local fees
+  // Two-tier model:
+  //   NGN → 2%   (covers Paystack's 1.5% + ₦100)
+  //   any other currency → 5% (covers Flutterwave's ~4.8% international fee)
+  NGN_HIRER_FEE_RATE: process.env.NGN_HIRER_FEE_RATE
+    ? parseFloat(process.env.NGN_HIRER_FEE_RATE)
+    : 0.02,
+  FOREIGN_HIRER_FEE_RATE: process.env.FOREIGN_HIRER_FEE_RATE
+    ? parseFloat(process.env.FOREIGN_HIRER_FEE_RATE)
+    : 0.05,
 
-  // ✅ NEW: Currency-specific fee overrides
-  // Flutterwave charges 4.8% for international cards. We charge 5% to cover it + 0.2% revenue.
-  CURRENCY_FEE_OVERRIDES: {
-    USD: 0.05,
-    EUR: 0.05,
-    GBP: 0.05,
-    CAD: 0.05,
-    AUD: 0.05,
-    // Add other foreign currencies here as needed
-  },
+  // Kept for backwards compatibility with importers that read
+  // HIRER_FEE_RATE directly (defaults to the NGN rate).
+  HIRER_FEE_RATE: process.env.NGN_HIRER_FEE_RATE
+    ? parseFloat(process.env.NGN_HIRER_FEE_RATE)
+    : 0.02,
 
   WORKER_FEE_RATE: 0.0,
 
@@ -31,13 +31,15 @@ export const FEE_CONFIG = {
   // ── Computed helpers ──────────────────────────────────────────────────────
 
   /**
-   * Helper to get the correct fee rate for a given currency
+   * Get the effective hirer fee rate for a given currency.
+   * NGN → NGN_HIRER_FEE_RATE (2%)
+   * everything else → FOREIGN_HIRER_FEE_RATE (5%)
    */
   getHirerFeeRate(currency = "NGN") {
     const cur = (currency || "NGN").toUpperCase();
-    return this.CURRENCY_FEE_OVERRIDES[cur] !== undefined
-      ? this.CURRENCY_FEE_OVERRIDES[cur]
-      : this.HIRER_FEE_RATE;
+    return cur === "NGN"
+      ? this.NGN_HIRER_FEE_RATE
+      : this.FOREIGN_HIRER_FEE_RATE;
   },
 
   compute(agreedRate, currency = "NGN") {
@@ -91,9 +93,6 @@ export const FEE_CONFIG = {
     };
   },
 
-  /**
-   * Convenience: compute the hirer fee from a subtotal and currency.
-   */
   computeHirerFee(subtotal, currency = "NGN") {
     const rate = this.getHirerFeeRate(currency);
     return parseFloat((subtotal * rate).toFixed(2));
@@ -103,16 +102,13 @@ export const FEE_CONFIG = {
     return parseFloat((subtotal * (1 - this.WORKER_FEE_RATE)).toFixed(2));
   },
 
-  /**
-   * Convenience: compute the total the hirer is charged (subtotal + hirer fee).
-   */
   computeGrossTotal(subtotal, currency = "NGN") {
     const rate = this.getHirerFeeRate(currency);
     return parseFloat((subtotal * (1 + rate)).toFixed(2));
   },
 
   get HIRER_FEE_PERCENT() {
-    return Math.round(this.HIRER_FEE_RATE * 100);
+    return Math.round(this.NGN_HIRER_FEE_RATE * 100);
   },
 
   get WORKER_FEE_PERCENT() {

@@ -88,7 +88,10 @@ export function calcPricing(booking, referralDiscount = 0) {
       custom: "custom",
     }[unit] || unit;
 
-  // ✅ Fee math — pulled from FEE_CONFIG with the specific currency
+  // ✅ Two-tier fee math — NGN (2%) vs. everything else (5%).
+  const feeRate = FEE_CONFIG.getHirerFeeRate(currency);
+  const feePercent = Math.round(feeRate * 100);
+
   const hirerFee = FEE_CONFIG.computeHirerFee(subtotal, currency);
   const workerPayout = FEE_CONFIG.computeWorkerPayout(subtotal);
   const grossTotal = FEE_CONFIG.computeGrossTotal(subtotal, currency);
@@ -119,10 +122,14 @@ export function calcPricing(booking, referralDiscount = 0) {
     isNegotiated,
     negotiatedRate: isNegotiated ? booking.negotiatedRate : null,
     isJobPostBooking,
+    // ✅ Expose the effective rate so callers (controller, invoices,
+    // emails, notifications) can render the correct label per currency.
+    feeRate,
+    feePercent,
   };
 }
 
-// ✅ THIS WAS MISSING. It is required by payment.controller.js
+// ── Convenience wrapper used by payment.controller.js ─────────────────
 export function computeBookingTotal(booking) {
   const p = calcPricing(booking);
   return {
@@ -131,6 +138,8 @@ export function computeBookingTotal(booking) {
     workerPayout: p.workerPayout,
     total: p.grossTotal,
     isJobPostBooking: p.isJobPostBooking,
+    feeRate: p.feeRate,
+    feePercent: p.feePercent,
   };
 }
 
