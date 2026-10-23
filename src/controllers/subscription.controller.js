@@ -183,14 +183,16 @@ export const createCheckout = async (req, res) => {
       amount: finalPrice * 100, // kobo — uses discounted price
       plan: planCode,
       currency: "NGN",
+      // ✅ FORCE CARD ONLY: This hides bank transfer, USSD, etc. from the checkout
+      channels: ["card"],
       metadata: {
         userId: req.user.id,
         planId,
         tier: plan.tier,
         role,
-        promoCodeId, // ← NEW: stored for verifyCheckout
-        promoDiscount, // ← NEW: for audit/invoice
-        originalPrice: plan.price, // ← NEW: for audit/invoice
+        promoCodeId,
+        promoDiscount,
+        originalPrice: plan.price,
         cancel_action: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
       },
       callback_url: `${process.env.CLIENT_URL}/subscription/verify`,
@@ -201,7 +203,6 @@ export const createCheckout = async (req, res) => {
         url: txData.authorization_url,
         reference: txData.reference,
         accessCode: txData.access_code,
-        // ← Tell the frontend what was applied so it can show a summary
         pricing: {
           originalPrice: plan.price,
           discount: promoDiscount,
