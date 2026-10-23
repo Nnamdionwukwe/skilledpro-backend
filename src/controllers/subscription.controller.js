@@ -145,9 +145,6 @@ export const createCheckout = async (req, res) => {
     if (plan.price === 0)
       return sendError(res, "Free plan requires no payment", 400);
 
-    // ✅ We no longer need the Paystack plan code since we are not using native subscriptions
-    // const planCode = getPlanCode(planId);
-
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
     // ── Apply promo code (optional) ───────────────────────────────────────────
@@ -175,10 +172,9 @@ export const createCheckout = async (req, res) => {
     const txData = await paystackRequest("/transaction/initialize", "POST", {
       email: user.email,
       amount: finalPrice * 100, // kobo — uses discounted price
-      // ❌ REMOVED: plan: planCode,
+      // ❌ REMOVED: plan: planCode, (No longer using native recurring plans)
       currency: "NGN",
-      // We can leave channels empty or specifically request ["card"] now that it's a standard transaction
-      channels: ["card"],
+      // ❌ REMOVED: channels: ["card"] (Let Paystack show all enabled channels)
       metadata: {
         userId: req.user.id,
         planId,
@@ -187,7 +183,6 @@ export const createCheckout = async (req, res) => {
         promoCodeId,
         promoDiscount,
         originalPrice: plan.price,
-        // ✅ We add a custom flag so verifyCheckout knows this is a manual subscription
         isManualSubscription: true,
         cancel_action: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
       },
