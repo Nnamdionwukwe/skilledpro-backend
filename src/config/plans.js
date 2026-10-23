@@ -246,7 +246,7 @@ export const HIRER_PLANS = [
     billingCycle: "yearly",
     stripePriceId: null,
     paystackPlanCode: process.env.PAYSTACK_HIRER_PRO_YEARLY_PLAN_CODE,
-    savings: "Save ₦5,000 vs monthly",
+    savings: "Save ₦3,000 vs monthly",
     badge: "Best Value",
     features: [
       "Unlimited job posts",
