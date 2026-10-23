@@ -146,14 +146,8 @@ export const createCheckout = async (req, res) => {
     if (plan.price === 0)
       return sendError(res, "Free plan requires no payment", 400);
 
-    const planCode = getPlanCode(planId);
-    if (!planCode) {
-      return sendError(
-        res,
-        `Paystack plan code not configured for ${planId}. Add PAYSTACK_${planId.toUpperCase()}_PLAN_CODE to env.`,
-        500,
-      );
-    }
+    // ✅ We no longer need the Paystack plan code since we are not using native subscriptions
+    // const planCode = getPlanCode(planId);
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
@@ -178,13 +172,14 @@ export const createCheckout = async (req, res) => {
       }
     }
 
-    // ── Initialize Paystack transaction ───────────────────────────────────────
+    // ── Initialize Paystack transaction (ONE-TIME PAYMENT) ───────────────────
     const txData = await paystackRequest("/transaction/initialize", "POST", {
       email: user.email,
       amount: finalPrice * 100, // kobo — uses discounted price
-      plan: planCode,
+      // ❌ REMOVED: plan: planCode,
       currency: "NGN",
-      // ❌ REMOVED: channels: ["card"] — Paystack subscriptions are card-only by default
+      // We can leave channels empty or specifically request ["card"] now that it's a standard transaction
+      channels: ["card"],
       metadata: {
         userId: req.user.id,
         planId,
@@ -193,6 +188,8 @@ export const createCheckout = async (req, res) => {
         promoCodeId,
         promoDiscount,
         originalPrice: plan.price,
+        // ✅ We add a custom flag so verifyCheckout knows this is a manual subscription
+        isManualSubscription: true,
         cancel_action: `${process.env.CLIENT_URL}/dashboard/${role.toLowerCase()}/subscription`,
       },
       callback_url: `${process.env.CLIENT_URL}/subscription/verify`,
