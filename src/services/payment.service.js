@@ -1,11 +1,4 @@
-// src/utils/pricing.js  (backend)
-// Shared pricing utility — mirror of the frontend's src/utils/pricing.js
-// so Paystack, Flutterwave, bank-transfer, and crypto paths all agree
-// with what the UI shows.
-//
-// Fee rate comes from src/config/fees.js — the single source of truth
-// for every fee on the platform.
-
+// src/services/payment.service.js  (acting as your pricing utility)
 import prisma from "../config/database.js";
 import { FEE_CONFIG } from "../config/fees.js";
 
@@ -23,11 +16,6 @@ export function calcPricing(booking, referralDiscount = 0) {
   const isNegotiated = !!(booking?.isNegotiated && booking?.negotiatedRate);
   const quantity = booking?.quantity || 1;
 
-  // ── Job-post bookings ────────────────────────────────────────────────
-  // When a booking is created from a job post (source === "JOB_POST"),
-  // the agreedRate IS the final amount the hirer picked (either a
-  // selected price option or a negotiated override). We do NOT multiply
-  // by duration — the amount is already the total.
   const isJobPostBooking = booking?.source === "JOB_POST";
 
   let qty = 1;
@@ -100,11 +88,11 @@ export function calcPricing(booking, referralDiscount = 0) {
       custom: "custom",
     }[unit] || unit;
 
-  // Fee math — pulled from FEE_CONFIG so changing the fee rate in one
-  // place updates pricing, payments, invoices, refunds, and emails.
-  const hirerFee = FEE_CONFIG.computeHirerFee(subtotal);
+  // ✅ Fee math — pulled from FEE_CONFIG with the specific currency
+  const hirerFee = FEE_CONFIG.computeHirerFee(subtotal, currency);
   const workerPayout = FEE_CONFIG.computeWorkerPayout(subtotal);
-  const grossTotal = FEE_CONFIG.computeGrossTotal(subtotal);
+  const grossTotal = FEE_CONFIG.computeGrossTotal(subtotal, currency);
+
   const referralSaving = currency === "NGN" ? referralDiscount : 0;
   const totalCharged = parseFloat(
     Math.max(0, grossTotal - referralSaving).toFixed(2),
@@ -134,9 +122,7 @@ export function calcPricing(booking, referralDiscount = 0) {
   };
 }
 
-// ── Convenience wrapper used by payment.controller.js ─────────────────
-// Returns the same shape the controller used to expect from
-// computeBookingTotal(booking), so call sites don't need changing.
+// ✅ THIS WAS MISSING. It is required by payment.controller.js
 export function computeBookingTotal(booking) {
   const p = calcPricing(booking);
   return {
@@ -149,18 +135,6 @@ export function computeBookingTotal(booking) {
 }
 
 // ─── Escrow release (canonical) ─────────────────────────────────────────────
-// Performs the full release flow:
-//   1. Marks payment RELEASED + escrowReleasedAt
-//   2. Marks booking COMPLETED + completedAt
-//   3. Increments worker's completedJobs counter
-//   4. Converts any pending referrals for the worker
-//   5. Sends a notification to the worker
-//
-// Auth and permission checks stay in the controller — this service assumes
-// the caller has already authorized the release.
-//
-// Returns: { payment, booking } on success.
-// Throws if the payment isn't in a releasable state.
 export async function releaseEscrow(paymentId, options = {}) {
   const { triggeredBy = null, triggeredByRole = "SYSTEM" } = options;
 
@@ -191,7 +165,6 @@ export async function releaseEscrow(paymentId, options = {}) {
     throw new Error("Payment has no associated booking");
   }
 
-  // 1 + 2. Update payment and booking atomically
   const [updatedPayment, updatedBooking] = await prisma.$transaction([
     prisma.payment.update({
       where: { id: payment.id },
@@ -203,7 +176,6 @@ export async function releaseEscrow(paymentId, options = {}) {
     }),
   ]);
 
-  // 3. Increment worker's completedJobs counter (best-effort — profile may not exist)
   await prisma.workerProfile
     .update({
       where: { userId: booking.workerId },
@@ -211,7 +183,6 @@ export async function releaseEscrow(paymentId, options = {}) {
     })
     .catch(() => {});
 
-  // 4. Convert referrals (fire and forget)
   const { convertReferral } = await import("./referral.controller.js").catch(
     () => ({ convertReferral: null }),
   );
@@ -221,7 +192,6 @@ export async function releaseEscrow(paymentId, options = {}) {
     );
   }
 
-  // 5. Notify worker
   const { createNotification } =
     await import("./notification.service.js").catch(() => ({
       createNotification: null,
@@ -247,23 +217,6 @@ export async function releaseEscrow(paymentId, options = {}) {
 }
 
 // ─── Partial escrow release ──────────────────────────────────────────────────
-// Releases a specific amount from a HELD payment to the worker. This is the
-// primitive that underpins both partial releases and the "release all"
-// shortcut.
-//
-// Rules:
-//   • payment.status must be "HELD"
-//   • amount must be > 0 and ≤ (workerPayout - releasedAmount)
-//   • releases are non-refundable once made
-//   • booking.status is NEVER touched by this service — a partially-released
-//     booking is still IN_PROGRESS or COMPLETED, depending on where the
-//     worker is in the job lifecycle
-//   • when releasedAmount reaches workerPayout, the payment flips to
-//     RELEASED and the full-release side effects fire (referral conversion,
-//     both-party notifications, completedJobs increment). Partial releases
-//     do NOT fire any of those.
-//
-// Returns: { payment, release, isFinal }
 export async function releaseEscrowPartial(paymentId, amount, options = {}) {
   const {
     triggeredBy = null,
@@ -324,8 +277,6 @@ export async function releaseEscrowPartial(paymentId, amount, options = {}) {
   );
   const isFinal = remainingAfter === 0;
 
-  // ── Atomic write: bump releasedAmount/releaseCount, append release row,
-  //    and (if final) flip status → RELEASED ────────────────────────────
   const [updatedPayment, release] = await prisma.$transaction([
     prisma.payment.update({
       where: { id: payment.id },
@@ -351,7 +302,6 @@ export async function releaseEscrowPartial(paymentId, amount, options = {}) {
     }),
   ]);
 
-  // ── Notify the worker ───────────────────────────────────────────────
   const { createNotification } =
     await import("./notification.service.js").catch(() => ({
       createNotification: null,
@@ -387,9 +337,7 @@ export async function releaseEscrowPartial(paymentId, amount, options = {}) {
     );
   }
 
-  // ── Full-release side effects — only when 100% has been released ────
   if (isFinal) {
-    // completedJobs increment (best-effort)
     await prisma.workerProfile
       .update({
         where: { userId: booking.workerId },
@@ -397,7 +345,6 @@ export async function releaseEscrowPartial(paymentId, amount, options = {}) {
       })
       .catch(() => {});
 
-    // Referral conversion (fire-and-forget)
     const { convertReferral } = await import("./referral.controller.js").catch(
       () => ({ convertReferral: null }),
     );

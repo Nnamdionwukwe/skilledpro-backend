@@ -33,6 +33,7 @@ import {
 import {
   releaseEscrow,
   releaseEscrowPartial,
+  computeBookingTotal,
 } from "../services/payment.service.js";
 import {
   createRefundFromAdmin,
@@ -356,82 +357,6 @@ function getWithdrawalProvider(countryCode, method) {
   if (PAYSTACK_COUNTRIES.has((countryCode ?? "").toUpperCase()))
     return "paystack";
   return "flutterwave";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// computeBookingTotal — single source of truth for pricing math.
-//
-// Job-post bookings (source === "JOB_POST"):
-//   agreedRate IS the final amount the hirer picked from the job post.
-//   → subtotal = agreedRate (no multiplication by duration)
-//
-// Negotiated bookings (isNegotiated === true):
-//   agreedRate IS the negotiated total.
-//   → subtotal = negotiatedRate
-//
-// Custom unit bookings (estimatedUnit === "custom"):
-//   → subtotal = agreedRate × quantity
-//
-// Direct bookings (everything else):
-//   → subtotal = agreedRate × qty   (qty derived from estimatedValue/hours)
-//
-// The platform fee is read from FEE_CONFIG so changing the fee in one
-// place updates every consumer.
-// ─────────────────────────────────────────────────────────────────────────────
-function computeBookingTotal(booking) {
-  const rate = Number(booking.agreedRate) || 0;
-  const unit = booking.estimatedUnit || "hours";
-  const hours = booking.estimatedHours;
-  const value = booking.estimatedValue
-    ? parseFloat(booking.estimatedValue)
-    : null;
-  const quantity = booking.quantity || 1;
-
-  const isJobPostBooking = booking.source === "JOB_POST";
-  const isNegotiated = !!(booking.isNegotiated && booking.negotiatedRate);
-
-  let qty = 1;
-  let subtotal = 0;
-
-  if (isJobPostBooking) {
-    subtotal = parseFloat(rate.toFixed(2));
-    if (value && unit !== "custom") qty = value;
-    else if (hours) qty = hours;
-  } else if (isNegotiated) {
-    subtotal =
-      parseFloat(Number(booking.negotiatedRate).toFixed(2)) ||
-      parseFloat(rate.toFixed(2));
-    if (value && unit !== "custom") qty = value;
-    else if (hours) qty = hours;
-  } else if (unit === "custom") {
-    const customQty = quantity || 1;
-    subtotal = parseFloat((rate * customQty).toFixed(2));
-    qty = customQty;
-  } else {
-    if (value && unit !== "custom") qty = value;
-    else if (hours) {
-      if (unit === "hours") qty = hours;
-      else if (unit === "days") qty = Math.round(hours / 8);
-      else if (unit === "weeks") qty = Math.round(hours / 40);
-      else if (unit === "months") qty = Math.round(hours / 160);
-      else if (unit === "years") qty = Math.round(hours / 1920);
-    }
-    subtotal = parseFloat((rate * qty).toFixed(2));
-  }
-
-  // Fee math — centralized in FEE_CONFIG so changing the fee rate in
-  // one place updates every consumer (pricing, payments, invoices,
-  // refunds, emails).
-  const platformFee = FEE_CONFIG.computeHirerFee(subtotal);
-  const total = FEE_CONFIG.computeGrossTotal(subtotal);
-
-  return {
-    subtotal,
-    platformFee,
-    workerPayout: subtotal,
-    total,
-    isJobPostBooking,
-  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
