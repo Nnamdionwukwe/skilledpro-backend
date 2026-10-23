@@ -130,7 +130,6 @@ export const getMySubscription = async (req, res) => {
   }
 };
 
-// ── POST /api/subscriptions/checkout ─────────────────────────────────────────
 // Returns a Paystack authorization URL — open in WebBrowser on mobile
 // ── POST /api/subscriptions/checkout ─────────────────────────────────────────
 export const createCheckout = async (req, res) => {
@@ -263,24 +262,6 @@ export const verifyCheckout = async (req, res) => {
       return sendError(res, "User no longer exists for this transaction", 400);
     }
 
-    // ── Look up Paystack subscription record (best-effort) ────────────────────
-    let paystackSub = null;
-    const customerCode = tx.customer?.customer_code || null;
-    try {
-      const planCode = getPlanCode(planId);
-      const subs = await paystackRequest(
-        `/subscription?customer=${customerCode}&plan=${planCode}`,
-      );
-      paystackSub = Array.isArray(subs)
-        ? subs.find((s) => s.status === "active") || subs[0]
-        : null;
-    } catch (err) {
-      // Non-fatal: we can create the local row without this metadata.
-      // Rate-limited here just means the extra metadata is missing — the
-      // subscription itself is still created below.
-      console.warn("Paystack sub lookup skipped:", err.message);
-    }
-
     // ── Determine the plan + expiry ───────────────────────────────────────────
     const plans = role === "WORKER" ? WORKER_PLANS : HIRER_PLANS;
     const plan = plans.find((p) => p.id === planId);
@@ -293,46 +274,9 @@ export const verifyCheckout = async (req, res) => {
     if (isYearly) expiresAt.setFullYear(expiresAt.getFullYear() + 1);
     else expiresAt.setMonth(expiresAt.getMonth() + 1);
 
-    // ── Cancel any existing ACTIVE subscriptions ──────────────────────────────
-    // If the user is switching plans, the OLD subscription must be disabled on
-    // Paystack too — otherwise they get double-billed. If that disable fails
-    // (e.g. rate limit), surface a 429 and don't create the new row.
-    const existingSub = await prisma.subscription.findFirst({
-      where: { userId, status: "ACTIVE" },
-      orderBy: { createdAt: "desc" },
-    });
-
-    if (
-      existingSub?.paystackSubscriptionCode &&
-      existingSub?.paystackEmailToken
-    ) {
-      try {
-        await paystackRequest("/subscription/disable", "POST", {
-          code: existingSub.paystackSubscriptionCode,
-          token: existingSub.paystackEmailToken,
-        });
-        console.log(
-          `✅ Disabled old Paystack sub ${existingSub.paystackSubscriptionCode}`,
-        );
-      } catch (err) {
-        console.error(
-          "Failed to disable old Paystack sub:",
-          err.code || "",
-          err.message,
-        );
-        if (err.code === "RATE_LIMIT") {
-          return sendError(
-            res,
-            "Paystack is busy. Please wait a few seconds and try again.",
-            429,
-          );
-        }
-        // Non-rate-limit failures: log and continue. The local cleanup
-        // below still flips the old row to CANCELLED so the UI is correct.
-      }
-    }
-
-    // Mark all previous ACTIVE rows as CANCELLED before inserting the new one.
+    // ── Mark all previous ACTIVE rows as CANCELLED before inserting the new one ─
+    // Since we are using manual one-time payments, we don't need to call
+    // Paystack's /subscription/disable endpoint. We just handle it locally.
     await prisma.subscription.updateMany({
       where: { userId, status: "ACTIVE" },
       data: { status: "CANCELLED" },
@@ -349,16 +293,15 @@ export const verifyCheckout = async (req, res) => {
         currency: "NGN",
         startedAt: new Date(),
         expiresAt,
-        autoRenew: true,
+        autoRenew: true, // Kept as true so the UI shows it as active, but you will need a cron job to manage actual renewals now
         reference,
-        paystackSubscriptionCode: paystackSub?.subscription_code || null,
-        paystackCustomerCode: customerCode,
-        paystackPlanCode: getPlanCode(planId),
-        paystackEmailToken: paystackSub?.email_token || null,
-        paystackStatus: paystackSub?.status || "active",
-        nextPaymentDate: paystackSub?.next_payment_date
-          ? new Date(paystackSub.next_payment_date)
-          : expiresAt,
+        // Set Paystack specific fields to null since it's a one-time payment
+        paystackSubscriptionCode: null,
+        paystackCustomerCode: tx.customer?.customer_code || null,
+        paystackPlanCode: getPlanCode(planId), // Kept for record-keeping to know which plan they bought
+        paystackEmailToken: null,
+        paystackStatus: "active",
+        nextPaymentDate: expiresAt,
       },
     });
 
