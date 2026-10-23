@@ -23,23 +23,62 @@ export const FEE_CONFIG = {
 
   WORKER_FEE_RATE: 0.0,
 
-  // ── Withdrawal fees ───────────────────────────────────────────────────────
+  // ── Worker escrow withdrawal fees (Paystack/Flutterwave transfer) ────────
+  // (Not currently applied — kept at 0 for now; you can flip later.)
   WITHDRAWAL_FEE_RATE: 0.0,
   WITHDRAWAL_FEE_CAP: 0,
   WITHDRAWAL_FEE_MIN: 0,
 
+  // ── Hirer wallet withdrawal fees ─────────────────────────────────────────
+  // Charged when a hirer withdraws money from their wallet back to a bank.
+  // NGN → 1% capped at ₦100 (covers Paystack's ₦10–₦50 transfer cost).
+  // Foreign → 2% uncapped (covers Flutterwave's international transfer cost).
+  NGN_WALLET_WITHDRAWAL_FEE_RATE: 0.01,
+  NGN_WALLET_WITHDRAWAL_FEE_CAP: 100,
+  FOREIGN_WALLET_WITHDRAWAL_FEE_RATE: 0.02,
+
   // ── Computed helpers ──────────────────────────────────────────────────────
 
-  /**
-   * Get the effective hirer fee rate for a given currency.
-   * NGN → NGN_HIRER_FEE_RATE (2%)
-   * everything else → FOREIGN_HIRER_FEE_RATE (5%)
-   */
   getHirerFeeRate(currency = "NGN") {
     const cur = (currency || "NGN").toUpperCase();
     return cur === "NGN"
       ? this.NGN_HIRER_FEE_RATE
       : this.FOREIGN_HIRER_FEE_RATE;
+  },
+
+  /**
+   * Compute the wallet withdrawal fee for a given amount and currency.
+   * NGN:   1% capped at ₦100
+   * Other: 2% uncapped
+   *
+   * Returns { fee, netAmount, feeRate, feePercent }
+   */
+  computeWalletWithdrawalFee(amount, currency = "NGN") {
+    const cur = (currency || "NGN").toUpperCase();
+    const numAmount = Number(amount) || 0;
+    if (numAmount <= 0) {
+      return { fee: 0, netAmount: 0, feeRate: 0, feePercent: 0 };
+    }
+
+    let feeRate;
+    let fee;
+
+    if (cur === "NGN") {
+      feeRate = this.NGN_WALLET_WITHDRAWAL_FEE_RATE;
+      fee = numAmount * feeRate;
+      if (this.NGN_WALLET_WITHDRAWAL_FEE_CAP > 0) {
+        fee = Math.min(fee, this.NGN_WALLET_WITHDRAWAL_FEE_CAP);
+      }
+    } else {
+      feeRate = this.FOREIGN_WALLET_WITHDRAWAL_FEE_RATE;
+      fee = numAmount * feeRate;
+    }
+
+    fee = parseFloat(fee.toFixed(2));
+    const netAmount = parseFloat((numAmount - fee).toFixed(2));
+    const feePercent = Math.round(feeRate * 100);
+
+    return { fee, netAmount, feeRate, feePercent };
   },
 
   compute(agreedRate, currency = "NGN") {

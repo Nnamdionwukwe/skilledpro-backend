@@ -5,6 +5,7 @@ import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import crypto from "crypto";
 import axios from "axios";
+import { FEE_CONFIG } from "../config/fees.js";
 
 const response = {
   success: (res, message, data = null, status = 200) => {
@@ -780,6 +781,8 @@ export const debugCreditDeposit = async (req, res) => {
 
 // ─── Request Withdrawal ─────────────────────────────────────────────────────
 
+// ─── Request Withdrawal ─────────────────────────────────────────────────────
+
 export const requestWithdrawal = async (req, res) => {
   try {
     const {
@@ -814,8 +817,10 @@ export const requestWithdrawal = async (req, res) => {
     }
 
     const reference = generateReference("WD");
-    const fee = Math.min(amount * 0.01, 100);
-    const netAmount = amount - fee;
+
+    // ✅ Currency-aware withdrawal fee — NGN 1% capped ₦100, foreign 2% uncapped
+    const { fee, netAmount, feeRate, feePercent } =
+      FEE_CONFIG.computeWalletWithdrawalFee(amount, currency);
 
     const withdrawal = await prisma.hirerWithdrawal.create({
       data: {
@@ -852,6 +857,8 @@ export const requestWithdrawal = async (req, res) => {
           bankName,
           accountNumber,
           accountName,
+          feeRate,
+          feePercent,
         },
       },
     });
@@ -874,6 +881,7 @@ export const requestWithdrawal = async (req, res) => {
         amount,
         fee,
         netAmount,
+        feePercent,
         status: "PENDING",
         bankName,
         accountNumber,
