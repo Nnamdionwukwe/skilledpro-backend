@@ -231,6 +231,35 @@ async function flwGetTransfer(transferId) {
 // § 3  PAYSTACK HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Create (or fetch) a Paystack Dedicated Virtual Account for a customer
+async function psCreateDedicatedAccount({
+  customerCode,
+  firstName,
+  lastName,
+  phone,
+  email,
+}) {
+  // First, try to create the DVA
+  const createRes = await ps("POST", "/dedicated_account", {
+    customer: customerCode,
+    preferred_bank: "wema-bank", // or "paystack-titan"
+  });
+
+  // If the customer already has a DVA, Paystack returns an error;
+  // in that case, fetch the existing one from the customer record.
+  if (createRes.status === true && createRes.data?.account_number) {
+    return createRes.data;
+  }
+
+  // Fallback: fetch customer and extract dedicated_account
+  const customerRes = await ps("GET", `/customer/${customerCode}`);
+  if (customerRes.status === true && customerRes.data?.dedicated_account) {
+    return customerRes.data.dedicated_account;
+  }
+
+  throw new Error(createRes.message ?? "Failed to create dedicated account");
+}
+
 async function ps(method, path, body = null) {
   const res = await fetch(`${PS_BASE}${path}`, {
     method,
@@ -2056,7 +2085,14 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
   const { referralAmount = 0 } = req.body;
 
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      hirer: {
+        select: { email: true, firstName: true, lastName: true, phone: true },
+      },
+    },
+  });
   if (!booking)
     return res
       .status(404)
@@ -2068,7 +2104,7 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
-  // ✅ NEW: Restrict manual bank transfer to NGN only
+  // ✅ Restrict manual bank transfer to NGN only
   const currency = (booking.currency ?? "NGN").toUpperCase();
   if (currency !== "NGN") {
     return res.status(400).json({
@@ -2096,6 +2132,57 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
 
   const reference = uniqueRef("BT");
 
+  // ✅ Get or create a Paystack Dedicated Virtual Account for this hirer
+  let bankDetails;
+  try {
+    // Ensure the hirer exists as a Paystack customer first
+    const customerRes = await ps("POST", "/customer", {
+      email: booking.hirer.email,
+      first_name: booking.hirer.firstName,
+      last_name: booking.hirer.lastName,
+      phone: booking.hirer.phone ?? undefined,
+    });
+
+    const customerCode =
+      customerRes.status === true ? customerRes.data.customer_code : null;
+
+    if (!customerCode) {
+      throw new Error(
+        customerRes.message ?? "Failed to create Paystack customer",
+      );
+    }
+
+    const dva = await psCreateDedicatedAccount({
+      customerCode,
+      firstName: booking.hirer.firstName,
+      lastName: booking.hirer.lastName,
+      phone: booking.hirer.phone,
+      email: booking.hirer.email,
+    });
+
+    bankDetails = {
+      bankName: dva.bank?.name ?? "Wema Bank",
+      accountNumber: dva.account_number,
+      accountName: dva.account_name,
+      amount: totalCharged,
+      currency: "NGN",
+      narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
+      provider: "paystack_dva",
+    };
+  } catch (err) {
+    console.error("Failed to create Paystack DVA:", err.message);
+    // Fallback to platform static account if DVA creation fails
+    bankDetails = {
+      bankName: process.env.PLATFORM_BANK_NAME ?? "First Bank",
+      accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER ?? "0123456789",
+      accountName: process.env.PLATFORM_ACCOUNT_NAME ?? "SkilledProz Ltd",
+      amount: totalCharged,
+      currency: "NGN",
+      narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
+      provider: "platform_static",
+    };
+  }
+
   return res.status(200).json({
     success: true,
     message: "Send the exact amount below, then click 'I have transferred'.",
@@ -2107,14 +2194,7 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       totalToSend: totalCharged,
       totalGross: total,
       isJobPostBooking,
-      bankDetails: {
-        bankName: process.env.PLATFORM_BANK_NAME ?? "First Bank",
-        accountNumber: process.env.PLATFORM_ACCOUNT_NUMBER ?? "0123456789",
-        accountName: process.env.PLATFORM_ACCOUNT_NAME ?? "SkilledProz Ltd",
-        amount: totalCharged,
-        currency: booking.currency,
-        narration: `SkilledProz booking ${bookingId} — Ref: ${reference}`,
-      },
+      bankDetails,
     },
   });
 });
