@@ -132,6 +132,7 @@ export const getMySubscription = async (req, res) => {
 
 // ── POST /api/subscriptions/checkout ─────────────────────────────────────────
 // Returns a Paystack authorization URL — open in WebBrowser on mobile
+// ── POST /api/subscriptions/checkout ─────────────────────────────────────────
 export const createCheckout = async (req, res) => {
   try {
     const { planId, promoCode } = req.body;
@@ -183,8 +184,7 @@ export const createCheckout = async (req, res) => {
       amount: finalPrice * 100, // kobo — uses discounted price
       plan: planCode,
       currency: "NGN",
-      // ✅ FORCE CARD ONLY: This hides bank transfer, USSD, etc. from the checkout
-      channels: ["card"],
+      // ❌ REMOVED: channels: ["card"] — Paystack subscriptions are card-only by default
       metadata: {
         userId: req.user.id,
         planId,
