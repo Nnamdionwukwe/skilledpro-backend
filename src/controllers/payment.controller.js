@@ -2068,6 +2068,15 @@ export const initiateBankTransfer = asyncHandler(async (req, res) => {
       .status(400)
       .json({ success: false, message: "Booking must be ACCEPTED" });
 
+  // ✅ NEW: Restrict manual bank transfer to NGN only
+  const currency = (booking.currency ?? "NGN").toUpperCase();
+  if (currency !== "NGN") {
+    return res.status(400).json({
+      success: false,
+      message: `Manual bank transfer is only available for NGN. Please use the online payment link for ${currency}.`,
+    });
+  }
+
   const latestPayment = await prisma.payment.findFirst({
     where: { bookingId },
     orderBy: { createdAt: "desc" },
