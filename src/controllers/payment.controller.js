@@ -326,10 +326,9 @@ async function psInitiateTransfer({
 }
 
 async function psGetBanks() {
-  return ps(
-    "GET",
-    "/bank?currency=NGN&pay_with_bank_transfer=true&perPage=200",
-  );
+  // Simplified parameters. Removed 'pay_with_bank_transfer' as it can cause
+  // Paystack to return an empty list if the dashboard settings aren't perfectly aligned.
+  return ps("GET", "/bank?currency=NGN&perPage=200");
 }
 
 async function psVerifyAccount(accountNumber, bankCode) {
