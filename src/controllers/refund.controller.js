@@ -66,15 +66,27 @@ export const requestRefund = async (req, res) => {
     }
 
     // Calculate amounts
-    let refundAmount = amount || 0;
+    // ─────────────────────────────────────────────────────────────────
+    // Platform fee is NON-REFUNDABLE on hirer-initiated refunds
+    // (per ToS §7). Disputes resolved in the hirer's favour opt in to
+    // refunding the fee (see createRefundFromDispute).
+    //
+    // Also: any amount already released to the worker is off-limits.
+    // calculateRefundAmounts caps the refund at the remaining escrow.
+    // ─────────────────────────────────────────────────────────────────
+    let refundAmount = 0;
     let calculatedAmounts = {};
 
     if (refundType === "FULL") {
-      calculatedAmounts = calculateRefundAmounts(payment, "FULL");
+      calculatedAmounts = calculateRefundAmounts(payment, "FULL", null, {
+        refundPlatformFee: false,
+      });
       refundAmount = calculatedAmounts.refundAmount;
     } else if (refundType === "PARTIAL") {
       const pct = percentage || 50;
-      calculatedAmounts = calculateRefundAmounts(payment, "PARTIAL", pct);
+      calculatedAmounts = calculateRefundAmounts(payment, "PARTIAL", pct, {
+        refundPlatformFee: false,
+      });
       refundAmount = calculatedAmounts.refundAmount;
     } else if (refundType === "CUSTOM_AMOUNT") {
       if (!amount || amount <= 0) {
@@ -85,8 +97,17 @@ export const requestRefund = async (req, res) => {
         );
       }
       const customPct = (amount / payment.amount) * 100;
-      calculatedAmounts = calculateRefundAmounts(payment, "PARTIAL", customPct);
-      refundAmount = amount;
+      calculatedAmounts = calculateRefundAmounts(
+        payment,
+        "PARTIAL",
+        customPct,
+        { refundPlatformFee: false },
+      );
+      // Use the caller's exact amount, but cap at the computed refundable
+      // ceiling so a hirer can't request more than the escrow holds.
+      refundAmount = parseFloat(
+        Math.min(amount, calculatedAmounts.refundAmount).toFixed(2),
+      );
     }
 
     // Create refund record
@@ -109,6 +130,9 @@ export const requestRefund = async (req, res) => {
           originalAmount: payment.amount,
           platformFee: payment.platformFee,
           workerPayout: payment.workerPayout,
+          refundableWorkerPayout: calculatedAmounts.refundableWorkerPayout,
+          releasedAmount: calculatedAmounts.releasedAmount,
+          refundedPlatformFee: false,
           requestedAt: new Date().toISOString(),
         },
       },
@@ -147,7 +171,7 @@ export const requestRefund = async (req, res) => {
     return sendResponse(res, {
       status: 201,
       message: autoResult.approved
-        ? "Refund auto-approved and processed"
+        ? "Refund auto-approved and processing"
         : "Refund requested — awaiting admin review",
       data: {
         refund: {

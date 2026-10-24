@@ -6,12 +6,114 @@ import { FEE_CONFIG } from "../config/fees.js";
 
 // ── Constants ──────────────────────────────────────────────────────────
 const REFUND_TIME_LIMIT_HOURS = 48;
-// Sourced from the central fee config so a change in one place updates
-// refunds, invoices, payments, and pricing simultaneously.
 const PLATFORM_FEE_PERCENT = FEE_CONFIG.HIRER_FEE_RATE;
-const AUTO_APPROVE_THRESHOLD_HOURS = 48; // auto-approve after this many hours
-const AUTO_APPROVE_MAX_AMOUNT = 50000; // only auto-approve refunds below this amount (NGN)
+const AUTO_APPROVE_THRESHOLD_HOURS = 48;
+const AUTO_APPROVE_MAX_AMOUNT = 50000;
 const AUTO_APPROVE_SETTING_KEY = "refund_auto_approve";
+
+const PS_SECRET = process.env.PAYSTACK_SECRET_KEY;
+const PS_BASE = "https://api.paystack.co";
+const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY;
+const FLW_BASE = "https://api.flutterwave.com/v3";
+
+// ── Provider refund helper ─────────────────────────────────────────────
+// Issues a refund through the original payment provider. Throws on failure
+// so processRefund can roll back before touching the wallet or worker side.
+//
+// Paystack: accepts `reference` (your PAY-xxx) in place of `transaction`.
+//           Amount in kobo.
+// Flutterwave: requires the numeric transaction ID (payment.providerTxId),
+//              which is persisted during verifyFlutterwave / webhook.
+//              Amount in major units (not kobo).
+async function issueProviderRefund(payment, refundAmount, refundReference) {
+  if (!refundAmount || refundAmount <= 0) {
+    return { skipped: true, reason: "zero_amount" };
+  }
+
+  const provider = (payment.provider || "").toLowerCase();
+  const PS_SECRET = process.env.PAYSTACK_SECRET_KEY;
+  const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY;
+
+  // ── Paystack ────────────────────────────────────────────────────────
+  if (provider === "paystack") {
+    if (!PS_SECRET) {
+      throw new Error("PAYSTACK_SECRET_KEY not configured");
+    }
+
+    const body = {
+      reference: payment.providerRef, // PAY-xxx
+      amount: Math.round(Number(refundAmount) * 100), // kobo
+    };
+    if (refundReference) body.merchant_note = refundReference;
+
+    const res = await fetch("https://api.paystack.co/refund", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PS_SECRET}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (data.status !== true) {
+      throw new Error(`Paystack refund failed: ${data.message || "unknown"}`);
+    }
+
+    return {
+      provider: "paystack",
+      providerRefundId: data.data?.id ? String(data.data.id) : null,
+      status: data.data?.status || "processing",
+    };
+  }
+
+  // ── Flutterwave ─────────────────────────────────────────────────────
+  if (provider === "flutterwave") {
+    if (!FLW_SECRET) {
+      throw new Error("FLUTTERWAVE_SECRET_KEY not configured");
+    }
+
+    const txId = payment.providerTxId;
+    if (!txId) {
+      throw new Error(
+        `Flutterwave refund requires providerTxId on payment ${payment.id} — ` +
+          `not stored. This payment was likely captured before the schema change. ` +
+          `Issue the refund manually in the Flutterwave dashboard.`,
+      );
+    }
+
+    const res = await fetch(
+      `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(txId)}/refund`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${FLW_SECRET}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: Number(refundAmount),
+          comments: refundReference || "SkilledProz refund",
+        }),
+      },
+    );
+    const data = await res.json();
+
+    if (data.status !== "success") {
+      throw new Error(
+        `Flutterwave refund failed: ${data.message || "unknown"}`,
+      );
+    }
+
+    return {
+      provider: "flutterwave",
+      providerRefundId: data.data?.id ? String(data.data.id) : null,
+      status: data.data?.status || "processing",
+    };
+  }
+
+  // ── Manual methods (wallet, bank_transfer, crypto) ──────────────────
+  return { skipped: true, reason: `manual_provider_${provider || "unknown"}` };
+}
 
 // ── Check if refund is within time limit ────────────────────────────
 export const isRefundEligible = (booking) => {
@@ -23,17 +125,20 @@ export const isRefundEligible = (booking) => {
 };
 
 // ── Calculate refund amounts ────────────────────────────────────────
-// Honours the partial-release rule: whatever has already been released
-// to the worker (payment.releasedAmount) is NON-REFUNDABLE. Refund math
-// operates only on the remaining escrow balance.
 //
-// Before partial releases existed, `releasedAmount` was implicitly 0 for
-// every HELD payment. This function preserves that behaviour because the
-// default is 0.
+// Escrow-aware: whatever has already been released to the worker is
+// NON-REFUNDABLE.
+//
+// Fee-aware: the platform service fee is ALSO non-refundable by default
+// (per ToS §7). It was already incurred with Paystack/Flutterwave for
+// the original transaction. Pass `{ refundPlatformFee: true }` from
+// dispute resolution to opt in — that path represents a refund caused
+// by worker fault, where the hirer should not bear the fee.
 export const calculateRefundAmounts = (
   payment,
   refundType,
   percentage = null,
+  { refundPlatformFee = false } = {},
 ) => {
   const currency = payment.currency || "NGN";
   const originalAmount = Number(payment.amount) || 0;
@@ -44,29 +149,20 @@ export const calculateRefundAmounts = (
     Number(payment.workerPayout) ||
     parseFloat((originalAmount - platformFee).toFixed(2));
 
-  // ── NEW: escrow-aware worker payout ────────────────────────────────
-  // Whatever is already released is off-limits for refunds.
+  // ── Escrow-aware: released amount is off-limits ─────────────────────
   const releasedAmount = Number(payment.releasedAmount) || 0;
   const refundableWorkerPayout = parseFloat(
     Math.max(0, fullWorkerPayout - releasedAmount).toFixed(2),
   );
 
-  // The refundable portion of the hirer's total is what remains in
-  // escrow for the worker, PLUS the platform fee (which was never
-  // released). But if the worker never got anything yet, the fee is
-  // fully refundable too.
-  //
-  // We cap at two invariants:
-  //   • hirer's total refundable ≤ amount - releasedAmount
-  //   • worker deduction        ≤ refundableWorkerPayout
+  // ── Platform fee is NON-REFUNDABLE by default (ToS §7) ──────────────
+  // Only dispute resolution paths opt in via `refundPlatformFee: true`.
+  const maxPlatformFeeRefundable = refundPlatformFee
+    ? parseFloat(Math.max(0, platformFee).toFixed(2))
+    : 0;
+
   const maxRefundableTotal = parseFloat(
-    Math.max(0, originalAmount - releasedAmount).toFixed(2),
-  );
-  const maxPlatformFeeRefundable = parseFloat(
-    Math.max(
-      0,
-      platformFee - Math.max(0, releasedAmount - fullWorkerPayout),
-    ).toFixed(2),
+    (refundableWorkerPayout + maxPlatformFeeRefundable).toFixed(2),
   );
 
   let refundAmount = 0;
@@ -89,11 +185,9 @@ export const calculateRefundAmounts = (
       const pct = percentage || 50;
       finalPercentage = pct;
 
-      // Apply the percentage to each component, then clamp to the
-      // escrow-aware ceilings.
-      const rawTotal = (originalAmount * pct) / 100;
-      const rawFee = (platformFee * pct) / 100;
-      const rawWorker = (fullWorkerPayout * pct) / 100;
+      const rawTotal = (maxRefundableTotal * pct) / 100;
+      const rawFee = (maxPlatformFeeRefundable * pct) / 100;
+      const rawWorker = (refundableWorkerPayout * pct) / 100;
 
       refundAmount = parseFloat(
         Math.min(rawTotal, maxRefundableTotal).toFixed(2),
@@ -108,13 +202,11 @@ export const calculateRefundAmounts = (
     }
 
     case "CUSTOM_AMOUNT":
-      // Legacy path — caller fills refundAmount manually elsewhere.
       finalPercentage =
         originalAmount > 0 ? (refundAmount / originalAmount) * 100 : 0;
       break;
 
     case "DISPUTE":
-      // Admin decides the amount — no automatic math here.
       break;
   }
 
@@ -126,18 +218,14 @@ export const calculateRefundAmounts = (
     currency,
     originalAmount,
     platformFee,
-    workerPayout: fullWorkerPayout, // unchanged shape for callers
-    refundableWorkerPayout, // NEW
-    releasedAmount, // NEW
-    maxRefundableTotal, // NEW — useful for admin UI
+    workerPayout: fullWorkerPayout,
+    refundableWorkerPayout,
+    releasedAmount,
+    maxRefundableTotal,
   };
 };
 
 // ── Guard: refunds cannot exceed the remaining escrow ──────────────
-// Throws if `requestedAmount` (the hirer-side refund total) is greater
-// than what is still held. This is the single choke point that makes
-// the "released portion is non-refundable" rule enforceable from every
-// code path.
 function assertRefundableWithinEscrow(payment, requestedAmount, context) {
   const originalAmount = Number(payment.amount) || 0;
   const releasedAmount = Number(payment.releasedAmount) || 0;
@@ -184,17 +272,10 @@ export const getAutoApproveSettings = async () => {
 // ── Decide whether a refund qualifies for auto-approval ────────────
 const qualifiesForAutoApprove = (refund, settings) => {
   if (!settings.enabled) return false;
-
-  // Refund must be PENDING
   if (refund.status !== "PENDING") return false;
-
-  // Refund type must be FULL or PARTIAL (never CUSTOM_AMOUNT or DISPUTE)
   if (!["FULL", "PARTIAL"].includes(refund.refundType)) return false;
-
-  // Amount must be under the max
   if (refund.amount > settings.maxAmount) return false;
 
-  // Booking must be COMPLETED and within the time window
   const completedAt =
     refund.booking?.completedAt ||
     refund.booking?.updatedAt ||
@@ -212,16 +293,13 @@ export const autoApproveRefund = async (refundId) => {
       where: { id: refundId },
       include: { booking: true },
     });
-
     if (!refund) return { approved: false, reason: "Refund not found" };
 
     const settings = await getAutoApproveSettings();
-
     if (!qualifiesForAutoApprove(refund, settings)) {
       return { approved: false, reason: "Does not qualify for auto-approval" };
     }
 
-    // Approve + process
     await prisma.refund.update({
       where: { id: refundId },
       data: {
@@ -230,14 +308,12 @@ export const autoApproveRefund = async (refundId) => {
       },
     });
 
-    // Process it fully (moves wallet funds)
     await processRefund(refundId);
 
-    // Log for audit
     await createNotification({
       userId: refund.hirerId,
       title: "Refund Auto-Approved",
-      body: `Your refund of ${refund.currency} ${refund.amount.toLocaleString()} for booking "${refund.booking?.title}" has been auto-approved and processed.`,
+      body: `Your refund of ${refund.currency} ${refund.amount.toLocaleString()} for booking "${refund.booking?.title}" has been auto-approved and is being processed.`,
       type: "REFUND_APPROVED",
       data: { bookingId: refund.bookingId, refundId: refund.id },
       icon: "FaCheckCircle",
@@ -251,6 +327,18 @@ export const autoApproveRefund = async (refundId) => {
 };
 
 // ── Process refund ──────────────────────────────────────────────────
+//
+// This is the critical piece. Order of operations:
+//   1. Mark refund PROCESSING
+//   2. Call the provider refund API (Paystack/Flutterwave) — the money
+//      actually leaves your provider balance here. If this throws, we
+//      abort and mark FAILED so nothing else is mutated.
+//   3. On success, credit the hirer's wallet (for their records and for
+//      any subsequent withdrawal). This is the audit trail; the cash
+//      movement already happened in step 2.
+//   4. Handle the worker side (debit earnings or create debt)
+//   5. Flip payment → REFUNDED, refund → COMPLETED
+//   6. Notify both parties
 export const processRefund = async (refundId) => {
   const refund = await prisma.refund.findUnique({
     where: { id: refundId },
@@ -266,21 +354,30 @@ export const processRefund = async (refundId) => {
   if (refund.status !== "APPROVED") throw new Error("Refund not approved");
 
   try {
-    // 1. Update refund status to PROCESSING
+    // 1. Mark PROCESSING (prevents concurrent processing)
     await prisma.refund.update({
       where: { id: refundId },
       data: { status: "PROCESSING" },
     });
 
-    // 2. Credit Hirer's wallet (auto-create if missing)
-    // NOTE: HirerWallet has a compound unique on (hirerId, currency), so
-    // findUnique requires the compound key. Use findFirst to filter by hirerId.
+    // 2. Call the provider refund FIRST. Irreversible step — if this
+    //    throws, we abort without touching wallet or worker state.
+    const providerResult = await issueProviderRefund(
+      refund.payment,
+      refund.amount,
+      refund.reference,
+    );
+
+    // 3. Credit the hirer's wallet (audit trail + on-platform balance
+    //    that the hirer can withdraw from).
     let hirerWallet = await prisma.hirerWallet.findFirst({
-      where: { hirerId: refund.hirerId },
+      where: {
+        hirerId: refund.hirerId,
+        currency: refund.currency || "NGN",
+      },
     });
 
     if (!hirerWallet) {
-      // Auto-create wallet so the credit lands — silent skip would lose money
       hirerWallet = await prisma.hirerWallet.create({
         data: {
           hirerId: refund.hirerId,
@@ -290,42 +387,40 @@ export const processRefund = async (refundId) => {
       });
     }
 
-    if (hirerWallet) {
-      await prisma.hirerWallet.update({
-        where: { id: hirerWallet.id },
-        data: {
-          balance: { increment: refund.amount },
-          totalRefunded: { increment: refund.amount },
-        },
-      });
+    await prisma.hirerWallet.update({
+      where: { id: hirerWallet.id },
+      data: {
+        balance: { increment: refund.amount },
+        totalRefunded: { increment: refund.amount },
+      },
+    });
 
-      // 3. Create wallet transaction for Hirer
-      await prisma.hirerTransaction.create({
-        data: {
-          walletId: hirerWallet.id,
-          hirerId: refund.hirerId,
-          type: "REFUND",
-          amount: refund.amount,
-          currency: refund.currency,
-          fee: 0,
-          netAmount: refund.amount,
-          reference: refund.reference,
-          status: "COMPLETED",
-          description: `Refund for booking ${refund.booking.title}`,
-          meta: {
-            bookingId: refund.bookingId,
-            paymentId: refund.paymentId,
-            refundType: refund.refundType,
-            refundId: refund.id,
-          },
+    await prisma.hirerTransaction.create({
+      data: {
+        walletId: hirerWallet.id,
+        hirerId: refund.hirerId,
+        type: "REFUND",
+        amount: refund.amount,
+        currency: refund.currency,
+        fee: 0,
+        netAmount: refund.amount,
+        reference: refund.reference,
+        status: "COMPLETED",
+        description: `Refund for booking ${refund.booking.title}`,
+        meta: {
+          bookingId: refund.bookingId,
+          paymentId: refund.paymentId,
+          refundType: refund.refundType,
+          refundId: refund.id,
+          providerRefundId: providerResult.providerRefundId || null,
+          provider: providerResult.provider || null,
+          providerSkipped: !!providerResult.skipped,
+          providerSkipReason: providerResult.reason || null,
         },
-      });
-    }
+      },
+    });
 
     // 4. Handle the worker's side (debt-aware)
-    // Two paths depending on whether the worker has already withdrawn:
-    //  a) Worker hasn't withdrawn since release → debit earnings (they still hold funds)
-    //  b) Worker has withdrawn since release  → create a debt (recovery via future earnings)
     if (refund.workerId) {
       const workerProfile = await prisma.workerProfile.findUnique({
         where: { userId: refund.workerId },
@@ -337,7 +432,6 @@ export const processRefund = async (refundId) => {
           `processRefund: no WorkerProfile for user ${refund.workerId} — skipping worker debit`,
         );
       } else {
-        // Was the payment already released AND has the worker withdrawn since?
         const paymentReleasedAt = refund.payment?.escrowReleasedAt;
         let hasWithdrawnSinceRelease = false;
 
@@ -356,7 +450,7 @@ export const processRefund = async (refundId) => {
         const amountToClawBack = refund.workerAmountDeducted || 0;
 
         if (hasWithdrawnSinceRelease) {
-          // ── CASE D: Worker already withdrew — create a debt record ──────
+          // ── CASE D: Worker already withdrew — create a debt ─────────
           await prisma.workerDebt.create({
             data: {
               workerId: refund.workerId,
@@ -376,7 +470,6 @@ export const processRefund = async (refundId) => {
             },
           });
 
-          // Update the worker's aggregate debt balance
           await prisma.workerProfile.update({
             where: { id: workerProfile.id },
             data: {
@@ -387,7 +480,6 @@ export const processRefund = async (refundId) => {
             },
           });
 
-          // Notify the worker about the debt
           await createNotification({
             userId: refund.workerId,
             title: "Dispute resolved — debt created",
@@ -400,12 +492,8 @@ export const processRefund = async (refundId) => {
             },
             icon: "FaExclamationTriangle",
           }).catch(() => {});
-
-          console.log(
-            `[processRefund] Created WorkerDebt of ${amountToClawBack} ${refund.currency} for worker ${refund.workerId}`,
-          );
         } else {
-          // ── CASE A/B/C: Worker still holds the funds — debit earnings ──
+          // ── CASE A/B/C: Worker still holds the funds — debit earnings ─
           await prisma.workerProfile.update({
             where: { id: workerProfile.id },
             data: {
@@ -416,7 +504,7 @@ export const processRefund = async (refundId) => {
       }
     }
 
-    // 5. Update payment status to REFUNDED
+    // 5. Payment → REFUNDED
     await prisma.payment.update({
       where: { id: refund.paymentId },
       data: {
@@ -425,16 +513,27 @@ export const processRefund = async (refundId) => {
       },
     });
 
-    // 6. Update refund status to COMPLETED
+    // 6. Refund → COMPLETED
     await prisma.refund.update({
       where: { id: refundId },
       data: {
         status: "COMPLETED",
         processedAt: new Date(),
+        meta: {
+          ...(refund.meta || {}),
+          providerRefund: {
+            provider: providerResult.provider || null,
+            providerRefundId: providerResult.providerRefundId || null,
+            providerStatus: providerResult.status || null,
+            skipped: !!providerResult.skipped,
+            reason: providerResult.reason || null,
+            processedAt: new Date().toISOString(),
+          },
+        },
       },
     });
 
-    // 7. Update booking counters
+    // 7. Booking counters
     await prisma.booking
       .update({
         where: { id: refund.bookingId },
@@ -443,21 +542,24 @@ export const processRefund = async (refundId) => {
           totalRefunded: { increment: refund.amount },
         },
       })
-      .catch(() => {
-        // Booking might not have these fields — safe to skip
-      });
+      .catch(() => {});
 
-    // 8. Send notifications
+    // 8. Notifications
+    const feeNote =
+      refund.platformFeeRefunded > 0
+        ? ` (includes platform fee refund of ${refund.currency} ${refund.platformFeeRefunded.toLocaleString()})`
+        : ` (platform fee of ${refund.currency} ${Number(refund.payment.platformFee || 0).toLocaleString()} is non-refundable per our terms)`;
+
     await createNotification({
       userId: refund.hirerId,
       title: "Refund Processed",
-      body: `${refund.currency} ${refund.amount.toLocaleString()} has been refunded to your wallet for booking "${refund.booking.title}".`,
+      body: `${refund.currency} ${refund.amount.toLocaleString()} has been refunded to your wallet${feeNote}.`,
       type: "REFUND_COMPLETED",
       data: { bookingId: refund.bookingId, refundId: refund.id },
       icon: "FaMoneyBillWave",
     });
 
-    if (refund.workerId) {
+    if (refund.workerId && refund.workerAmountDeducted > 0) {
       await createNotification({
         userId: refund.workerId,
         title: "Refund Processed",
@@ -468,9 +570,8 @@ export const processRefund = async (refundId) => {
       });
     }
 
-    return { success: true, refund };
+    return { success: true, refund, providerResult };
   } catch (error) {
-    // Mark refund as FAILED
     await prisma.refund
       .update({
         where: { id: refundId },
@@ -485,6 +586,11 @@ export const processRefund = async (refundId) => {
 };
 
 // ── Reverse refund (restore funds to worker) ──────────────────────────
+//
+// Reversal is only supported for the wallet-credit side of the refund.
+// If the provider refund (Paystack/Flutterwave) already went out, that
+// money is gone — you'd need to re-charge the hirer to recover it, which
+// is out of scope. We log a warning in that case so the admin knows.
 export const reverseRefund = async (refundId, adminId) => {
   const refund = await prisma.refund.findUnique({
     where: { id: refundId },
@@ -500,12 +606,24 @@ export const reverseRefund = async (refundId, adminId) => {
   if (refund.status !== "COMPLETED")
     throw new Error("Only completed refunds can be reversed");
 
+  const providerRefundMeta = refund.meta?.providerRefund;
+  const providerRefundWasIssued =
+    providerRefundMeta && !providerRefundMeta.skipped;
+
+  if (providerRefundWasIssued) {
+    console.warn(
+      `[reverseRefund] Refund ${refund.id} had a provider refund issued (${providerRefundMeta.provider}/${providerRefundMeta.providerRefundId}). ` +
+        `Reversal will only undo the internal wallet bookkeeping — the provider refund itself cannot be recalled automatically.`,
+    );
+  }
+
   try {
-    // 1. Debit Hirer's wallet (reverse the credit)
-    // NOTE: HirerWallet has a compound unique on (hirerId, currency), so
-    // findUnique requires the compound key. Use findFirst to filter by hirerId.
+    // 1. Debit Hirer's wallet
     const hirerWallet = await prisma.hirerWallet.findFirst({
-      where: { hirerId: refund.hirerId },
+      where: {
+        hirerId: refund.hirerId,
+        currency: refund.currency || "NGN",
+      },
     });
 
     if (hirerWallet) {
@@ -517,7 +635,6 @@ export const reverseRefund = async (refundId, adminId) => {
         },
       });
 
-      // 2. Create reverse transaction for Hirer
       await prisma.hirerTransaction.create({
         data: {
           walletId: hirerWallet.id,
@@ -534,29 +651,24 @@ export const reverseRefund = async (refundId, adminId) => {
             bookingId: refund.bookingId,
             refundId: refund.id,
             reversedBy: adminId,
+            providerRefundNotRecalled: providerRefundWasIssued,
           },
         },
       });
     }
 
-    // 3. Credit Worker's earnings back
-    // If a WorkerDebt was created for this refund, mark it as CLEARED here
-    // so the debt is cancelled out alongside the refund reversal.
+    // 2. Credit Worker's earnings back
     if (refund.workerId) {
       const debtsFromThisRefund = await prisma.workerDebt.findMany({
         where: { refundId: refund.id, status: "OUTSTANDING" },
       });
 
       for (const debt of debtsFromThisRefund) {
-        // Reduce the worker's aggregate debt balance by the debt amount
         await prisma.workerProfile.update({
           where: { userId: refund.workerId },
-          data: {
-            debtBalance: { decrement: debt.amount },
-          },
+          data: { debtBalance: { decrement: debt.amount } },
         });
 
-        // Mark the debt as CLEARED (was already "recovered" via the reversal)
         await prisma.workerDebt.update({
           where: { id: debt.id },
           data: {
@@ -572,7 +684,6 @@ export const reverseRefund = async (refundId, adminId) => {
         });
       }
 
-      // Also restore totalEarnings for the case where the worker hadn't withdrawn
       await prisma.workerProfile
         .update({
           where: { userId: refund.workerId },
@@ -583,7 +694,7 @@ export const reverseRefund = async (refundId, adminId) => {
         .catch(() => {});
     }
 
-    // 4. Update payment status back to RELEASED
+    // 3. Payment → RELEASED
     await prisma.payment.update({
       where: { id: refund.paymentId },
       data: {
@@ -592,7 +703,7 @@ export const reverseRefund = async (refundId, adminId) => {
       },
     });
 
-    // 5. Update refund status to REVERSED
+    // 4. Refund → REVERSED
     await prisma.refund.update({
       where: { id: refundId },
       data: {
@@ -602,7 +713,7 @@ export const reverseRefund = async (refundId, adminId) => {
       },
     });
 
-    // 6. Notifications
+    // 5. Notifications
     await createNotification({
       userId: refund.hirerId,
       title: "Refund Reversed",
@@ -630,22 +741,21 @@ export const reverseRefund = async (refundId, adminId) => {
 };
 
 // ── Create a Refund from a resolved Dispute ───────────────────────────
-// Called by dispute.controller.resolveDispute when admin resolves as REFUND.
-// Creates the Refund record with status APPROVED (admin already decided)
-// and returns it. The caller is responsible for calling processRefund().
 //
-// Params:
-//   dispute   — the Dispute Prisma row (with booking populated)
-//   payment   — the Payment Prisma row for this booking
-//   adminId   — the admin user ID who resolved the dispute
-//   options   — { percentage?: number (1–100, default 100), adminNotes?: string }
+// Disputes resolved in the hirer's favour refund the platform fee too,
+// because the worker failed — the hirer shouldn't pay for the platform's
+// selection or the worker's failure.
 export const createRefundFromDispute = async (
   dispute,
   payment,
   adminId,
   options = {},
 ) => {
-  const { percentage = 100, adminNotes = "" } = options;
+  const {
+    percentage = 100,
+    adminNotes = "",
+    refundPlatformFee = true, // disputes refund the fee by default
+  } = options;
 
   if (!dispute || !payment) {
     throw new Error(
@@ -661,9 +771,9 @@ export const createRefundFromDispute = async (
     payment,
     percentage === 100 ? "FULL" : "PARTIAL",
     percentage === 100 ? null : percentage,
+    { refundPlatformFee },
   );
 
-  // ── Enforce the non-refundable-released rule ──────────────────────
   assertRefundableWithinEscrow(
     payment,
     calculated.refundAmount,
@@ -700,6 +810,7 @@ export const createRefundFromDispute = async (
         workerPayout: calculated.workerPayout,
         refundableWorkerPayout: calculated.refundableWorkerPayout,
         releasedAmount: calculated.releasedAmount,
+        refundedPlatformFee: refundPlatformFee,
       },
     },
   });
@@ -707,17 +818,22 @@ export const createRefundFromDispute = async (
   return refund;
 };
 
-// ── Create a Refund from an admin-initiated refund (legacy payment route) ───
-// Used by payment.controller.refundPayment when someone hits
-// POST /api/payments/refund/:bookingId. Creates the Refund row and returns it.
-// The caller is responsible for calling processRefund().
+// ── Create a Refund from an admin-initiated refund ──────────────────────
+//
+// Admin/hirer-initiated refunds (voluntary cancellation, legacy
+// /refund/:bookingId endpoint) retain the platform fee by default —
+// the fee was already incurred with the provider for the original charge.
 export const createRefundFromAdmin = async (
   booking,
   payment,
   adminOrHirerId,
   options = {},
 ) => {
-  const { percentage = 100, reason = "Admin-initiated refund" } = options;
+  const {
+    percentage = 100,
+    reason = "Admin-initiated refund",
+    refundPlatformFee = false, // voluntary refunds keep the fee
+  } = options;
 
   if (!booking || !payment) {
     throw new Error("createRefundFromAdmin: booking and payment are required");
@@ -727,9 +843,9 @@ export const createRefundFromAdmin = async (
     payment,
     percentage === 100 ? "FULL" : "PARTIAL",
     percentage === 100 ? null : percentage,
+    { refundPlatformFee },
   );
 
-  // ── Enforce the non-refundable-released rule ──────────────────────
   assertRefundableWithinEscrow(
     payment,
     calculated.refundAmount,
@@ -760,6 +876,7 @@ export const createRefundFromAdmin = async (
         workerPayout: calculated.workerPayout,
         refundableWorkerPayout: calculated.refundableWorkerPayout,
         releasedAmount: calculated.releasedAmount,
+        refundedPlatformFee: refundPlatformFee,
         initiatedBy: adminOrHirerId,
       },
     },

@@ -653,7 +653,13 @@ export const verifyFlutterwave = asyncHandler(async (req, res) => {
     await prisma.$transaction(async (tx) => {
       await tx.payment.update({
         where: { id: payment.id },
-        data: { status: "HELD" },
+        data: {
+          status: "HELD",
+          // ✅ Persist the numeric Flutterwave transaction ID so refunds
+          // can be issued via /transactions/:id/refund later. Flutterwave
+          // requires this ID, not our own tx_ref.
+          providerTxId: txData.id ? String(txData.id) : undefined,
+        },
       });
 
       await tx.booking.update({
@@ -717,7 +723,13 @@ export const flutterwaveWebhook = asyncHandler(async (req, res) => {
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
           where: { id: payment.id },
-          data: { status: "HELD" },
+          data: {
+            status: "HELD",
+            // ✅ Persist the numeric Flutterwave transaction ID so refunds
+            // can be issued via /transactions/:id/refund later. Flutterwave
+            // requires this ID, not our own tx_ref.
+            providerTxId: data.id ? String(data.id) : undefined,
+          },
         });
         await tx.booking.update({
           where: { id: payment.bookingId },
@@ -741,24 +753,26 @@ export const flutterwaveWebhook = asyncHandler(async (req, res) => {
       where: { reference: ref },
     });
     if (withdrawal) {
+      const succeeded = data.status === "SUCCESSFUL";
+
       await prisma.withdrawal.update({
         where: { id: withdrawal.id },
         data: {
-          status: data.status === "SUCCESSFUL" ? "COMPLETED" : "FAILED",
-          completedAt: data.status === "SUCCESSFUL" ? new Date() : undefined,
+          status: succeeded ? "COMPLETED" : "FAILED",
+          failureNote: succeeded
+            ? undefined
+            : data.complete_message || "Transfer failed at provider",
+          completedAt: new Date(),
         },
       });
+
       await prisma.notification.create({
         data: {
           userId: withdrawal.workerId,
-          title:
-            data.status === "SUCCESSFUL"
-              ? "Withdrawal Successful 💸"
-              : "Withdrawal Failed",
-          body:
-            data.status === "SUCCESSFUL"
-              ? `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been sent.`
-              : "Your withdrawal could not be processed. Contact support.",
+          title: succeeded ? "Withdrawal Successful 💸" : "Withdrawal Failed",
+          body: succeeded
+            ? `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been sent.`
+            : `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} could not be processed. ${data.complete_message || "Contact support."}`,
           type: "WITHDRAWAL_UPDATE",
           data: { withdrawalId: withdrawal.id, status: data.status },
         },
@@ -819,7 +833,8 @@ export const paystackWebhook = asyncHandler(async (req, res) => {
         where: { id: withdrawal.id },
         data: {
           status: succeeded ? "COMPLETED" : "FAILED",
-          completedAt: succeeded ? new Date() : undefined,
+          failureNote: succeeded ? undefined : data.reason || "Transfer failed",
+          completedAt: new Date(),
         },
       });
       await prisma.notification.create({
@@ -828,8 +843,37 @@ export const paystackWebhook = asyncHandler(async (req, res) => {
           title: succeeded ? "Withdrawal Successful 💸" : "Withdrawal Failed",
           body: succeeded
             ? `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} has been processed.`
-            : "Your withdrawal failed. Please contact support.",
+            : `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} failed. ${data.reason || "Please contact support."}`,
           type: "WITHDRAWAL_UPDATE",
+        },
+      });
+    }
+  }
+
+  // ✅ NEW: handle transfer.reversed — recipient bank rejected the money
+  if (event === "transfer.reversed") {
+    const ref = data.reference;
+    const withdrawal = await prisma.withdrawal.findFirst({
+      where: { reference: ref },
+    });
+    if (withdrawal) {
+      await prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: "FAILED",
+          failureNote:
+            data.reason ||
+            "Reversed by recipient bank — account may be closed or invalid",
+          completedAt: new Date(),
+        },
+      });
+      await prisma.notification.create({
+        data: {
+          userId: withdrawal.workerId,
+          title: "Withdrawal Reversed ⚠️",
+          body: `Your withdrawal of ${withdrawal.currency} ${withdrawal.amount} was reversed by the recipient's bank. Please verify your account details and try again, or contact support.`,
+          type: "WITHDRAWAL_UPDATE",
+          data: { withdrawalId: withdrawal.id, status: "REVERSED" },
         },
       });
     }
@@ -991,10 +1035,13 @@ export const refundPayment = asyncHandler(async (req, res) => {
   }
 
   // ── Create the formal Refund row ─────────────────────────────────────────
+  // Platform fee is non-refundable on hirer-initiated refunds per ToS §7.
+  // Dispute-resolution refunds (createRefundFromDispute) opt in separately.
   let refund;
   try {
     refund = await createRefundFromAdmin(booking, payment, req.user.id, {
       percentage: 100,
+      refundPlatformFee: false, // ← explicitly non-refundable
       reason:
         req.user.role === "ADMIN"
           ? "Admin-initiated refund"
@@ -1005,7 +1052,7 @@ export const refundPayment = asyncHandler(async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 
-  // ── Process the refund (moves money) ─────────────────────────────────────
+  // ── Process the refund (moves money via provider API) ────────────────────
   try {
     await processRefund(refund.id);
   } catch (err) {
@@ -1028,7 +1075,6 @@ export const refundPayment = asyncHandler(async (req, res) => {
     data: { refund: finalRefund },
   });
 });
-
 // ─────────────────────────────────────────────────────────────────────────────
 // § 11  WORKER — REQUEST WITHDRAWAL
 // POST /api/payments/withdraw
@@ -1074,6 +1120,8 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     where: { id: workerId },
     select: {
       id: true,
+      firstName: true,
+      lastName: true,
       withdrawalPin: true,
       withdrawalPinSet: true,
       withdrawalPinAttempts: true,
@@ -1090,10 +1138,9 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
   }
 
   if (!pin) {
-    return res.status(400).json({
-      success: false,
-      message: "Withdrawal PIN is required",
-    });
+    return res
+      .status(400)
+      .json({ success: false, message: "Withdrawal PIN is required" });
   }
 
   const pinCheck = await verifyWithdrawalPin(user, pin);
@@ -1122,11 +1169,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Balance check — partial-release aware, currency-scoped ──────────────
-  // Available (this currency) =
-  //   Σ releasedAmount on this worker's HELD + RELEASED payments in this
-  //   currency, minus pending withdrawals in this currency, minus the
-  //   worker's outstanding debt (if any).
+  // ── Balance check ────────────────────────────────────────────────────────
   const [releasedAgg, pendingAgg, workerProfile] = await Promise.all([
     prisma.payment.aggregate({
       where: {
@@ -1153,9 +1196,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
   const totalReleased = releasedAgg._sum.releasedAmount ?? 0;
   const pendingPayouts = pendingAgg._sum.amount ?? 0;
   const outstandingDebt = workerProfile?.debtBalance || 0;
-
-  // Debt is a platform-wide obligation, so we deduct it from whichever
-  // currency the worker is trying to withdraw from.
   const available = Math.max(
     0,
     totalReleased - pendingPayouts - outstandingDebt,
@@ -1230,8 +1270,9 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Create the withdrawal ───────────────────────────────────────────────
+  // ── Create withdrawal as PROCESSING (no debit yet) ──────────────────────
   const reference = uniqueRef("WD");
+  const provider = getWithdrawalProvider(country, method);
 
   const withdrawal = await prisma.withdrawal.create({
     data: {
@@ -1241,9 +1282,10 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
       method,
       destination,
       reference,
-      status: "PENDING",
+      status: "PROCESSING",
       details: {
         ...methodMeta,
+        provider,
         requestedAt: new Date().toISOString(),
         originalAmount: parseFloat(amount),
         debtDeducted: debtDeducted || 0,
@@ -1252,7 +1294,164 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     },
   });
 
-  // ── Apply debt deduction (FIFO across outstanding debts) ────────────────
+  // ── Call the provider API synchronously ─────────────────────────────────
+  const { netAmount: netPayout } =
+    FEE_CONFIG.computeWithdrawal(finalPayoutAmount);
+
+  let providerData = {};
+  let providerSucceeded = false;
+
+  try {
+    if (provider === "paystack" && method === "bank_transfer") {
+      const recipientRes = await psCreateRecipient({
+        name:
+          accountName ??
+          `${user.firstName} ${user.lastName}`.trim() ??
+          "Worker",
+        accountNumber,
+        bankCode,
+        currency: requestedCurrency,
+      });
+
+      if (recipientRes.status !== true) {
+        throw new Error(
+          recipientRes.message ?? "Failed to create Paystack recipient",
+        );
+      }
+
+      const transferRes = await psInitiateTransfer({
+        amount: netPayout,
+        recipientCode: recipientRes.data.recipient_code,
+        reason: "SkilledProz earnings payout",
+        reference,
+      });
+
+      if (transferRes.status !== true) {
+        throw new Error(transferRes.message ?? "Paystack transfer failed");
+      }
+
+      providerData = {
+        transferCode: transferRes.data.transfer_code,
+        transferStatus: transferRes.data.status,
+      };
+      providerSucceeded = true;
+    } else if (provider === "flutterwave" && method === "bank_transfer") {
+      const isInternational = ![
+        "NG",
+        "GH",
+        "KE",
+        "ZA",
+        "TZ",
+        "UG",
+        "RW",
+        "SN",
+        "CI",
+        "CM",
+      ].includes((country ?? "NG").toUpperCase());
+
+      const flwMeta = isInternational
+        ? [
+            {
+              AccountNumber: accountNumber,
+              RoutingNumber: methodMeta.routingNumber ?? "",
+              SWIFT: methodMeta.swiftCode ?? "",
+              BankName: bankName ?? "",
+              BankAddress: methodMeta.bankAddress ?? "",
+              BankCity: methodMeta.bankCity ?? "",
+              BankCountry: country ?? "",
+              BeneficiaryName: accountName ?? user.firstName,
+            },
+          ]
+        : undefined;
+
+      const transferRes = await flwTransfer({
+        accountBank: bankCode,
+        accountNumber,
+        amount: netPayout,
+        currency: requestedCurrency,
+        narration: "SkilledProz earnings payout",
+        reference,
+        meta: flwMeta,
+      });
+
+      if (transferRes.status !== "success") {
+        throw new Error(transferRes.message ?? "Flutterwave transfer failed");
+      }
+
+      providerData = {
+        transferId: transferRes.data.id,
+        transferStatus: transferRes.data.status,
+      };
+      providerSucceeded = true;
+    } else if (provider === "flutterwave" && method === "mobile_money") {
+      const transferRes = await flwMobileTransfer({
+        accountNumber: mobileNumber,
+        amount: netPayout,
+        currency: requestedCurrency,
+        narration: "SkilledProz earnings payout",
+        reference,
+      });
+
+      if (transferRes.status !== "success") {
+        throw new Error(transferRes.message ?? "Mobile money transfer failed");
+      }
+
+      providerData = {
+        transferId: transferRes.data.id,
+        transferStatus: transferRes.data.status,
+      };
+      providerSucceeded = true;
+    } else if (method === "crypto") {
+      // No provider call — admin dispatches off-chain.
+      providerData = {
+        note: "Crypto payout must be dispatched by admin",
+      };
+      providerSucceeded = true;
+    }
+  } catch (providerErr) {
+    console.error(
+      `[requestWithdrawal] Provider call failed for ${reference}:`,
+      providerErr.message,
+    );
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        status: "FAILED",
+        failureNote: providerErr.message,
+        details: {
+          ...withdrawal.details,
+          error: providerErr.message,
+          failedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return res.status(502).json({
+      success: false,
+      message: `Payout failed: ${providerErr.message}. Your balance has not been deducted.`,
+    });
+  }
+
+  if (!providerSucceeded) {
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        status: "FAILED",
+        failureNote: "Provider did not accept the transfer",
+      },
+    });
+    return res.status(502).json({
+      success: false,
+      message: "Payout could not be initiated. Contact support.",
+    });
+  }
+
+  // ── Provider succeeded — debit worker's aggregate debt + record details ─
+  // Note: there is no dedicated worker "wallet" table. The worker's balance
+  // is derived from Σ releasedAmount − pendingWithdrawals − debtBalance, so
+  // we only need to persist the provider data. The dashboard reads the
+  // PROCESSING withdrawal as a pending payout and subtracts it automatically.
   if (debtDeducted > 0 && workerProfile) {
     await prisma.workerProfile.update({
       where: { id: workerProfile.id },
@@ -1267,7 +1466,6 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
 
     for (const debt of outstandingDebts) {
       if (remaining <= 0) break;
-
       const owed = debt.amount - debt.amountPaid;
       const applied = Math.min(remaining, owed);
       const newPaid = debt.amountPaid + applied;
@@ -1286,13 +1484,8 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
           },
         },
       });
-
       remaining -= applied;
     }
-
-    console.log(
-      `[requestWithdrawal] Deducted ${debtDeducted} ${requestedCurrency} of debt from worker ${workerId} via withdrawal ${reference}`,
-    );
 
     await createNotification({
       userId: workerId,
@@ -1309,36 +1502,40 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     }).catch(() => {});
   }
 
-  // ── Notify admins ───────────────────────────────────────────────────────
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN", isActive: true },
-    select: { id: true },
-  });
-  await prisma.notification.createMany({
-    data: admins.map((a) => ({
-      userId: a.id,
-      title: "Withdrawal Request 💸",
-      body: `Worker requested ${requestedCurrency} ${finalPayoutAmount.toFixed(2)}${debtDeducted > 0 ? ` (debt deduction: ${requestedCurrency} ${debtDeducted.toFixed(2)})` : ""} via ${method.replace("_", " ")} — Ref: ${reference}`,
-      type: "WITHDRAWAL_REQUESTED",
-      data: {
-        withdrawalId: withdrawal.id,
-        workerId,
-        amount: finalPayoutAmount,
-        currency: requestedCurrency,
-        method,
-        debtDeducted,
+  // Persist provider data on the withdrawal row (webhook will flip to
+  // COMPLETED or FAILED when Paystack/Flutterwave confirms).
+  const updatedWithdrawal = await prisma.withdrawal.update({
+    where: { id: withdrawal.id },
+    data: {
+      details: {
+        ...withdrawal.details,
+        ...providerData,
+        sentAt: new Date().toISOString(),
       },
-    })),
+    },
   });
+
+  await createNotification({
+    userId: workerId,
+    title: "Withdrawal Processing 🚀",
+    body: `Your withdrawal of ${requestedCurrency} ${finalPayoutAmount.toFixed(2)} is being sent to your ${method === "mobile_money" ? "mobile" : method === "crypto" ? "crypto wallet" : "bank"} account.`,
+    type: "WITHDRAWAL_PROCESSING",
+    data: {
+      withdrawalId: withdrawal.id,
+      method,
+      amount: finalPayoutAmount,
+      currency: requestedCurrency,
+    },
+  }).catch(() => {});
 
   return res.status(201).json({
     success: true,
     message:
       debtDeducted > 0
         ? `Withdrawal of ${requestedCurrency} ${finalPayoutAmount.toFixed(2)} submitted. ${requestedCurrency} ${debtDeducted.toFixed(2)} was applied to your outstanding debt.`
-        : "Withdrawal request submitted. Processing within 1–3 business days.",
+        : "Withdrawal submitted and is being processed.",
     data: {
-      withdrawal,
+      withdrawal: updatedWithdrawal,
       debtDeducted: debtDeducted || 0,
       finalPayoutAmount,
       remainingDebt: Math.max(0, outstandingDebt - (debtDeducted || 0)),
@@ -1362,10 +1559,12 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
     return res
       .status(404)
       .json({ success: false, message: "Withdrawal not found" });
-  if (withdrawal.status !== "PENDING")
-    return res
-      .status(400)
-      .json({ success: false, message: "Withdrawal is not pending" });
+  if (withdrawal.status !== "PENDING" && withdrawal.status !== "PROCESSING") {
+    return res.status(400).json({
+      success: false,
+      message: `Withdrawal is ${withdrawal.status}, not pending or processing`,
+    });
+  }
 
   const meta = _parseMeta(withdrawal.details);
   const method = withdrawal.method;
@@ -1394,12 +1593,10 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
           recipientRes.message ?? "Failed to create Paystack recipient",
         );
 
-      const recipientCode = recipientRes.data.recipient_code;
-
       const transferRes = await psInitiateTransfer({
         amount,
-        recipientCode,
-        reason: notes ?? "SkilledProz earnings payout",
+        recipientCode: recipientRes.data.recipient_code,
+        reason: notes ?? "SkilledProz earnings payout (admin override)",
         reference: transferRef,
       });
 
@@ -1444,7 +1641,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         accountNumber: meta.accountNumber,
         amount,
         currency,
-        narration: notes ?? "SkilledProz earnings payout",
+        narration: notes ?? "SkilledProz earnings payout (admin override)",
         reference: transferRef,
         meta: flwMeta,
       });
@@ -1461,7 +1658,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         accountNumber: meta.mobileNumber,
         amount,
         currency,
-        narration: notes ?? "SkilledProz earnings payout",
+        narration: notes ?? "SkilledProz earnings payout (admin override)",
         reference: transferRef,
       });
 
@@ -1485,7 +1682,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
     await prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
-        status: method === "crypto" ? "PROCESSING" : "PROCESSING",
+        status: "PROCESSING",
         processedAt: new Date(),
         details: {
           ...meta,
@@ -1505,7 +1702,7 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
         body:
           method === "crypto"
             ? `Your crypto withdrawal is being processed. Address: ${meta.cryptoAddress}`
-            : `Your withdrawal of ${currency} ${withdrawal.amount}${withdrawalFee > 0 ? ` (net: ${currency} ${amount} after ${currency} ${withdrawalFee} fee)` : " (no fee deducted)"} is being sent to your ${method === "mobile_money" ? "mobile" : "bank"} account.`,
+            : `Your withdrawal of ${currency} ${withdrawal.amount}${withdrawalFee > 0 ? ` (net: ${currency} ${amount} after ${currency} ${withdrawalFee} fee)` : ""} is being sent to your ${method === "mobile_money" ? "mobile" : "bank"} account.`,
         type: "WITHDRAWAL_PROCESSING",
         data: { withdrawalId, method, amount, currency },
       },
@@ -1523,6 +1720,8 @@ export const approveWithdrawalPayout = asyncHandler(async (req, res) => {
     await prisma.withdrawal.update({
       where: { id: withdrawalId },
       data: {
+        status: "FAILED",
+        failureNote: err.message,
         details: {
           ...meta,
           error: err.message,

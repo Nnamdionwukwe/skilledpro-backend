@@ -1082,7 +1082,7 @@ model Booking {
 
 model Payment {
   id                String        @id @default(uuid())
-  bookingId         String // ← remove @unique — bookings can have many attempts
+  bookingId         String
   booking           Booking       @relation(fields: [bookingId], references: [id])
   userId            String
   user              User          @relation(fields: [userId], references: [id])
@@ -1106,27 +1106,29 @@ model Payment {
   bankTransferRef   String?
   bankTransferProof String?
 
+  providerTxId   String?    // ← only ONE declaration
+
   cryptoNetwork  String?
   cryptoTxHash   String?
   cryptoWallet   String?
   cryptoAmount   Float?
   cryptoCurrency String?
 
-  feePhase Int? @default(1) // ← ADD THIS — tracks which fee phase was applied
+  feePhase Int? @default(1)
 
   notes String?
 
   referralDeduct Float? @default(0)
 
-  // ─── Wallet Payments ──────────────────────────────────────────────────────
   walletTransactions HirerTransaction[]
   walletPaymentId    String?
 
-  // Inside model Payment { ... }
   refunds        Refund[]
   releasedAmount Float            @default(0)
   releaseCount   Int              @default(0)
   releases       PaymentRelease[]
+
+  @@index([providerTxId])   // ← index kept, still valid
 }
 
 model PaymentRelease {

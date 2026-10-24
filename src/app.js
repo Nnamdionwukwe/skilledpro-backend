@@ -50,6 +50,12 @@ import retainedStaffRoutes from "./routes/retainedStaff.routes.js";
 import supportRoutes from "./routes/support.routes.js"; // ← NEW
 import contactRoutes from "./routes/contact.routes.js";
 
+// ── Webhook controller imports (must be imported early for mounting) ────────
+import {
+  paystackWebhook,
+  flutterwaveWebhook,
+} from "./controllers/payment.controller.js";
+
 // ── Cron service imports ─────────────────────────────────────────────────────
 import "./services/expiry.service.js";
 import { startDebtCron } from "./services/debtCron.service.js";
@@ -139,10 +145,25 @@ app.use(corsSecurityHeaders);
 app.use("/health", healthRouter);
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-// ── Stripe webhook ──────────────────────────────────────────────────────────
+// ── Webhooks — MUST come before global limiters and body parsers ────────────
+// Stripe (kept as-is from your original code)
 app.use(
   "/api/payments/webhook/stripe",
   express.raw({ type: "application/json" }),
+);
+
+// Paystack Webhook — bypasses rate limiting and auth
+app.post(
+  "/api/payments/webhook/paystack",
+  express.json({ limit: "10mb" }),
+  paystackWebhook,
+);
+
+// Flutterwave Webhook — bypasses rate limiting and auth
+app.post(
+  "/api/payments/webhook/flutterwave",
+  express.json({ limit: "10mb" }),
+  flutterwaveWebhook,
 );
 
 // ── Helmet + perf logging ───────────────────────────────────────────────────
