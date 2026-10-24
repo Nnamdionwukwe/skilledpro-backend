@@ -1270,6 +1270,13 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
     });
   }
 
+  // ✅ Safe recipient name — never produces "undefined undefined" or empty.
+  const recipientName = (
+    accountName ||
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+    "SkilledProz Worker"
+  ).trim();
+
   // ── Create withdrawal as PROCESSING (no debit yet) ──────────────────────
   const reference = uniqueRef("WD");
   const provider = getWithdrawalProvider(country, method);
@@ -1304,10 +1311,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
   try {
     if (provider === "paystack" && method === "bank_transfer") {
       const recipientRes = await psCreateRecipient({
-        name:
-          accountName ??
-          `${user.firstName} ${user.lastName}`.trim() ??
-          "Worker",
+        name: recipientName,
         accountNumber,
         bankCode,
         currency: requestedCurrency,
@@ -1359,7 +1363,7 @@ export const requestWithdrawal = asyncHandler(async (req, res) => {
               BankAddress: methodMeta.bankAddress ?? "",
               BankCity: methodMeta.bankCity ?? "",
               BankCountry: country ?? "",
-              BeneficiaryName: accountName ?? user.firstName,
+              BeneficiaryName: recipientName,
             },
           ]
         : undefined;
