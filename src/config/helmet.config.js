@@ -33,14 +33,14 @@ export const helmetConfig = {
   // Cross-Origin Embedder Policy
   crossOriginEmbedderPolicy: false,
 
-  // Cross-Origin Opener Policy
+  // ✅ Allow React Native / Expo — was "same-origin-allow-popups"
   crossOriginOpenerPolicy: {
-    policy: "same-origin-allow-popups",
+    policy: "unsafe-none",
   },
 
-  // Cross-Origin Resource Policy
+  // ✅ Allow React Native / Expo — was "same-site"
   crossOriginResourcePolicy: {
-    policy: "same-site",
+    policy: "cross-origin",
   },
 
   // DNS Prefetch Control
