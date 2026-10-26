@@ -19,10 +19,8 @@ import {
   adminListChats,
 } from "../services/support.chat.service.js";
 import { processSupportAttachments } from "../utils/supportAttachments.js";
-import { PrismaClient } from "../generated/prisma/index.js";
+import prisma from "../config/database.js";
 import { logAdminAction } from "../utils/auditLog.js";
-
-const prisma = new PrismaClient();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 async function assertTicketAccess(ticketId, userId, role) {

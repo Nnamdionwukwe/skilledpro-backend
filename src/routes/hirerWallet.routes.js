@@ -2,7 +2,7 @@
 // Hirer Wallet Routes with Multi-Currency Support
 
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import * as walletController from "../controllers/hirerWallet.controller.js";
 import {
@@ -27,7 +27,7 @@ router.post("/debug/credit/:reference", walletController.debugCreditDeposit);
 const walletReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
-  keyGenerator: (req) => req.user?.id || req.ip,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req),
   standardHeaders: true,
   legacyHeaders: false,
   message: {

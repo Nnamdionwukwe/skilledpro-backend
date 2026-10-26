@@ -22,7 +22,6 @@ router.patch(
   feedbackController.updateFeedbackStatus,
 );
 router.get("/admin/:id", feedbackController.getFeedbackById);
-router.patch("/admin/:id/status", feedbackController.updateFeedbackStatus);
 router.delete("/admin/:id", feedbackController.deleteFeedback);
 router.get("/admin/export/csv", feedbackController.exportFeedbackCSV);
 

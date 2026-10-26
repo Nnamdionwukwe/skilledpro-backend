@@ -1,0 +1,611 @@
+================================================================================
+  SKILLEDPROZ - FULL BACKEND AUDIT v2
+  10/26/2026, 10:58:56 AM
+  Root: /Users/onwukwennamdi/Desktop/skilledpro-backend
+================================================================================
+
+--------------------------------------------------------------------------------
+  §1  PROJECT INVENTORY
+--------------------------------------------------------------------------------
+  Controllers : 47
+  Routes      : 44
+  Services    : 20
+  Middleware  : 8
+  Utils       : 8
+  Config      : 7
+  Scripts     : 30
+  Total JS/TS : 171
+  Total lines : 292301
+
+  Largest files:
+    218750  src/generated/prisma/index.d.ts
+      4154  src/utils/validators.js
+      3449  src/controllers/admin.controller.js
+      3404  src/generated/prisma/runtime/library.d.ts
+      3359  src/generated/prisma/runtime/client.d.ts
+      3002  src/controllers/payment.controller.js
+      2153  src/generated/prisma/index.js
+      2139  src/generated/prisma/wasm.js
+      2132  src/generated/prisma/edge.js
+      2121  src/generated/prisma/index-browser.js
+      1827  src/controllers/job.controller.js
+      1599  src/controllers/adminAnalytics.controller.js
+      1575  src/services/email.service.js
+      1545  src/controllers/campaign.controller.js
+      1436  src/controllers/referral.controller.js
+
+--------------------------------------------------------------------------------
+  §2  SYNTAX VALIDATION (node --check)
+--------------------------------------------------------------------------------
+  2 syntax error(s):
+    X src/generated/prisma/runtime/index-browser.d.ts
+        /Users/onwukwennamdi/Desktop/skilledpro-backend/src/generated/prisma/runtime/index-browser.d.ts:1 | declare class AnyNull extends NullTypesEnumValue { |         ^^^^^
+    X src/generated/prisma/runtime/library.d.ts
+        /Users/onwukwennamdi/Desktop/skilledpro-backend/src/generated/prisma/runtime/library.d.ts:4 | declare function $extends(this: Client, extension: ExtensionArgs | ((client: Client) => Client)): Client; |         ^^^^^^^^
+
+--------------------------------------------------------------------------------
+  §3  PRISMA SCHEMA
+--------------------------------------------------------------------------------
+  Models (74): User, Referral, CampaignReferral, CampaignSubmission, CampaignTransaction, CampaignWithdrawal, WalletTransaction, Report, AuditLog, PromoCode, PromoCodeUsage, WorkerProfile, WorkerDebt, HirerProfile, Category, WorkerCategory, Portfolio, Certification, Availability, Booking, Payment, PaymentRelease, Withdrawal, Review, Conversation, ConversationUser, Message, Notification, JobPost, ExternalJobClick, JobCategory, Subscription, FeaturedListing, Post, PostReaction, PostComment, JobApplication, VideoCall, VoiceCall, DeviceToken, SavedWorker, SavedJob, SurveyResponse, WaitlistEntry, WaitlistCampaign, WaitlistEmailLog, Feedback, HirerWallet, HirerTransaction, HirerWithdrawal, HirerFundingAttempt, Refund, Dispute, AppSettings, UserEvent, UserSession, PageView, InteractionEvent, FeatureUsageDaily, UserProfileInsight, UserSegment, UserSegmentMembership, RetainedStaffMember, RetainedPayrollCycle, RetainedStaffDocument, RetainedStaffNote, RetainedStaffRevision, SupportTicket, SupportMessage, SupportTicketAudit, SupportConversation, SupportChatMessage, SupportChatParticipant, ContactMessage
+  Enums  (47): Role, BookingStatus, BookingSource, PaymentStatus, VerificationStatus, JobPostStatus, ApplicationStatus, WithdrawalStatus, ReferralTier, ReferralStatus, CampaignReferralStatus, CampaignSubmissionStatus, ReportType, ReportReason, ReportStatus, ReportAction, AuditAction, AuditTargetType, SalaryPeriod, EducationLevel, AuditResult, RetainedStaffStatus, PayFrequency, RetainedCycleStatus, RetainedCycleType, RetainedPaymentMethod, RetainedDocumentType, RetainedDocumentStatus, SubscriptionTier, SubscriptionRole, SubscriptionStatus, PostType, ReactionType, JobType, LocationType, BudgetType, DurationType, RefundStatus, RefundType, DisputeStatus, DisputeResolution, DisputeRaisedBy, SupportTicketCategory, SupportTicketPriority, SupportTicketStatus, SupportAuthorType, SupportChatStatus
+  OK  All models have @id
+  OK  prisma validate passes
+
+--------------------------------------------------------------------------------
+  §4  ROUTE to CONTROLLER WIRING
+--------------------------------------------------------------------------------
+  Routes parsed       : 517
+  Controller exports  : 491
+  97 route handler(s) not found:
+    GET     /verifications/stats                     -> _getVerificationStats  (src/routes/admin.routes.js)
+    GET     /verifications/pending                   -> _getPendingWorkers  (src/routes/admin.routes.js)
+    PATCH   /users/:userId/verify                    -> _reviewWorkerVerification  (src/routes/admin.routes.js)
+    GET     /overview                                -> ctrl.getOverview  (src/routes/adminAnalytics.routes.js)
+    GET     /users                                   -> ctrl.listUserInsights  (src/routes/adminAnalytics.routes.js)
+    GET     /user/:userId                            -> ctrl.getUserCoverage  (src/routes/adminAnalytics.routes.js)
+    GET     /live                                    -> ctrl.getLiveEvents  (src/routes/adminAnalytics.routes.js)
+    GET     /funnel                                  -> ctrl.getFunnel  (src/routes/adminAnalytics.routes.js)
+    GET     /funnel-builder                          -> ctrl.getFunnelBuilder  (src/routes/adminAnalytics.routes.js)
+    GET     /top-workers                             -> ctrl.getTopWorkers  (src/routes/adminAnalytics.routes.js)
+    GET     /payment-funnel                          -> ctrl.getPaymentFunnel  (src/routes/adminAnalytics.routes.js)
+    GET     /category-demand                         -> ctrl.getCategoryDemand  (src/routes/adminAnalytics.routes.js)
+    POST    /send-test-digest                        -> ctrl.sendTestDigest  (src/routes/adminAnalytics.routes.js)
+    GET     /segments                                -> ctrl.listSegments  (src/routes/adminAnalytics.routes.js)
+    POST    /segments                                -> ctrl.createSegment  (src/routes/adminAnalytics.routes.js)
+    PATCH   /segments/:key                           -> ctrl.updateSegment  (src/routes/adminAnalytics.routes.js)
+    DELETE  /segments/:key                           -> ctrl.deleteSegment  (src/routes/adminAnalytics.routes.js)
+    GET     /segments/:key/users                     -> ctrl.getSegmentUsers  (src/routes/adminAnalytics.routes.js)
+    POST    /assist                                  -> }  (src/routes/ai.routes.js)
+    POST    /events                                  -> ctrl.ingestEvents  (src/routes/analytics.routes.js)
+    POST    /pageview                                -> ctrl.recordPageView  (src/routes/analytics.routes.js)
+    POST    /interaction                             -> ctrl.recordInteraction  (src/routes/analytics.routes.js)
+    POST    /session/start                           -> ctrl.startSession  (src/routes/analytics.routes.js)
+    POST    /session/end                             -> ctrl.endSession  (src/routes/analytics.routes.js)
+    POST    /raise                                   -> disputeController.raiseDispute  (src/routes/dispute.routes.js)
+    GET     /my                                      -> disputeController.getMyDisputes  (src/routes/dispute.routes.js)
+    PATCH   /:bookingId/cancel                       -> disputeController.cancelDispute  (src/routes/dispute.routes.js)
+    GET     /:bookingId                              -> disputeController.getDisputeDetail  (src/routes/dispute.routes.js)
+    GET     /admin/all                               -> disputeController.getAllDisputes  (src/routes/dispute.routes.js)
+    PATCH   /admin/:id/resolve                       -> disputeController.resolveDispute  (src/routes/dispute.routes.js)
+    POST    /                                        -> feedbackController.submitFeedback  (src/routes/feedback.routes.js)
+    GET     /admin                                   -> feedbackController.getAllFeedback  (src/routes/feedback.routes.js)
+    PATCH   /admin/:id/status                        -> feedbackController.updateFeedbackStatus  (src/routes/feedback.routes.js)
+    GET     /admin/:id                               -> feedbackController.getFeedbackById  (src/routes/feedback.routes.js)
+    DELETE  /admin/:id                               -> feedbackController.deleteFeedback  (src/routes/feedback.routes.js)
+    GET     /admin/export/csv                        -> feedbackController.exportFeedbackCSV  (src/routes/feedback.routes.js)
+    POST    /webhook/flutterwave                     -> walletController.flutterwaveWebhook  (src/routes/hirerWallet.routes.js)
+    POST    /debug/credit/:reference                 -> walletController.debugCreditDeposit  (src/routes/hirerWallet.routes.js)
+    GET     /admin/withdrawals                       -> walletController.getWithdrawals  (src/routes/hirerWallet.routes.js)
+    PATCH   /admin/withdrawals/:id/approve           -> walletController.approveWithdrawal  (src/routes/hirerWallet.routes.js)
+    PATCH   /admin/withdrawals/:id/reject            -> walletController.rejectWithdrawal  (src/routes/hirerWallet.routes.js)
+    GET     /admin/stats                             -> walletController.getWalletStats  (src/routes/hirerWallet.routes.js)
+    GET     /transactions                            -> walletController.getWalletTransactions  (src/routes/hirerWallet.routes.js)
+    GET     /balances                                -> walletController.getAllWalletBalances  (src/routes/hirerWallet.routes.js)
+    GET     /balance                                 -> walletController.getWalletBalance  (src/routes/hirerWallet.routes.js)
+    GET     /currencies                              -> walletController.getSupportedCurrencies  (src/routes/hirerWallet.routes.js)
+    POST    /fund                                    -> walletController.fundWallet  (src/routes/hirerWallet.routes.js)
+    GET     /verify/:reference                       -> walletController.verifyTransaction  (src/routes/hirerWallet.routes.js)
+    POST    /withdraw                                -> walletController.requestWithdrawal  (src/routes/hirerWallet.routes.js)
+    GET     /admin/:id                               -> adminGetRefundDetails  (src/routes/refund.routes.js)
+    POST    /tickets                                 -> ctrl.createTicket  (src/routes/support.routes.js)
+    GET     /tickets                                 -> ctrl.getMyTickets  (src/routes/support.routes.js)
+    GET     /tickets/:id                             -> ctrl.getTicket  (src/routes/support.routes.js)
+    POST    /tickets/:id/reply                       -> ctrl.replyToTicket  (src/routes/support.routes.js)
+    POST    /tickets/:id/close                       -> ctrl.closeTicket  (src/routes/support.routes.js)
+    POST    /tickets/:id/reopen                      -> ctrl.reopenTicket  (src/routes/support.routes.js)
+    POST    /tickets/:id/csat                        -> ctrl.submitTicketCsat  (src/routes/support.routes.js)
+    GET     /admin/tickets                           -> ctrl.adminListTickets  (src/routes/support.routes.js)
+    GET     /admin/tickets/stats                     -> ctrl.adminTicketStats  (src/routes/support.routes.js)
+    GET     /admin/tickets/:id                       -> ctrl.adminGetTicket  (src/routes/support.routes.js)
+    POST    /admin/tickets/:id/reply                 -> ctrl.adminReplyToTicket  (src/routes/support.routes.js)
+    PATCH   /admin/tickets/:id/assign                -> ctrl.adminAssignTicket  (src/routes/support.routes.js)
+    PATCH   /admin/tickets/:id/status                -> ctrl.adminUpdateTicketStatus  (src/routes/support.routes.js)
+    PATCH   /admin/tickets/:id/priority              -> ctrl.adminUpdateTicketPriority  (src/routes/support.routes.js)
+    POST    /chat/start                              -> ctrl.startChat  (src/routes/support.routes.js)
+    GET     /chat/my                                 -> ctrl.getMyChats  (src/routes/support.routes.js)
+    GET     /chat/:id                                -> ctrl.getChat  (src/routes/support.routes.js)
+    POST    /chat/:id/escalate                       -> ctrl.escalateChat  (src/routes/support.routes.js)
+    POST    /chat/:id/csat                           -> ctrl.submitChatCsatCtrl  (src/routes/support.routes.js)
+    POST    /chat/upload                             -> ctrl.uploadChatAttachments  (src/routes/support.routes.js)
+    GET     /admin/chats                             -> ctrl.adminListChatsCtrl  (src/routes/support.routes.js)
+    GET     /admin/chats/:id                         -> ctrl.adminGetChat  (src/routes/support.routes.js)
+    GET     /admin/stale-messages                    -> ctrl.getStaleMessages  (src/routes/support.routes.js)
+    POST    /                                        -> surveyController.submitSurvey  (src/routes/survey.routes.js)
+    GET     /admin/stats                             -> surveyController.getSurveyStats  (src/routes/survey.routes.js)
+    GET     /admin/responses                         -> surveyController.getAllSurveyResponses  (src/routes/survey.routes.js)
+    GET     /admin/responses/:id                     -> surveyController.getSurveyResponseById  (src/routes/survey.routes.js)
+    PATCH   /admin/responses/:id/status              -> surveyController.updateSurveyStatus  (src/routes/survey.routes.js)
+    DELETE  /admin/responses/bulk                    -> surveyController.bulkDeleteSurveyResponses  (src/routes/survey.routes.js)
+    GET     /admin/export/csv                        -> surveyController.exportSurveyCSV  (src/routes/survey.routes.js)
+    POST    /                                        -> message: "text and targetLang are required" }  (src/routes/translate.routes.js)
+    POST    /                                        -> waitlistController.joinWaitlist  (src/routes/waitlist.routes.js)
+    GET     /confirm/:token                          -> waitlistController.confirmWaitlist  (src/routes/waitlist.routes.js)
+    GET     /admin/stats                             -> waitlistController.getWaitlistStats  (src/routes/waitlist.routes.js)
+    GET     /admin/entries                           -> waitlistController.getAllWaitlistEntries  (src/routes/waitlist.routes.js)
+    GET     /admin/entries/:id                       -> waitlistController.getWaitlistEntry  (src/routes/waitlist.routes.js)
+    PATCH   /admin/entries/:id/status                -> waitlistController.updateWaitlistStatus  (src/routes/waitlist.routes.js)
+    DELETE  /admin/entries/:id                       -> waitlistController.deleteWaitlistEntry  (src/routes/waitlist.routes.js)
+    GET     /admin/export/csv                        -> waitlistController.exportWaitlistCSV  (src/routes/waitlist.routes.js)
+    POST    /admin/broadcast                         -> waitlistController.broadcastEmail  (src/routes/waitlist.routes.js)
+    GET     /admin/campaigns                         -> waitlistController.getCampaigns  (src/routes/waitlist.routes.js)
+    POST    /admin/launch                            -> waitlistController.sendLaunchAnnouncement  (src/routes/waitlist.routes.js)
+    GET     /                                        -> ctrl.getMyRefunds  (src/routes/worker.refund.routes.js)
+    GET     /summary                                 -> ctrl.getMyRefundSummary  (src/routes/worker.refund.routes.js)
+    GET     /:refundId                               -> ctrl.getMyRefundDetail  (src/routes/worker.refund.routes.js)
+    GET     /:refundId/receipt                       -> ctrl.getMyRefundReceipt  (src/routes/worker.refund.routes.js)
+    GET     /:refundId/receipt.html                  -> ctrl.getMyRefundReceiptHtml  (src/routes/worker.refund.routes.js)
+
+--------------------------------------------------------------------------------
+  §5  APP MOUNTS & MIDDLEWARE
+--------------------------------------------------------------------------------
+  app.use mounts (64):
+    /health                        <- healthRouter
+    /api/payments/webhook/stripe   <- express
+    /api                           <- globalLimiter
+    /api/auth/login                <- authLimiter
+    /api/auth/register             <- registerLimiter
+    /api/auth/forgot-password      <- sensitiveLimiter
+    /api/auth/reset-password       <- sensitiveLimiter
+    /api/auth/resend-verification  <- sensitiveLimiter
+    /api/auth/verify-email         <- sensitiveLimiter
+    /api/wallet                    <- walletLimiter
+    /api/wallet/fund               <- walletLimiter
+    /api/wallet/withdraw           <- walletLimiter
+    /api/admin                     <- adminLimiter
+    /api/feedback                  <- feedbackLimiter
+    /api/survey                    <- surveyLimiter
+    /api/support/tickets           <- supportLimiter
+    /api/support/chat/start        <- supportLimiter
+    /api/support/chat/upload       <- supportLimiter
+    /api/support/chat/:id/escalate <- supportLimiter
+    /api/notifications/broadcast   <- emailLimiter
+    /api/waitlist/admin/broadcast  <- emailLimiter
+    /api/auth                      <- authRoutes
+    /api/users                     <- userRoutes
+    /api/workers                   <- workerRoutes
+    /api/hirers                    <- hirerRoutes
+    /api/bookings                  <- bookingRoutes
+    /api/payments                  <- paymentRoutes
+    /api/reviews                   <- reviewRoutes
+    /api/messages                  <- messageRoutes
+    /api/categories                <- categoryRoutes
+    /api/verification              <- verificationRoutes
+    /api/search                    <- searchRoutes
+    /api/disputes                  <- disputeRoutes
+    /api/analytics                 <- analyticsRoutes
+    /api/admin/analytics           <- adminAnalyticsRoutes
+    /api/admin                     <- adminRoutes
+    /api/notifications             <- notificationRoutes
+    /api/jobs                      <- jobRoutes
+    /api/ai                        <- aiRoutes
+    /api/insurance                 <- insuranceRoutes
+    /api/subscriptions             <- subscriptionRoutes
+    /api/featured                  <- featuredRoutes
+    /api/posts                     <- postRoutes
+    /api/video-calls               <- videoCallRoutes
+    /api/settings                  <- settingsRoutes
+    /api/translate                 <- translateRoutes
+    /api/referral                  <- referralRoutes
+    /api/campaign                  <- campaignRoutes
+    /api/reports                   <- reportRoutes
+    /api/audit                     <- auditRoutes
+    /api/admin                     <- adminJobRoutes
+    /api/external-jobs             <- externalJobRoutes
+    /api/survey                    <- surveyRoutes
+    /api/waitlist                  <- waitlistRoutes
+    /api/feedback                  <- feedbackRoutes
+    /api/wallet                    <- hirerWalletRoutes
+    /api/admin                     <- adminLogsRoutes
+    /api/refunds                   <- refundRoutes
+    /api/admin/worker-debts        <- adminDebtRoutes
+    /api/worker/refunds            <- workerRefundRoutes
+    /api/voice-calls               <- voiceCallRoutes
+    /api/retained-staff            <- retainedStaffRoutes
+    /api/support                   <- supportRoutes
+    /api/contact                   <- contactRoutes
+
+  Middleware presence:
+    OK   helmet
+    OK   cors
+    OK   express.json
+    MISS rateLimit
+    MISS logger (morgan/winston/pino)
+    OK   errorHandler
+
+--------------------------------------------------------------------------------
+  §6  ENVIRONMENT VARIABLES
+--------------------------------------------------------------------------------
+  Used in code        : 74
+  Declared in .env.ex : 0
+  74 used-but-undeclared:
+    ADMIN_EMAILS                             <- src/controllers/feedback.controller.js
+    ADMIN_URL                                <- src/controllers/feedback.controller.js
+    ANTHROPIC_API_KEY                        <- src/routes/ai.routes.js
+    API_URL                                  <- src/controllers/payment.controller.js
+    APP_BASE_URL                             <- src/controllers/referral.controller.js
+    CALL_BASE_URL                            <- src/services/videoCall.service.js
+    CLIENT_URL                               <- src/app.js
+    CLOUDINARY_API_KEY                       <- src/config/cloudinary.js
+    CLOUDINARY_API_SECRET                    <- src/config/cloudinary.js
+    CLOUDINARY_CLOUD_NAME                    <- src/config/cloudinary.js
+    COMPUTERNAME                             <- src/generated/prisma/runtime/client.js
+    CRON_RETAINED_RECONCILE                  <- src/jobs/retainedStaffCron.job.js
+    CRON_RETAINED_SCHEDULE                   <- src/jobs/retainedStaffCron.job.js
+    CRON_TIMEZONE                            <- src/jobs/retainedStaffCron.job.js
+    CRYPTO_WALLET_BTC                        <- src/controllers/payment.controller.js
+    CRYPTO_WALLET_ETH                        <- src/controllers/payment.controller.js
+    CRYPTO_WALLET_USDC                       <- src/controllers/payment.controller.js
+    CRYPTO_WALLET_USDT                       <- src/controllers/payment.controller.js
+    DATABASE_URL                             <- src/generated/prisma/edge.js
+    DEBT_AUTO_FORGIVE_DAYS                   <- src/services/debtCron.service.js
+    DEBT_CRON_ENABLED                        <- src/services/debtCron.service.js
+    DEBUG                                    <- src/generated/prisma/edge.js
+    DOTENV_CONFIG_DEBUG                      <- src/generated/prisma/runtime/library.js
+    EMAIL_FROM                               <- src/services/email.service.js
+    FACEBOOK_URL                             <- src/controllers/campaign.controller.js
+    FLUTTERWAVE_ENCRYPTION_KEY               <- src/controllers/payment.controller.js
+    FLUTTERWAVE_SECRET                       <- src/controllers/hirerWallet.controller.js
+    FLUTTERWAVE_SECRET_HASH                  <- src/controllers/hirerWallet.controller.js
+    FLUTTERWAVE_SECRET_KEY                   <- src/controllers/hirerWallet.controller.js
+    FLW_WEBHOOK_HASH                         <- src/controllers/payment.controller.js
+    FOREIGN_HIRER_FEE_RATE                   <- src/config/fees.js
+    GOOGLE_CLIENT_ID                         <- src/services/google.service.js
+    GOOGLE_CLIENT_SECRET                     <- src/services/google.service.js
+    GOOGLE_REDIRECT_URI                      <- src/services/google.service.js
+    INSTAGRAM_URL                            <- src/controllers/campaign.controller.js
+    JWT_EXPIRES_IN                           <- src/controllers/auth.controller.js
+    JWT_REFRESH_EXPIRES_IN                   <- src/controllers/auth.controller.js
+    JWT_REFRESH_SECRET                       <- src/controllers/auth.controller.js
+    JWT_SECRET                               <- src/controllers/auth.controller.js
+    LOGO_URL                                 <- src/controllers/hirerWallet.controller.js
+    LOG_DB_QUERIES                           <- src/utils/logger.js
+    LOG_LEVEL                                <- src/utils/logger.js
+    NGN_HIRER_FEE_RATE                       <- src/config/fees.js
+    NODE_ENV                                 <- src/app.js
+    NO_COLOR                                 <- src/generated/prisma/runtime/client.js
+    PAYSTACK_HIRER_ENT_PLAN_CODE             <- src/config/plans.js
+    PAYSTACK_HIRER_ENT_YEARLY_PLAN_CODE      <- src/config/plans.js
+    PAYSTACK_HIRER_PRO_PLAN_CODE             <- src/config/plans.js
+    PAYSTACK_HIRER_PRO_YEARLY_PLAN_CODE      <- src/config/plans.js
+    PAYSTACK_SECRET_KEY                      <- src/controllers/payment.controller.js
+    PAYSTACK_WORKER_ENT_PLAN_CODE            <- src/config/plans.js
+    PAYSTACK_WORKER_ENT_YEARLY_PLAN_CODE     <- src/config/plans.js
+    PAYSTACK_WORKER_PRO_PLAN_CODE            <- src/config/plans.js
+    PAYSTACK_WORKER_PRO_YEARLY_PLAN_CODE     <- src/config/plans.js
+    PLATFORM_ACCOUNT_NAME                    <- src/controllers/payment.controller.js
+    PLATFORM_ACCOUNT_NUMBER                  <- src/controllers/payment.controller.js
+    PLATFORM_BANK_NAME                       <- src/controllers/payment.controller.js
+    PRISMA_CLIENT_DATA_PROXY_CLIENT_VERSION  <- src/generated/prisma/runtime/library.js
+    PRISMA_CLIENT_ENGINE_TYPE                <- src/generated/prisma/runtime/library.js
+    PRISMA_CLIENT_GET_TIME                   <- src/generated/prisma/runtime/client.js
+    PRISMA_DISABLE_WARNINGS                  <- src/generated/prisma/runtime/client.js
+    PRISMA_QUERY_ENGINE_BINARY               <- src/generated/prisma/runtime/library.js
+    PRISMA_QUERY_ENGINE_LIBRARY              <- src/generated/prisma/runtime/library.js
+    RESEND_API_KEY                           <- src/services/email.service.js
+    SMTP_HOST                                <- src/services/email.service.js
+    SMTP_PASS                                <- src/services/email.service.js
+    SMTP_PORT                                <- src/services/email.service.js
+    SMTP_USER                                <- src/services/email.service.js
+    STRIPE_SECRET_KEY                        <- src/controllers/featured.controller.js
+    SUPPORT_EMAIL                            <- src/controllers/worker.refund.controller.js
+    TERM_PROGRAM                             <- src/generated/prisma/runtime/library.js
+    TEST_CLIENT_ENGINE_REMOTE_EXECUTOR       <- src/generated/prisma/runtime/client.js
+    TIKTOK_URL                               <- src/controllers/campaign.controller.js
+    _CLUSTER_NETWORK_NAME_                   <- src/generated/prisma/runtime/client.js
+
+--------------------------------------------------------------------------------
+  §7  AUTH & ROLE PROTECTION
+--------------------------------------------------------------------------------
+  Public routes        : 373
+  Authenticated routes : 70
+  Admin-guarded routes : 74
+  29 admin path(s) in non-admin file WITHOUT guard:
+    /logs/admin/:adminId                     (src/routes/adminLogs.routes.js)
+    /admins                                  (src/routes/audit.routes.js)
+    /admin                                   (src/routes/feedback.routes.js)
+    /admin/:id/status                        (src/routes/feedback.routes.js)
+    /admin/:id                               (src/routes/feedback.routes.js)
+    /admin/:id/status                        (src/routes/feedback.routes.js)
+    /admin/:id                               (src/routes/feedback.routes.js)
+    /admin/export/csv                        (src/routes/feedback.routes.js)
+    /admin/promo-codes                       (src/routes/subscription.routes.js)
+    /admin/promo-codes                       (src/routes/subscription.routes.js)
+    /admin/promo-codes/:id                   (src/routes/subscription.routes.js)
+    /admin/promo-codes/:id                   (src/routes/subscription.routes.js)
+    /admin/promo-codes/:id/toggle            (src/routes/subscription.routes.js)
+    /admin/promo-codes/:id                   (src/routes/subscription.routes.js)
+    /admin/stats                             (src/routes/survey.routes.js)
+    /admin/responses                         (src/routes/survey.routes.js)
+    /admin/responses/:id                     (src/routes/survey.routes.js)
+    /admin/responses/:id/status              (src/routes/survey.routes.js)
+    /admin/responses/bulk                    (src/routes/survey.routes.js)
+    /admin/export/csv                        (src/routes/survey.routes.js)
+    /admin/stats                             (src/routes/waitlist.routes.js)
+    /admin/entries                           (src/routes/waitlist.routes.js)
+    /admin/entries/:id                       (src/routes/waitlist.routes.js)
+    /admin/entries/:id/status                (src/routes/waitlist.routes.js)
+    /admin/entries/:id                       (src/routes/waitlist.routes.js)
+    /admin/export/csv                        (src/routes/waitlist.routes.js)
+    /admin/broadcast                         (src/routes/waitlist.routes.js)
+    /admin/campaigns                         (src/routes/waitlist.routes.js)
+    /admin/launch                            (src/routes/waitlist.routes.js)
+
+--------------------------------------------------------------------------------
+  §8  DATABASE CLIENT USAGE
+--------------------------------------------------------------------------------
+  9 file(s) instantiate PrismaClient directly:
+    src/controllers/contact.controller.js
+    src/controllers/support.controller.js
+    src/generated/prisma/index.d.ts
+    src/generated/prisma/runtime/client.d.ts
+    src/generated/prisma/runtime/client.js
+    src/generated/prisma/runtime/wasm-compiler-edge.js
+    src/services/support.chat.service.js
+    src/services/support.ticket.service.js
+    src/utils/supportTicketNumber.js
+
+--------------------------------------------------------------------------------
+  §9  COMMON BUG PATTERNS
+--------------------------------------------------------------------------------
+  6 potential issue(s):
+    src/controllers/auth.controller.js -> 14 console.log calls in controller
+    src/controllers/hirerWallet.controller.js -> 6 console.log calls in controller
+    src/controllers/payment.controller.js -> 8 console.log calls in controller
+    src/generated/prisma/runtime/client.d.ts -> 3 TODO/FIXME marker(s)
+    src/generated/prisma/runtime/library.d.ts -> 3 TODO/FIXME marker(s)
+    src/services/support.chat.service.js -> 8 async fns, 0 try/catch
+
+--------------------------------------------------------------------------------
+  §10  PACKAGE & DEPENDENCIES
+--------------------------------------------------------------------------------
+  Name    : skilledpro-backend
+  Version : 1.0.0
+  Scripts : 16
+  Deps    : 33
+  DevDeps : 2
+
+  Scripts:
+    test                 -> echo "Error: no test specified" && exit 1
+    start                -> prisma generate && node server.js
+    dev                  -> prisma generate && nodemon server.js
+    db:migrate           -> prisma migrate dev
+    db:generate          -> prisma generate
+    db:studio            -> prisma studio
+    db:push              -> prisma db push
+    deploy               -> bash deploy-pull.sh
+    deploy:migrate       -> bash deploy-migrate.sh
+    deploy:status        -> bash deploy-status.sh
+    deploy:logs          -> bash deploy-logs.sh
+    prisma:format        -> prisma format
+    prisma:generate      -> prisma generate
+    prisma:push          -> prisma db push
+    audit:admin:backend  -> node scripts/audit-admin-backend.mjs
+    start:migrate        -> prisma generate && prisma migrate deploy && node server.js
+
+--------------------------------------------------------------------------------
+  §11  GIT STATUS
+--------------------------------------------------------------------------------
+  Branch      : main
+  HEAD        : 918518a drfhd
+  Uncommitted : 1 file(s)
+
+  Uncommitted (first 20):
+    ?? scripts/full-backend-audit-v2.mjs
+
+--------------------------------------------------------------------------------
+  §12  TESTS
+--------------------------------------------------------------------------------
+  Test files : 0
+
+--------------------------------------------------------------------------------
+  §13  DUPLICATE ROUTE PATHS
+--------------------------------------------------------------------------------
+  39 duplicated route path(s):
+  GET /stats
+      <- src/routes/admin.debt.routes.js
+      <- src/routes/admin.routes.js
+      <- src/routes/audit.routes.js
+  GET /
+      <- src/routes/admin.debt.routes.js
+      <- src/routes/audit.routes.js
+      <- src/routes/booking.routes.js
+      <- src/routes/category.routes.js
+      <- src/routes/externalJob.routes.js
+      <- src/routes/featured.routes.js
+      <- src/routes/health.routes.js
+      <- src/routes/job.routes.js
+      <- src/routes/notification.routes.js
+      <- src/routes/payment.routes.js
+      <- src/routes/retainedStaff.routes.js
+      <- src/routes/search.routes.js
+      <- src/routes/worker.refund.routes.js
+  GET /:id
+      <- src/routes/admin.debt.routes.js
+      <- src/routes/audit.routes.js
+      <- src/routes/booking.routes.js
+      <- src/routes/externalJob.routes.js
+      <- src/routes/job.routes.js
+      <- src/routes/post.routes.js
+      <- src/routes/refund.routes.js
+      <- src/routes/user.routes.js
+  GET /dashboard
+      <- src/routes/admin.routes.js
+      <- src/routes/referral.routes.js
+      <- src/routes/retainedStaff.routes.js
+      <- src/routes/worker.routes.js
+  GET /users
+      <- src/routes/admin.routes.js
+      <- src/routes/adminAnalytics.routes.js
+  GET /withdrawals
+      <- src/routes/admin.routes.js
+      <- src/routes/payment.routes.js
+  POST /withdrawals/:withdrawalId/payout
+      <- src/routes/admin.routes.js
+      <- src/routes/payment.routes.js
+  POST /categories
+      <- src/routes/admin.routes.js
+      <- src/routes/worker.routes.js
+  GET /conversations
+      <- src/routes/admin.routes.js
+      <- src/routes/message.routes.js
+  GET /user/:userId
+      <- src/routes/adminAnalytics.routes.js
+      <- src/routes/post.routes.js
+  GET /me
+      <- src/routes/audit.routes.js
+      <- src/routes/auth.routes.js
+  POST /
+      <- src/routes/booking.routes.js
+      <- src/routes/contact.routes.js
+      <- src/routes/feedback.routes.js
+      <- src/routes/job.routes.js
+      <- src/routes/message.routes.js
+      <- src/routes/post.routes.js
+      <- src/routes/report.routes.js
+      <- src/routes/retainedStaff.routes.js
+      <- src/routes/review.routes.js
+      <- src/routes/survey.routes.js
+      <- src/routes/translate.routes.js
+      <- src/routes/waitlist.routes.js
+  PATCH /:id/status
+      <- src/routes/booking.routes.js
+      <- src/routes/job.routes.js
+  GET /status
+      <- src/routes/campaign.routes.js
+      <- src/routes/verification.routes.js
+  GET /wallet
+      <- src/routes/campaign.routes.js
+      <- src/routes/referral.routes.js
+  POST /withdraw
+      <- src/routes/campaign.routes.js
+      <- src/routes/hirerWallet.routes.js
+      <- src/routes/payment.routes.js
+      <- src/routes/referral.routes.js
+  GET /admin/stats
+      <- src/routes/campaign.routes.js
+      <- src/routes/hirerWallet.routes.js
+      <- src/routes/referral.routes.js
+      <- src/routes/report.routes.js
+      <- src/routes/survey.routes.js
+      <- src/routes/verification.routes.js
+      <- src/routes/waitlist.routes.js
+  GET /admin/withdrawals
+      <- src/routes/campaign.routes.js
+      <- src/routes/hirerWallet.routes.js
+  PATCH /admin/withdrawals/:id/approve
+      <- src/routes/campaign.routes.js
+      <- src/routes/hirerWallet.routes.js
+  PATCH /admin/withdrawals/:id/reject
+      <- src/routes/campaign.routes.js
+      <- src/routes/hirerWallet.routes.js
+  DELETE /:id
+      <- src/routes/category.routes.js
+      <- src/routes/notification.routes.js
+      <- src/routes/post.routes.js
+      <- src/routes/report.routes.js
+  PATCH /admin/:id/status
+      <- src/routes/contact.routes.js
+      <- src/routes/feedback.routes.js
+      <- src/routes/feedback.routes.js
+  GET /admin
+      <- src/routes/contact.routes.js
+      <- src/routes/feedback.routes.js
+      <- src/routes/referral.routes.js
+      <- src/routes/report.routes.js
+  GET /my
+      <- src/routes/dispute.routes.js
+      <- src/routes/featured.routes.js
+      <- src/routes/insurance.routes.js
+      <- src/routes/post.routes.js
+      <- src/routes/refund.routes.js
+      <- src/routes/report.routes.js
+      <- src/routes/subscription.routes.js
+  GET /:bookingId
+      <- src/routes/dispute.routes.js
+      <- src/routes/payment.routes.js
+      <- src/routes/videocall.routes.js
+  GET /admin/all
+      <- src/routes/dispute.routes.js
+      <- src/routes/refund.routes.js
+  PATCH /admin/:id/resolve
+      <- src/routes/dispute.routes.js
+      <- src/routes/report.routes.js
+  POST /checkout
+      <- src/routes/featured.routes.js
+      <- src/routes/insurance.routes.js
+      <- src/routes/subscription.routes.js
+  POST /verify
+      <- src/routes/featured.routes.js
+      <- src/routes/insurance.routes.js
+      <- src/routes/subscription.routes.js
+  GET /admin/:id
+      <- src/routes/feedback.routes.js
+      <- src/routes/refund.routes.js
+      <- src/routes/report.routes.js
+  GET /admin/export/csv
+      <- src/routes/feedback.routes.js
+      <- src/routes/survey.routes.js
+      <- src/routes/waitlist.routes.js
+  GET /:userId
+      <- src/routes/hirer.routes.js
+      <- src/routes/worker.routes.js
+  POST /webhook/flutterwave
+      <- src/routes/hirerWallet.routes.js
+      <- src/routes/payment.routes.js
+  GET /plans
+      <- src/routes/insurance.routes.js
+      <- src/routes/subscription.routes.js
+  PUT /:id
+      <- src/routes/job.routes.js
+      <- src/routes/post.routes.js
+  GET /:conversationId
+      <- src/routes/message.routes.js
+      <- src/routes/voicecall.routes.js
+  POST /request
+      <- src/routes/notification.routes.js
+      <- src/routes/refund.routes.js
+  GET /notifications
+      <- src/routes/settings.routes.js
+      <- src/routes/worker.routes.js
+  GET /incoming
+      <- src/routes/videocall.routes.js
+      <- src/routes/voicecall.routes.js
+
+================================================================================
+  SUMMARY
+================================================================================
+  Files analysed        : 171
+  Syntax errors         : 2
+  Broken route handlers : 97
+  Unguarded admin routes: 29
+  Direct PrismaClient   : 9
+  Bug patterns          : 6
+  Env vars missing      : 74
+  Duplicate routes      : 39
+  Test files            : 0
+
+  128 critical issue(s) — see above
+
+================================================================================
+ Audit complete
+================================================================================

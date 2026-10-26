@@ -1,7 +1,5 @@
 // src/controllers/contact.controller.js
-import { PrismaClient } from "../generated/prisma/index.js";
-
-const prisma = new PrismaClient();
+import prisma from "../config/database.js";
 
 export async function submitContactForm(req, res, next) {
   try {

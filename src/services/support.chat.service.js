@@ -1,7 +1,5 @@
 // src/services/support.chat.service.js
-import { PrismaClient } from "../generated/prisma/index.js";
-
-const prisma = new PrismaClient();
+import prisma from "../config/database.js";
 
 export async function startOrResumeChat({ userId, payload }) {
   // Reuse an active chat if one exists

@@ -1,10 +1,8 @@
 // src/services/support.ticket.service.js
-import { PrismaClient } from "../generated/prisma/index.js";
+import prisma from "../config/database.js";
 import { generateTicketNumber } from "../utils/supportTicketNumber.js";
 import { SUPPORT_POLICY } from "../config/supportConfig.js";
 import { getSupportIO } from "../socket/supportChatSocket.js";
-
-const prisma = new PrismaClient();
 
 const SLA_MIN = SUPPORT_POLICY.sla;
 const TERMINAL_STATUSES = ["RESOLVED", "CLOSED"];

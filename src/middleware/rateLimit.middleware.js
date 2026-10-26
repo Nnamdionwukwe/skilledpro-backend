@@ -245,5 +245,5 @@ export const supportLimiter = rateLimit({
     message: "Too many support requests. Please wait an hour and try again.",
   },
   // If you already have a keyGenerator, keep using it; otherwise:
-  keyGenerator: (req) => req.user?.id || req.ip,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req),
 });

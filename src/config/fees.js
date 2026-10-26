@@ -10,16 +10,16 @@ export const FEE_CONFIG = {
   //   any other currency → 5% (covers Flutterwave's ~4.8% international fee)
   NGN_HIRER_FEE_RATE: process.env.NGN_HIRER_FEE_RATE
     ? parseFloat(process.env.NGN_HIRER_FEE_RATE)
-    : 0.02,
+    : 0.03,
   FOREIGN_HIRER_FEE_RATE: process.env.FOREIGN_HIRER_FEE_RATE
     ? parseFloat(process.env.FOREIGN_HIRER_FEE_RATE)
-    : 0.05,
+    : 0.06,
 
   // Kept for backwards compatibility with importers that read
   // HIRER_FEE_RATE directly (defaults to the NGN rate).
   HIRER_FEE_RATE: process.env.NGN_HIRER_FEE_RATE
     ? parseFloat(process.env.NGN_HIRER_FEE_RATE)
-    : 0.02,
+    : 0.03,
 
   WORKER_FEE_RATE: 0.0,
 
