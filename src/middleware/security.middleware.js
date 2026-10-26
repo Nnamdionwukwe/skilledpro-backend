@@ -7,6 +7,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 // ✅ Increased from 100 to 5000. The dashboard makes many polling requests
 // (worker profile, incoming calls, voice calls, analytics) every few seconds.
 // 100 per 15 minutes is too tight and causes false-positive 429 errors.
+// ✅ Skips OPTIONS so CORS preflights from React Native don't get rate-limited.
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5000, // ✅ Raised from 100
@@ -18,9 +19,11 @@ export const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  skip: (req) => req.method === "OPTIONS", // ✅ NEW
 });
 
 // Auth rate limiter - 10 login attempts per 15 minutes
+// ✅ Skips OPTIONS so preflights from React Native don't consume login attempts.
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -31,9 +34,11 @@ export const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS", // ✅ NEW
 });
 
 // Registration rate limiter - 5 registrations per hour
+// ✅ Skips OPTIONS so preflights from React Native don't consume attempts.
 export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -44,6 +49,7 @@ export const registerLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS", // ✅ NEW
 });
 
 // Sensitive operations limiter - 5 attempts per hour
