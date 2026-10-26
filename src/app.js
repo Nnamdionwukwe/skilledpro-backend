@@ -95,12 +95,27 @@ app.use(requestLogger);
 logger.info("🚀 Server starting...");
 logger.info(`📡 Environment: ${process.env.NODE_ENV || "development"}`);
 
+// ─── Helmet (must come BEFORE CORS so CORS can override headers) ──────────
+app.use(helmet(helmetConfig));
+
 // ─── CORS ───────────────────────────────────────────────────────────────────
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    // ✅ React Native sends Origin: null (or no origin at all)
+    if (!origin || origin === "null" || origin === "undefined") {
+      return callback(null, true);
+    }
+
+    // ✅ Allow Expo dev client origins (192.168.x.x, 10.x.x.x)
+    if (
+      origin.startsWith("http://192.168.") ||
+      origin.startsWith("http://10.")
+    ) {
+      return callback(null, true);
+    }
+
     const allowed = [
       process.env.CLIENT_URL,
       "https://skilledproz.com",
@@ -135,8 +150,8 @@ const corsOptions = {
   preflightContinue: false,
 };
 
-app.options("/*splat", cors(corsOptions));
 app.use(cors(corsOptions));
+app.options("/*splat", cors(corsOptions));
 
 app.use(securityHeaders);
 app.use(corsSecurityHeaders);
@@ -166,8 +181,7 @@ app.post(
   flutterwaveWebhook,
 );
 
-// ── Helmet + perf logging ───────────────────────────────────────────────────
-app.use(helmet(helmetConfig));
+// ── Perf logging ────────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
