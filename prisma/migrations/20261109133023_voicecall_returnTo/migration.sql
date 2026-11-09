@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "VoiceCall"
+  ADD COLUMN IF NOT EXISTS "returnTo" TEXT,
+  ADD COLUMN IF NOT EXISTS "returnParams" JSONB,
+  ADD COLUMN IF NOT EXISTS "bookingId" TEXT;
