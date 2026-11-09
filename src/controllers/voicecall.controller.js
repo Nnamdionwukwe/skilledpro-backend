@@ -50,16 +50,28 @@ async function loadConversationForUser(conversationId, userId) {
 // we never carry a stale caller from a previous test.
 //
 // RACE SAFETY: if the row is already ACTIVE, we return it as-is and never
-// touch initiatorId/status. This prevents racing initiate calls (from a
-// double-tap, a StrictMode remount, or a delayed retry) from resetting an
-// in-progress call back to PENDING, which would tear down the WebRTC peer
-// connection on both sides.
+// touch initiatorId/status.
+//
+// ✅ NEW: accepts optional `returnTo`, `returnParams`, and `bookingId` on the
+// body. Persists them on the VoiceCall row so GET /voice-calls/incoming can
+// echo them back and the receiver's banner can navigate to the right screen
+// after the call ends.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateVoiceCall = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.id;
     const callType = req.body?.callType === "video" ? "video" : "voice";
+
+    // ✅ NEW: accept the return metadata from the caller.
+    const returnTo =
+      typeof req.body?.returnTo === "string" ? req.body.returnTo : null;
+    const returnParams =
+      req.body?.returnParams && typeof req.body.returnParams === "object"
+        ? req.body.returnParams
+        : null;
+    const bookingId =
+      typeof req.body?.bookingId === "string" ? req.body.bookingId : null;
 
     const { conversation, error, status } = await loadConversationForUser(
       conversationId,
@@ -79,10 +91,6 @@ export const initiateVoiceCall = async (req, res) => {
 
     // ── RACE GUARD ────────────────────────────────────────────────────────
     // If the row is already ACTIVE, DO NOT reopen it. Return as-is.
-    // This handles:
-    //   • Double-tap on the 📞 button (two initiate POSTs almost at once)
-    //   • React StrictMode double-mount in dev
-    //   • Any delayed/retried initiate after accept
     if (call && call.status === "ACTIVE") {
       return sendResponse(res, {
         data: { call, callType: call.callType },
@@ -97,12 +105,12 @@ export const initiateVoiceCall = async (req, res) => {
           receiverId,
           status: "PENDING",
           callType,
+          returnTo, // ✅ NEW
+          returnParams, // ✅ NEW
+          bookingId, // ✅ NEW
         },
       });
     } else {
-      // ENDED / DECLINED / PENDING → reopen or reassign with the current
-      // caller. This is the ONLY place initiatorId gets written for an
-      // existing row.
       call = await prisma.voiceCall.update({
         where: { conversationId },
         data: {
@@ -110,6 +118,9 @@ export const initiateVoiceCall = async (req, res) => {
           initiatorId: userId,
           receiverId,
           callType,
+          returnTo, // ✅ NEW — clear/overwrite each initiate
+          returnParams, // ✅ NEW
+          bookingId, // ✅ NEW
           startedAt: null,
           endedAt: null,
         },
@@ -162,6 +173,8 @@ export const initiateVoiceCall = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/voice-calls/:conversationId/accept
+// ✅ NEW: echoes returnTo/returnParams/bookingId so the receiver's UI can
+// route to the correct return screen after the call ends.
 // ─────────────────────────────────────────────────────────────────────────────
 export const acceptVoiceCall = async (req, res) => {
   try {
@@ -205,7 +218,14 @@ export const acceptVoiceCall = async (req, res) => {
 
     return sendResponse(res, {
       message: "Call accepted",
-      data: { call: updated, callType: updated.callType },
+      data: {
+        call: updated,
+        callType: updated.callType,
+        // ✅ NEW
+        returnTo: updated.returnTo || null,
+        returnParams: updated.returnParams || null,
+        bookingId: updated.bookingId || null,
+      },
     });
   } catch (err) {
     console.error("acceptVoiceCall error:", err.message);
@@ -259,6 +279,8 @@ export const declineVoiceCall = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/voice-calls/:conversationId/end
+// ✅ NEW: echoes returnTo/returnParams/bookingId so the caller's end handler
+// has the same routing info as the receiver.
 // ─────────────────────────────────────────────────────────────────────────────
 export const endVoiceCall = async (req, res) => {
   try {
@@ -280,7 +302,13 @@ export const endVoiceCall = async (req, res) => {
 
     return sendResponse(res, {
       message: "Call ended",
-      data: { call: updated },
+      data: {
+        call: updated,
+        // ✅ NEW
+        returnTo: updated.returnTo || null,
+        returnParams: updated.returnParams || null,
+        bookingId: updated.bookingId || null,
+      },
     });
   } catch (err) {
     console.error("endVoiceCall error:", err.message);
@@ -316,6 +344,11 @@ export const getVoiceCallStatus = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/voice-calls/incoming
+//
+// ✅ NEW: now echoes `returnTo`, `returnParams`, and `bookingId` at the top
+// level of the response, alongside `conversationId` and `callerName`. This is
+// what the mobile VoiceCallBanner uses to decide where to navigate after the
+// user accepts (Chat vs BookingDetail vs JobApplications).
 // ─────────────────────────────────────────────────────────────────────────────
 export const getIncomingVoiceCall = async (req, res) => {
   try {
@@ -345,6 +378,10 @@ export const getIncomingVoiceCall = async (req, res) => {
         conversationId: call.conversationId,
         callerName:
           `${call.initiator?.firstName || ""} ${call.initiator?.lastName || ""}`.trim(),
+        // ✅ NEW — top-level echo so the app can navigate correctly:
+        returnTo: call.returnTo || null,
+        returnParams: call.returnParams || null,
+        bookingId: call.bookingId || null,
       },
     });
   } catch (err) {

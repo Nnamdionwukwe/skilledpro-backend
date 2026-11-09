@@ -1531,7 +1531,13 @@ model VoiceCall {
   receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
 
   status   String @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
-  callType String @default("voice") // "voice" | "video"
+  callType String @default("voice")   // "voice" | "video"
+
+  // ✅ NEW — echo these back to the receiver so their banner can
+  // navigate to the right screen after the call ends.
+  returnTo     String? // "BookingDetail" | "Chat" | "JobApplications" | ...
+  returnParams Json?   // { bookingId } | { jobId } | { conversationId }
+  bookingId    String? // optional — populated when the caller came from a booking
 
   startedAt DateTime?
   endedAt   DateTime?
