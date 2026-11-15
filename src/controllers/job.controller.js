@@ -1919,6 +1919,7 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
       callId: call.id,
       roomId: call.roomId,
       callUrl: buildCallUrl(call.roomId),
+      status: call.status, // ✅ Added so the frontend knows if it's active
     },
   });
 });
