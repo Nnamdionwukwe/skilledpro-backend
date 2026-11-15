@@ -21,7 +21,7 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
-import { sendIncomingCallPush } from "../services/pushNotification.service.js";
+import { sendIncomingCallPush } from "../services/push.service.js";
 
 async function loadConversationForUser(conversationId, userId) {
   const conversation = await prisma.conversation.findUnique({

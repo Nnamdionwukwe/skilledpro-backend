@@ -19,7 +19,7 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 import { asyncHandler } from "../middleware/error.middleware.js"; // ✅ NEW
-import { sendIncomingCallPush } from "../services/pushNotification.service.js";
+import { sendIncomingCallPush } from "../services/push.service.js";
 import {
   buildCallUrl,
   emitIncomingCall,
