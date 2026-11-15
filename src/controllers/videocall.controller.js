@@ -270,6 +270,9 @@ export const getCallUrl = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/video-calls/incoming
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/video-calls/incoming
+// ─────────────────────────────────────────────────────────────────────────────
 export const getIncomingCall = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -277,7 +280,7 @@ export const getIncomingCall = async (req, res) => {
     const call = await prisma.videoCall.findFirst({
       where: {
         receiverId: userId,
-        // ✅ Accept both PENDING (booking) and RINGING (interview)
+        // ✅ Look for both PENDING (booking) and RINGING (interview)
         status: { in: ["PENDING", "RINGING"] },
       },
       orderBy: { createdAt: "desc" },
@@ -285,8 +288,7 @@ export const getIncomingCall = async (req, res) => {
         booking: {
           select: { id: true, title: true },
         },
-        // ✅ Include the job application for interview calls so the banner
-        // can display the job title
+        // ✅ Include the job application for interview calls
         jobApplication: {
           select: {
             id: true,
@@ -315,7 +317,7 @@ export const getIncomingCall = async (req, res) => {
         call,
         callUrl: buildCallUrl(call.roomId),
         bookingId: call.bookingId,
-        jobApplicationId: call.jobApplicationId, // ✅ passed to frontend
+        jobApplicationId: call.jobApplicationId, // ✅ Pass this to the frontend
         callerName,
       },
     });
