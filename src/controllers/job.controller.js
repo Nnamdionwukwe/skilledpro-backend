@@ -1937,7 +1937,7 @@ export const getInterviewCallUrl = asyncHandler(async (req, res) => {
   const application = await prisma.jobApplication.findUnique({
     where: { id: applicationId },
     include: {
-      jobPost: { select: { hirerId: true } },
+      jobPost: { select: { id: true, hirerId: true } },
     },
   });
 
@@ -1977,6 +1977,8 @@ export const getInterviewCallUrl = asyncHandler(async (req, res) => {
       callId: call.id,
       roomId: call.roomId,
       callUrl: buildCallUrl(call.roomId),
+      status: call.status,
+      jobPostId: application.jobPost.id,
     },
   });
 });
