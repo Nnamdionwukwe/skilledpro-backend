@@ -19,6 +19,7 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 import { asyncHandler } from "../middleware/error.middleware.js"; // ✅ NEW
+import { sendIncomingCallPush } from "../services/pushNotification.service.js";
 import {
   buildCallUrl,
   emitIncomingCall,
@@ -1833,11 +1834,9 @@ export const reconsiderApplication = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // startInterviewCall
 // Creates (or reuses) a VideoCall row for a job-application interview and
-// returns the room URL. Emits "video-call:incoming" to the other party so
-// their open tab / device shows the incoming-call banner.
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// startInterviewCall
+// returns the room URL. Emits "video-call:incoming" to the other party AND
+// sends a high-priority push notification so their phone rings even when
+// the app is closed.
 // ─────────────────────────────────────────────────────────────────────────────
 export const startInterviewCall = asyncHandler(async (req, res) => {
   const { applicationId } = req.params;
@@ -1869,10 +1868,9 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
 
   const calleeId = isHirer ? application.workerId : application.jobPost.hirerId;
 
-  // Use upsert to prevent race conditions on double-click
+  // Reuse an existing active call for this application if one is still open.
   let call;
   try {
-    // Check if an active call already exists
     call = await prisma.videoCall.findFirst({
       where: {
         jobApplicationId: applicationId,
@@ -1881,13 +1879,11 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
     });
 
     if (!call) {
-      // Check if an old call exists to reuse the row (avoids unique constraint error)
       const existingCall = await prisma.videoCall.findUnique({
         where: { jobApplicationId: applicationId },
       });
 
       if (existingCall) {
-        // Reuse the existing row
         call = await prisma.videoCall.update({
           where: { id: existingCall.id },
           data: {
@@ -1900,7 +1896,6 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
           },
         });
       } else {
-        // Create a brand new row
         call = await prisma.videoCall.create({
           data: {
             jobApplicationId: applicationId,
@@ -1921,13 +1916,18 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Failed to create call session" });
   }
 
-  // Notify the callee over the socket.
+  // Load the caller's display info for the banner and push payload.
+  const caller = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, firstName: true, lastName: true, avatar: true },
+  });
+  const callerName =
+    `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() || "Hirer";
+  const callUrl = buildCallUrl(call.roomId);
+
+  // ── Notify the callee over the socket (in-app banner) ────────────────
   const io = req.app.get("io");
   if (io) {
-    const caller = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, firstName: true, lastName: true, avatar: true },
-    });
     emitIncomingCall(io, {
       calleeId,
       call: {
@@ -1936,9 +1936,7 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
         callType: "JOB_INTERVIEW",
         contextId: application.id,
         callerId: userId,
-        callerName:
-          `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() ||
-          "Hirer",
+        callerName,
         callerAvatar: caller?.avatar ?? null,
         title: `Interview — ${application.jobPost.title}`,
         createdAt: call.createdAt,
@@ -1946,12 +1944,25 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── ✅ NEW — send high-priority push notification ────────────────────
+  // Wakes the callee's phone even when the app is closed or backgrounded.
+  // Fire-and-forget — a push failure must not block the HTTP response.
+  sendIncomingCallPush(calleeId, {
+    callType: "JOB_INTERVIEW",
+    callId: call.id,
+    roomId: call.roomId,
+    callUrl,
+    callerName,
+    title: `Interview — ${application.jobPost.title}`,
+    jobApplicationId: application.id,
+  }).catch((err) => console.error("Interview push failed:", err));
+
   return res.status(200).json({
     success: true,
     data: {
       callId: call.id,
       roomId: call.roomId,
-      callUrl: buildCallUrl(call.roomId),
+      callUrl,
       status: call.status,
     },
   });

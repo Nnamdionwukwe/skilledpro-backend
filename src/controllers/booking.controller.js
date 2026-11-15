@@ -21,6 +21,7 @@ import {
 } from "../services/notification.service.js";
 
 import { convertReferral } from "./referral.controller.js";
+import { sendIncomingCallPush } from "../services/pushNotification.service.js";
 import {
   paginate,
   paginationMeta,
@@ -1296,8 +1297,8 @@ export const updateEmergencyContact = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // startBookingCall
 // Creates (or reuses) a VideoCall row for a booking and returns the room URL.
-// Emits "video-call:incoming" to the other party so their open tab / device
-// shows the incoming-call banner.
+// Emits "video-call:incoming" to the other party AND sends a high-priority
+// push notification so their phone rings even when the app is closed.
 // ─────────────────────────────────────────────────────────────────────────────
 export const startBookingCall = asyncHandler(async (req, res) => {
   const { bookingId } = req.params;
@@ -1353,10 +1354,14 @@ export const startBookingCall = asyncHandler(async (req, res) => {
     });
   }
 
-  // Notify the callee over the socket.
+  const caller = isHirer ? booking.hirer : booking.worker;
+  const callerName =
+    `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() || "User";
+  const callUrl = buildCallUrl(call.roomId);
+
+  // ── Notify the callee over the socket (in-app banner) ────────────────
   const io = req.app.get("io");
   if (io) {
-    const caller = isHirer ? booking.hirer : booking.worker;
     emitIncomingCall(io, {
       calleeId,
       call: {
@@ -1365,9 +1370,7 @@ export const startBookingCall = asyncHandler(async (req, res) => {
         callType: "BOOKING",
         contextId: booking.id,
         callerId: userId,
-        callerName:
-          `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() ||
-          "User",
+        callerName,
         callerAvatar: caller?.avatar ?? null,
         title: `Call — ${booking.title ?? "Booking"}`,
         createdAt: call.createdAt,
@@ -1375,12 +1378,25 @@ export const startBookingCall = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── ✅ NEW — send high-priority push notification ────────────────────
+  // Wakes the callee's phone even when the app is closed or backgrounded.
+  // Fire-and-forget — a push failure must not block the HTTP response.
+  sendIncomingCallPush(calleeId, {
+    callType: "BOOKING",
+    callId: call.id,
+    roomId: call.roomId,
+    callUrl,
+    callerName,
+    title: `Call — ${booking.title ?? "Booking"}`,
+    bookingId: booking.id,
+  }).catch((err) => console.error("Booking push failed:", err));
+
   return res.status(200).json({
     success: true,
     data: {
       callId: call.id,
       roomId: call.roomId,
-      callUrl: buildCallUrl(call.roomId),
+      callUrl,
     },
   });
 });

@@ -21,6 +21,7 @@
 
 import prisma from "../config/database.js";
 import { sendResponse, sendError } from "../utils/response.js";
+import { sendIncomingCallPush } from "../services/pushNotification.service.js";
 
 async function loadConversationForUser(conversationId, userId) {
   const conversation = await prisma.conversation.findUnique({
@@ -43,127 +44,137 @@ async function loadConversationForUser(conversationId, userId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// initiateVoiceCall
 // POST /api/voice-calls/:conversationId/initiate
 //
-// Whoever calls this endpoint becomes the initiator. Every initiate that
-// arrives while the row is NOT active overwrites initiatorId/receiverId so
-// we never carry a stale caller from a previous test.
-//
-// RACE SAFETY: if the row is already ACTIVE, we return it as-is and never
-// touch initiatorId/status.
-//
-// ✅ NEW: accepts optional `returnTo`, `returnParams`, and `bookingId` on the
-// body. Persists them on the VoiceCall row so GET /voice-calls/incoming can
-// echo them back and the receiver's banner can navigate to the right screen
-// after the call ends.
+// Creates (or reuses) a VoiceCall row for a 1-on-1 conversation, emits
+// "voice-call:incoming" over the socket, AND sends a high-priority push
+// notification so the callee's phone rings even when the app is closed.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initiateVoiceCall = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.id;
-    const callType = req.body?.callType === "video" ? "video" : "voice";
+    const { callType = "voice", returnTo, returnParams } = req.body || {};
 
-    // ✅ NEW: accept the return metadata from the caller.
-    const returnTo =
-      typeof req.body?.returnTo === "string" ? req.body.returnTo : null;
-    const returnParams =
-      req.body?.returnParams && typeof req.body.returnParams === "object"
-        ? req.body.returnParams
-        : null;
-    const bookingId =
-      typeof req.body?.bookingId === "string" ? req.body.bookingId : null;
+    // ── 1. Verify the caller belongs to this conversation ──────────────
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        users: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-    const { conversation, error, status } = await loadConversationForUser(
-      conversationId,
-      userId,
-    );
-    if (error) return sendError(res, error, status);
+    if (!conversation) return sendError(res, "Conversation not found", 404);
+
+    const isMember = conversation.users.some((u) => u.userId === userId);
+    if (!isMember) return sendError(res, "Not a participant", 403);
 
     const other = conversation.users.find((u) => u.userId !== userId);
-    if (!other) {
-      return sendError(res, "No other participant in this conversation", 400);
-    }
-    const receiverId = other.userId;
+    if (!other)
+      return sendError(res, "No other participant in conversation", 400);
+    const calleeId = other.userId;
 
+    // ── 2. Reuse or create the VoiceCall row ───────────────────────────
     let call = await prisma.voiceCall.findUnique({
       where: { conversationId },
     });
 
-    // ── RACE GUARD ────────────────────────────────────────────────────────
-    // If the row is already ACTIVE, DO NOT reopen it. Return as-is.
-    if (call && call.status === "ACTIVE") {
+    if (
+      call &&
+      ["PENDING", "ACTIVE"].includes(call.status) &&
+      call.callType === callType
+    ) {
+      // Already ringing or active — reuse the existing row.
       return sendResponse(res, {
-        data: { call, callType: call.callType },
+        message: "Call already in progress",
+        data: { call },
       });
     }
 
-    if (!call) {
-      call = await prisma.voiceCall.create({
-        data: {
-          conversationId,
-          initiatorId: userId,
-          receiverId,
-          status: "PENDING",
-          callType,
-          returnTo, // ✅ NEW
-          returnParams, // ✅ NEW
-          bookingId, // ✅ NEW
-        },
-      });
-    } else {
+    if (call) {
+      // Reopen for a fresh session — same room, new initiator/receiver.
       call = await prisma.voiceCall.update({
         where: { conversationId },
         data: {
           status: "PENDING",
-          initiatorId: userId,
-          receiverId,
           callType,
-          returnTo, // ✅ NEW — clear/overwrite each initiate
-          returnParams, // ✅ NEW
-          bookingId, // ✅ NEW
+          initiatorId: userId,
+          receiverId: calleeId,
           startedAt: null,
           endedAt: null,
+          returnTo: returnTo ?? null,
+          returnParams: returnParams ?? null,
+        },
+      });
+    } else {
+      call = await prisma.voiceCall.create({
+        data: {
+          conversationId,
+          initiatorId: userId,
+          receiverId: calleeId,
+          callType,
+          status: "PENDING",
+          returnTo: returnTo ?? null,
+          returnParams: returnParams ?? null,
         },
       });
     }
 
+    // ── 3. Compose the caller's display name ───────────────────────────
+    const caller = conversation.users.find((u) => u.userId === userId)?.user;
     const callerName =
-      `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim() ||
+      `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() ||
       "Someone";
-    const notifTitle =
-      call.callType === "video"
-        ? "📹 Incoming Video Call"
-        : "🎙️ Incoming Voice Call";
 
-    await prisma.notification
-      .create({
-        data: {
-          userId: receiverId,
-          title: notifTitle,
-          body: `${callerName} is calling you`,
-          type:
-            call.callType === "video"
-              ? "VIDEO_CALL_INCOMING"
-              : "VOICE_CALL_INCOMING",
-          data: {
-            conversationId,
-            callId: call.id,
-            callType: call.callType,
-          },
+    // DM rooms are deterministic — the frontend builds `skp-conv-${id}`.
+    const callUrl = `https://call.skilledproz.com/skp-conv-${conversationId}?audio=1&video=1&notify=0&chat=0`;
+
+    // ── 4. Socket emit (in-app banner) ─────────────────────────────────
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`user:${calleeId}`).emit("voice-call:incoming", {
+        call: {
+          ...call,
+          initiator: caller ?? null,
+          callUrl,
         },
-      })
-      .catch(() => {});
+      });
+    }
+
+    // ── 5. ✅ NEW — high-priority push notification ────────────────────
+    // Wakes the callee's phone even when the app is closed or in the
+    // background. Fire-and-forget — a push failure must not block the
+    // HTTP response to the caller.
+    sendIncomingCallPush(calleeId, {
+      callType:
+        callType === "video" ? "CONVERSATION_VIDEO" : "CONVERSATION_VOICE",
+      callId: call.id,
+      roomId: `skp-conv-${conversationId}`,
+      callUrl,
+      callerName,
+      title:
+        callType === "video"
+          ? `Video call from ${callerName}`
+          : `Voice call from ${callerName}`,
+      conversationId,
+    }).catch((err) => console.error("DM push failed:", err));
 
     return sendResponse(res, {
-      status: 201,
-      message:
-        call.callType === "video"
-          ? "Video call initiated"
-          : "Voice call initiated",
-      data: {
-        call,
-        callType: call.callType,
-      },
+      message: "Call initiated",
+      data: { call },
     });
   } catch (err) {
     console.error("initiateVoiceCall error:", err.message);
