@@ -1922,3 +1922,60 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
     },
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getInterviewCallUrl
+// Returns the active call room URL for a job interview so the frontend
+// iframe can load it. Used by <InterviewCallRoom /> at /interview/:applicationId.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getInterviewCallUrl = asyncHandler(async (req, res) => {
+  const { applicationId } = req.params;
+  const userId = req.user.id;
+
+  // 1. Load the application to verify access
+  const application = await prisma.jobApplication.findUnique({
+    where: { id: applicationId },
+    include: {
+      jobPost: { select: { hirerId: true } },
+    },
+  });
+
+  if (!application) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Application not found" });
+  }
+
+  const isHirer = application.jobPost.hirerId === userId;
+  const isWorker = application.workerId === userId;
+  if (!isHirer && !isWorker) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Not authorised for this call" });
+  }
+
+  // 2. Find the most recent active call for this application
+  const call = await prisma.videoCall.findFirst({
+    where: {
+      jobApplicationId: applicationId,
+      status: { in: ["PENDING", "RINGING", "ACTIVE"] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!call) {
+    return res.status(404).json({
+      success: false,
+      message: "No active call found for this application",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      callId: call.id,
+      roomId: call.roomId,
+      callUrl: buildCallUrl(call.roomId),
+    },
+  });
+});
