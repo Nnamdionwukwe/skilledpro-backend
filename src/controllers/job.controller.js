@@ -1836,6 +1836,9 @@ export const reconsiderApplication = async (req, res) => {
 // returns the room URL. Emits "video-call:incoming" to the other party so
 // their open tab / device shows the incoming-call banner.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// startInterviewCall
+// ─────────────────────────────────────────────────────────────────────────────
 export const startInterviewCall = asyncHandler(async (req, res) => {
   const { applicationId } = req.params;
   const userId = req.user.id;
@@ -1866,26 +1869,56 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
 
   const calleeId = isHirer ? application.workerId : application.jobPost.hirerId;
 
-  // Reuse an existing active call for this application if one is still open.
-  let call = await prisma.videoCall.findFirst({
-    where: {
-      jobApplicationId: applicationId,
-      status: { in: ["PENDING", "RINGING", "ACTIVE"] },
-    },
-  });
-
-  if (!call) {
-    call = await prisma.videoCall.create({
-      data: {
+  // Use upsert to prevent race conditions on double-click
+  let call;
+  try {
+    // Check if an active call already exists
+    call = await prisma.videoCall.findFirst({
+      where: {
         jobApplicationId: applicationId,
-        roomId: `interview-${applicationId}-${Date.now()}`,
-        callType: "JOB_INTERVIEW",
-        status: "RINGING",
-        initiatorId: userId,
-        receiverId: calleeId,
-        startedAt: new Date(),
+        status: { in: ["PENDING", "RINGING", "ACTIVE"] },
       },
     });
+
+    if (!call) {
+      // Check if an old call exists to reuse the row (avoids unique constraint error)
+      const existingCall = await prisma.videoCall.findUnique({
+        where: { jobApplicationId: applicationId },
+      });
+
+      if (existingCall) {
+        // Reuse the existing row
+        call = await prisma.videoCall.update({
+          where: { id: existingCall.id },
+          data: {
+            status: "RINGING",
+            initiatorId: userId,
+            receiverId: calleeId,
+            startedAt: new Date(),
+            endedAt: null,
+            roomId: `interview-${applicationId}-${Date.now()}`,
+          },
+        });
+      } else {
+        // Create a brand new row
+        call = await prisma.videoCall.create({
+          data: {
+            jobApplicationId: applicationId,
+            roomId: `interview-${applicationId}-${Date.now()}`,
+            callType: "JOB_INTERVIEW",
+            status: "RINGING",
+            initiatorId: userId,
+            receiverId: calleeId,
+            startedAt: new Date(),
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("VideoCall upsert error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to create call session" });
   }
 
   // Notify the callee over the socket.
@@ -1919,7 +1952,7 @@ export const startInterviewCall = asyncHandler(async (req, res) => {
       callId: call.id,
       roomId: call.roomId,
       callUrl: buildCallUrl(call.roomId),
-      status: call.status, // ✅ Added so the frontend knows if it's active
+      status: call.status,
     },
   });
 });
