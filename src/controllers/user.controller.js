@@ -16,6 +16,19 @@ import {
   safeUser,
 } from "../utils/helpers.js";
 
+import { upsertDeviceToken } from "../services/push.service.js";
+
+export const registerPushToken = async (req, res) => {
+  const { token, platform } = req.body;
+  if (!token) return sendError(res, "Token required", 400);
+  try {
+    await upsertDeviceToken(req.user.id, token, platform || null);
+    return sendResponse(res, { message: "Token registered" });
+  } catch (err) {
+    return sendError(res, err.message || "Failed to register token", 400);
+  }
+};
+
 /**
  * Compute a worker's response rate.
  *

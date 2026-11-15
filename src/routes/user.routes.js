@@ -6,6 +6,7 @@ import {
   updateAvatar,
   deleteAccount,
   getProfile,
+  registerPushToken,
 } from "../controllers/user.controller.js";
 import {
   uploadSingle, // was: upload.single("avatar")  ← FIXED
@@ -21,6 +22,8 @@ const router = Router();
 router.put("/me", protect, validateUpdateProfile, updateProfile);
 router.put("/me/avatar", protect, uploadSingle, normaliseFile, updateAvatar);
 router.delete("/me", protect, deleteAccount);
+router.post("/push-token", protect, registerPushToken);
+
 router.get("/:id", optionalProtect, ...validateUUIDParam("id"), getProfile);
 
 export default router;
