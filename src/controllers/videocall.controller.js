@@ -267,6 +267,9 @@ export const getCallUrl = async (req, res) => {
 // Uses Booking.title (scalar) — the schema has no `service` relation,
 // it has `category`. The booking's own title is the human-friendly label.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/video-calls/incoming
+// ─────────────────────────────────────────────────────────────────────────────
 export const getIncomingCall = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -274,14 +277,20 @@ export const getIncomingCall = async (req, res) => {
     const call = await prisma.videoCall.findFirst({
       where: {
         receiverId: userId,
-        status: "PENDING",
+        // ✅ Accept both PENDING (booking) and RINGING (interview)
+        status: { in: ["PENDING", "RINGING"] },
       },
       orderBy: { createdAt: "desc" },
       include: {
         booking: {
+          select: { id: true, title: true },
+        },
+        // ✅ Include the job application for interview calls so the banner
+        // can display the job title
+        jobApplication: {
           select: {
             id: true,
-            title: true,
+            jobPost: { select: { title: true } },
           },
         },
       },
@@ -291,14 +300,23 @@ export const getIncomingCall = async (req, res) => {
       return sendResponse(res, { data: { call: null, callUrl: null } });
     }
 
+    // Determine the display name based on call type
+    let callerName = "Video consultation";
+    if (call.callType === "JOB_INTERVIEW") {
+      callerName = call.jobApplication?.jobPost?.title
+        ? `Interview: ${call.jobApplication.jobPost.title}`
+        : "Job Interview";
+    } else if (call.booking?.title) {
+      callerName = `Regarding: ${call.booking.title}`;
+    }
+
     return sendResponse(res, {
       data: {
         call,
         callUrl: buildCallUrl(call.roomId),
         bookingId: call.bookingId,
-        callerName: call.booking?.title
-          ? `Regarding: ${call.booking.title}`
-          : "Video consultation",
+        jobApplicationId: call.jobApplicationId, // ✅ passed to frontend
+        callerName,
       },
     });
   } catch (err) {
