@@ -1966,7 +1966,6 @@ export const getInterviewCallUrl = asyncHandler(async (req, res) => {
   const { applicationId } = req.params;
   const userId = req.user.id;
 
-  // 1. Load the application to verify access
   const application = await prisma.jobApplication.findUnique({
     where: { id: applicationId },
     include: {
@@ -1988,7 +1987,6 @@ export const getInterviewCallUrl = asyncHandler(async (req, res) => {
       .json({ success: false, message: "Not authorised for this call" });
   }
 
-  // 2. Find the most recent active call for this application
   const call = await prisma.videoCall.findFirst({
     where: {
       jobApplicationId: applicationId,
@@ -2011,7 +2009,7 @@ export const getInterviewCallUrl = asyncHandler(async (req, res) => {
       roomId: call.roomId,
       callUrl: buildCallUrl(call.roomId),
       status: call.status,
-      jobPostId: application.jobPost.id,
+      jobPostId: application.jobPost.id, // ✅ CRITICAL: Always returned
     },
   });
 });
