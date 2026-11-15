@@ -23,6 +23,8 @@ import {
   // Application actions
   unacceptApplication,
   reconsiderApplication,
+  startInterviewCall, // ✅ Added
+  getInterviewCallUrl, // ✅ Added
 } from "../controllers/job.controller.js";
 import {
   validateCreateJob,
@@ -146,6 +148,21 @@ router.delete(
   requireRole("WORKER"),
   ...validateUUIDParam("id"),
   unsaveJob,
+);
+
+// ── Video Call (job interview-specific) ────────────────────────────────────
+// Start (or reuse) a video call for a job interview
+router.post(
+  "/applications/:applicationId/call",
+  ...validateUUIDParam("applicationId"),
+  startInterviewCall,
+);
+
+// Get the active room URL for the interview iframe
+router.get(
+  "/applications/:applicationId/call",
+  ...validateUUIDParam("applicationId"),
+  getInterviewCallUrl,
 );
 
 export default router;

@@ -3,16 +3,17 @@ import { Router } from "express";
 import { protect, requireRole } from "../middleware/auth.middleware.js";
 import {
   createBooking,
-  createBookingFromJobPost, // ← add
+  createBookingFromJobPost,
   getJobPostBookingDraft,
-  getMyBookings, // was: getBookings       ← FIXED
-  getBooking, // was: getBookingById     ← FIXED
+  getMyBookings,
+  getBooking,
   updateBookingStatus,
   checkIn,
   checkOut,
-  activateSOS, // was: triggerSOS         ← FIXED
+  activateSOS,
   resolveSOS,
   updateEmergencyContact,
+  startBookingCall, // ✅ Added
 } from "../controllers/booking.controller.js";
 import {
   validateCreateBooking,
@@ -72,6 +73,14 @@ router.patch(
   "/:id/emergency-contact",
   ...validateUUIDParam("id"),
   updateEmergencyContact,
+);
+
+// ── Video Call (booking-specific) ──────────────────────────────────────────
+// Start (or reuse) a video call for a booking
+router.post(
+  "/:bookingId/call",
+  ...validateUUIDParam("bookingId"),
+  startBookingCall,
 );
 
 export default router;
