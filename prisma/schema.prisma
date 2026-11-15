@@ -1106,7 +1106,7 @@ model Payment {
   bankTransferRef   String?
   bankTransferProof String?
 
-  providerTxId   String?    // ← only ONE declaration
+  providerTxId String? // ← only ONE declaration
 
   cryptoNetwork  String?
   cryptoTxHash   String?
@@ -1128,7 +1128,7 @@ model Payment {
   releaseCount   Int              @default(0)
   releases       PaymentRelease[]
 
-  @@index([providerTxId])   // ← index kept, still valid
+  @@index([providerTxId]) // ← index kept, still valid
 }
 
 model PaymentRelease {
@@ -1491,22 +1491,34 @@ model JobApplication {
   jobPost JobPost @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
   worker  User    @relation("WorkerJobApplications", fields: [workerId], references: [id], onDelete: Cascade)
 
+  videoCall VideoCall?
+
   @@unique([jobPostId, workerId])
 }
 
 model VideoCall {
-  id          String    @id @default(uuid())
-  bookingId   String    @unique
-  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  // ── Anchor — exactly one of bookingId / jobApplicationId is set ──
+  bookingId        String?         @unique
+  booking          Booking?        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  jobApplicationId String?         @unique
+  jobApplication   JobApplication? @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+
+  // ── Participants ──
   initiatorId String
-  initiator   User      @relation("CallsInitiated", fields: [initiatorId], references: [id])
+  initiator   User   @relation("CallsInitiated", fields: [initiatorId], references: [id])
   receiverId  String
-  receiver    User      @relation("CallsReceived", fields: [receiverId], references: [id])
-  roomId      String    @unique
-  status      String    @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
-  startedAt   DateTime?
-  endedAt     DateTime?
-  createdAt   DateTime  @default(now())
+  receiver    User   @relation("CallsReceived", fields: [receiverId], references: [id])
+
+  // ── Call metadata ──
+  roomId   String @unique
+  callType String @default("BOOKING") // "BOOKING" | "JOB_INTERVIEW"
+  status   String @default("PENDING") // PENDING | RINGING | ACTIVE | ENDED | DECLINED
+
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1531,12 +1543,12 @@ model VoiceCall {
   receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
 
   status   String @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
-  callType String @default("voice")   // "voice" | "video"
+  callType String @default("voice") // "voice" | "video"
 
   // ✅ NEW — echo these back to the receiver so their banner can
   // navigate to the right screen after the call ends.
   returnTo     String? // "BookingDetail" | "Chat" | "JobApplications" | ...
-  returnParams Json?   // { bookingId } | { jobId } | { conversationId }
+  returnParams Json? // { bookingId } | { jobId } | { conversationId }
   bookingId    String? // optional — populated when the caller came from a booking
 
   startedAt DateTime?

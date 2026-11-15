@@ -44,3 +44,28 @@ export function buildCallUrl(roomId) {
 export function buildCallTitle({ bookingTitle, callerName }) {
   return `📹 ${callerName} — ${bookingTitle}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Emit an "incoming video call" socket event to the callee.
+//
+// Called from jobApplication.controller.startInterviewCall and
+// booking.controller.startBookingCall right after the VideoCall row exists.
+// The recipient's socket joins a per-user room (`user:<id>`) at connect time,
+// so a single emit reaches every open tab / device for that user.
+// ─────────────────────────────────────────────────────────────────────────────
+export function emitIncomingCall(io, { calleeId, call }) {
+  if (!io || !calleeId || !call) return;
+  io.to(`user:${calleeId}`).emit("video-call:incoming", {
+    callId: call.id,
+    roomId: call.roomId,
+    callUrl: buildCallUrl(call.roomId),
+    callType: call.callType, // "BOOKING" | "JOB_INTERVIEW"
+    contextId: call.contextId, // bookingId or jobApplicationId
+    callerId: call.callerId,
+    callerName: call.callerName,
+    callerAvatar: call.callerAvatar ?? null,
+    title: call.title,
+    createdAt: call.createdAt ?? new Date().toISOString(),
+    expiresAt: call.expiresAt ?? null,
+  });
+}

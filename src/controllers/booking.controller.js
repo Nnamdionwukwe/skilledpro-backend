@@ -36,6 +36,13 @@ import {
 } from "../utils/helpers.js";
 import { computeJobBookingTotal } from "../utils/bookingMath.js";
 
+// ✅ NEW — socket emit helper for incoming video calls
+import {
+  buildCallUrl, // ✅ NEW (if not already imported)
+  emitIncomingCall, // ✅ NEW
+} from "../services/videoCall.service.js";
+import { asyncHandler } from "../middleware/error.middleware.js";
+
 export const createBooking = async (req, res) => {
   try {
     const {
@@ -1285,3 +1292,95 @@ export const updateEmergencyContact = async (req, res) => {
     return sendError(res, "Failed to save emergency contact");
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// startBookingCall
+// Creates (or reuses) a VideoCall row for a booking and returns the room URL.
+// Emits "video-call:incoming" to the other party so their open tab / device
+// shows the incoming-call banner.
+// ─────────────────────────────────────────────────────────────────────────────
+export const startBookingCall = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  const userId = req.user.id;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      hirer: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
+      worker: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
+    },
+  });
+
+  if (!booking) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Booking not found" });
+  }
+
+  const isHirer = booking.hirerId === userId;
+  const isWorker = booking.workerId === userId;
+  if (!isHirer && !isWorker) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Not authorised for this call" });
+  }
+
+  const calleeId = isHirer ? booking.workerId : booking.hirerId;
+
+  // Reuse an existing active call for this booking if one is still open.
+  let call = await prisma.videoCall.findFirst({
+    where: {
+      bookingId,
+      status: { in: ["PENDING", "RINGING", "ACTIVE"] },
+    },
+  });
+
+  if (!call) {
+    call = await prisma.videoCall.create({
+      data: {
+        bookingId,
+        roomId: `booking-${bookingId}-${Date.now()}`,
+        callType: "BOOKING",
+        status: "RINGING",
+        initiatorId: userId,
+        receiverId: calleeId,
+        startedAt: new Date(),
+      },
+    });
+  }
+
+  // Notify the callee over the socket.
+  const io = req.app.get("io");
+  if (io) {
+    const caller = isHirer ? booking.hirer : booking.worker;
+    emitIncomingCall(io, {
+      calleeId,
+      call: {
+        id: call.id,
+        roomId: call.roomId,
+        callType: "BOOKING",
+        contextId: booking.id,
+        callerId: userId,
+        callerName:
+          `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() ||
+          "User",
+        callerAvatar: caller?.avatar ?? null,
+        title: `Call — ${booking.title ?? "Booking"}`,
+        createdAt: call.createdAt,
+      },
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      callId: call.id,
+      roomId: call.roomId,
+      callUrl: buildCallUrl(call.roomId),
+    },
+  });
+});

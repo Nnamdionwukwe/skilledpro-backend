@@ -1,0 +1,2690 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  HIRER
+  WORKER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+  AWAITING_PAYMENT // ← NEW  (retained cycle, no payment yet)
+  PAID // ← NEW  (retained cycle, fully released)
+}
+
+enum BookingSource {
+  DIRECT
+  JOB_POST
+  RETAINED_STAFF
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum JobPostStatus {
+  OPEN
+  FILLED
+  CANCELLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ReferralTier {
+  BRONZE
+  SILVER
+  GOLD
+  DIAMOND
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  CONVERTED
+  REWARDED
+  EXPIRED
+  FLAGGED
+}
+
+enum CampaignReferralStatus {
+  PENDING
+  TASKS_DONE
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum CampaignSubmissionStatus {
+  PENDING
+  REVIEWING
+  APPROVED
+  PARTIAL
+  REJECTED
+}
+
+enum ReportType {
+  USER
+  JOB_POST
+  POST
+  REVIEW
+  BOOKING
+  MESSAGE
+}
+
+enum ReportReason {
+  SPAM
+  FAKE_PROFILE
+  INAPPROPRIATE_CONTENT
+  FRAUD
+  HARASSMENT
+  SCAM
+  MISLEADING_INFORMATION
+  FAKE_REVIEWS
+  UNDERAGE_USER
+  HATE_SPEECH
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportAction {
+  NO_ACTION
+  WARNING_ISSUED
+  CONTENT_REMOVED
+  USER_SUSPENDED
+  USER_BANNED
+}
+
+enum AuditAction {
+  // ── User management ──────────────────────────────────────────────────────
+  USER_BANNED
+  USER_UNBANNED
+  USER_DELETED
+  USER_ROLE_CHANGED
+  USER_VERIFIED
+  USER_VERIFICATION_REJECTED
+  USER_SUSPENDED // from report resolution
+  // ── Payment management ───────────────────────────────────────────────────
+  PAYMENT_RELEASED
+  PAYMENT_REFUNDED
+  PAYMENT_MANUAL_VERIFIED // bank transfer / crypto confirmed
+  PAYMENT_MANUAL_REJECTED // bank transfer / crypto rejected
+  // ── Withdrawal management ────────────────────────────────────────────────
+  WITHDRAWAL_APPROVED
+  WITHDRAWAL_REJECTED
+  // ── Worker debt management ───────────────────────────────────────────────
+  WORKER_DEBT_CREATED
+  WORKER_DEBT_DEDUCTED
+  WORKER_DEBT_FORGIVEN
+  WORKER_DEBT_MARKED_COLLECTION
+  // ── Refund management ────────────────────────────────────────────────────  ← NEW
+  REFUND_APPROVED
+  REFUND_REJECTED
+  REFUND_REVERSED
+  REFUND_BULK_APPROVED
+  REFUND_BULK_REJECTED
+  // ── Report management ────────────────────────────────────────────────────
+  REPORT_REVIEWED
+  REPORT_RESOLVED
+  REPORT_DISMISSED
+  REPORT_BULK_DISMISSED
+  // ── Content management ───────────────────────────────────────────────────
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  CATEGORY_DELETED
+  REVIEW_DELETED
+  JOB_DELETED
+  JOB_STATUS_CHANGED
+  POST_DELETED
+  COMMENT_DELETED
+  FEATURED_REMOVED
+  // ── Booking & disputes ───────────────────────────────────────────────────
+  BOOKING_STATUS_CHANGED
+  DISPUTE_RESOLVED // legacy — kept for backwards compat
+  DISPUTE_RAISED
+  DISPUTE_RESOLVED_REFUND
+  DISPUTE_RESOLVED_RELEASE
+  DISPUTE_CANCELLED
+  // ── Campaign ─────────────────────────────────────────────────────────────
+  CAMPAIGN_SUBMISSION_REVIEWED
+  CAMPAIGN_WITHDRAWAL_APPROVED
+  CAMPAIGN_WITHDRAWAL_REJECTED
+  // ── Referral ─────────────────────────────────────────────────────────────
+  REFERRAL_PAYOUT_PROCESSED
+  REFERRAL_FLAGGED
+  // ── Subscription ─────────────────────────────────────────────────────────
+  SUBSCRIPTION_CANCELLED
+  // ── Notifications ────────────────────────────────────────────────────────
+  NOTIFICATION_BROADCAST
+  // ── Survey moderation ────────────────────────────────────────────────────  ← NEW
+  SURVEY_VIEWED
+  SURVEY_STATUS_UPDATED
+  SURVEY_BULK_DELETED
+  // ── System ───────────────────────────────────────────────────────────────
+  ADMIN_LOGIN
+  SETTINGS_CHANGED
+
+  JOB_CREATED
+  JOB_UPDATED
+
+  // ── Retained Staff ─────────────────────────────────────────────────
+  RETAINED_STAFF_ADDED
+  RETAINED_STAFF_UPDATED
+  RETAINED_STAFF_PAUSED
+  RETAINED_STAFF_RESUMED
+  RETAINED_STAFF_ENDED
+  RETAINED_STAFF_DELETED
+  RETAINED_STAFF_RATE_CHANGED
+  RETAINED_STAFF_DOCUMENT_UPLOADED
+  RETAINED_STAFF_DOCUMENT_VERIFIED
+  RETAINED_STAFF_DOCUMENT_REJECTED
+  RETAINED_CYCLE_CREATED
+  RETAINED_CYCLE_CANCELLED
+  RETAINED_CYCLE_PAYMENT_MADE
+  RETAINED_CYCLE_RELEASED
+  RETAINED_CYCLE_REFUNDED
+  RETAINED_CYCLE_DISPUTED
+  RETAINED_CYCLE_CRON_GENERATED
+
+  SUPPORT_TICKET_CREATED
+  SUPPORT_TICKET_ASSIGNED
+  SUPPORT_TICKET_STATUS_CHANGED
+  SUPPORT_TICKET_PRIORITY_CHANGED
+  SUPPORT_TICKET_REPLIED
+  SUPPORT_TICKET_REOPENED
+  SUPPORT_TICKET_CLOSED
+  SUPPORT_CHAT_ENDED
+  SUPPORT_CHAT_ESCALATED
+}
+
+enum AuditTargetType {
+  USER
+  PAYMENT
+  WITHDRAWAL
+  BOOKING
+  JOB_POST
+  POST
+  COMMENT
+  REVIEW
+  CATEGORY
+  REPORT
+  CAMPAIGN_SUBMISSION
+  CAMPAIGN_WITHDRAWAL
+  REFERRAL
+  SUBSCRIPTION
+  FEATURED_LISTING
+  DISPUTE
+  REFUND // ← NEW
+  SURVEY // ← NEW
+  SYSTEM
+  RETAINED_STAFF_MEMBER
+  RETAINED_STAFF_CYCLE
+  RETAINED_STAFF_DOCUMENT
+  SUPPORT_TICKET
+  SUPPORT_CHAT
+}
+
+// Add new enums
+enum SalaryPeriod {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum EducationLevel {
+  HIGH_SCHOOL
+  DIPLOMA
+  BACHELOR
+  MASTER
+  DOCTORATE
+  CERTIFICATION
+  OTHER
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// RETAINED STAFF — Enums
+// ═════════════════════════════════════════════════════════════════════
+enum RetainedStaffStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+  TERMINATED
+}
+
+enum PayFrequency {
+  WEEKLY
+  BIWEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+  QUARTERLY
+  ON_DEMAND
+}
+
+enum RetainedCycleStatus {
+  SCHEDULED
+  AWAITING_PAYMENT
+  HELD
+  PARTIALLY_RELEASED
+  RELEASED
+  CANCELLED
+  FAILED
+}
+
+enum RetainedCycleType {
+  REGULAR
+  MANUAL
+  BONUS
+  REIMBURSEMENT
+  FINAL_SETTLEMENT
+}
+
+enum RetainedPaymentMethod {
+  ESCROW
+  DIRECT_TRANSFER
+}
+
+enum RetainedDocumentType {
+  CONTRACT
+  NDA
+  ID
+  CERTIFICATION
+  OFFER_LETTER
+  PAYSLIP
+  OTHER
+}
+
+enum RetainedDocumentStatus {
+  PENDING
+  SIGNED
+  VERIFIED
+  REJECTED
+}
+
+model User {
+  id                  String     @id @default(uuid())
+  feedback            Feedback[] @relation("FeedbackUser")
+  reviewedFeedback    Feedback[] @relation("FeedbackReviewer")
+  email               String     @unique
+  phone               String?    @unique
+  password            String
+  role                Role
+  firstName           String
+  lastName            String
+  avatar              String?
+  bio                 String?
+  country             String?
+  city                String?
+  state               String?
+  address             String?
+  latitude            Float?
+  longitude           Float?
+  currency            String     @default("USD")
+  language            String     @default("en")
+  isEmailVerified     Boolean    @default(false)
+  isPhoneVerified     Boolean    @default(false)
+  isActive            Boolean    @default(true)
+  isBanned            Boolean    @default(false)
+  emailVerifyToken    String?
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
+  refreshToken        String?
+  lastSeen            DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  workerProfile     WorkerProfile?
+  hirerProfile      HirerProfile?
+  bookingsAsHirer   Booking[]          @relation("HirerBookings")
+  bookingsAsWorker  Booking[]          @relation("WorkerBookings")
+  reviewsGiven      Review[]           @relation("ReviewsGiven")
+  reviewsReceived   Review[]           @relation("ReviewsReceived")
+  sentMessages      Message[]          @relation("SentMessages")
+  receivedMessages  Message[]          @relation("ReceivedMessages")
+  conversations     ConversationUser[]
+  notifications     Notification[]
+  payments          Payment[]
+  jobPosts          JobPost[]          @relation("HirerJobPosts")
+  jobApplications   JobApplication[]   @relation("WorkerJobApplications")
+  withdrawals       Withdrawal[]
+  subscriptions     Subscription[]
+  featuredListings  FeaturedListing[]
+  posts             Post[]             @relation("UserPosts")
+  postReactions     PostReaction[]     @relation("UserReactions")
+  postComments      PostComment[]      @relation("UserComments")
+  callsInitiated    VideoCall[]        @relation("CallsInitiated")
+  callsReceived     VideoCall[]        @relation("CallsReceived")
+  theme             String?            @default("system") // "light" | "dark" | "system"
+  notifBookings     Boolean            @default(true)
+  notifMessages     Boolean            @default(true)
+  notifPayments     Boolean            @default(true)
+  notifReviews      Boolean            @default(true)
+  notifMarketing    Boolean            @default(false)
+  profileVisible    Boolean            @default(true)
+  showPhone         Boolean            @default(false)
+  showLocation      Boolean            @default(true)
+  twoFactorEnabled  Boolean            @default(false)
+  dashboardCurrency String?            @default("USD")
+  paymentCurrency   String?            @default("USD")
+  showEmail         Boolean            @default(false)
+
+  showGender      Boolean @default(false)
+  defaultEstUnit  String?
+  defaultEstValue String?
+
+  gender String? // "Male" | "Female" | "Non-binary" | "Prefer not to say"
+
+  referralCode        String?             @unique
+  referredById        String?
+  referredBy          User?               @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals           User[]              @relation("UserReferrals")
+  walletBalance       Float               @default(0)
+  walletLifetimeTotal Float               @default(0)
+  referralTier        ReferralTier        @default(BRONZE)
+  totalReferrals      Int                 @default(0)
+  successfulReferrals Int                 @default(0)
+  referralsGiven      Referral[]          @relation("ReferrerReferrals")
+  referralReceived    Referral?           @relation("ReferredReferral")
+  walletTransactions  WalletTransaction[]
+
+  campaignWalletBalance       Float                 @default(0)
+  campaignWalletLifetimeTotal Float                 @default(0)
+  campaignReferralsGiven      CampaignReferral[]    @relation("CampaignReferrer")
+  campaignReferralReceived    CampaignReferral?     @relation("CampaignReferred")
+  campaignSubmissions         CampaignSubmission[]
+  campaignTransactions        CampaignTransaction[]
+  campaignWithdrawals         CampaignWithdrawal[]
+
+  reportsGiven    Report[]      @relation("ReportsGiven")
+  reportsReviewed Report[]      @relation("ReportsReviewed")
+  auditLogs       AuditLog[]    @relation("AuditLogs")
+  deviceTokens    DeviceToken[] @relation("DeviceTokens")
+
+  savedWorkers  SavedWorker[] @relation("HirerSavedWorkers")
+  savedByHirers SavedWorker[] @relation("WorkerSavedByHirers")
+  savedJobs     SavedJob[]    @relation("WorkerSavedJobs")
+
+  promoCodes      PromoCode[]      @relation("PromoCodesCreated")
+  promoCodeUsages PromoCodeUsage[] @relation("PromoCodeUsages")
+
+  withdrawalPin            String? // bcrypt-hashed 4-digit PIN
+  withdrawalPinSet         Boolean   @default(false)
+  withdrawalPinAttempts    Int       @default(0) // wrong-attempt counter
+  withdrawalPinLockedUntil DateTime? // locked until this time after 3 wrong attempts
+  adminJobPosts            JobPost[] @relation("AdminJobPosts")
+
+  externalJobClicks    ExternalJobClick[]
+  // Wallet relations
+  hirerWallets         HirerWallet[]
+  hirerTransactions    HirerTransaction[]
+  hirerWithdrawals     HirerWithdrawal[]
+  hirerFundingAttempts HirerFundingAttempt[]
+
+  // ── Refund relations ─────────────────────────────────────────────────────
+  hirerRefunds  Refund[] @relation("HirerRefunds")
+  workerRefunds Refund[] @relation("WorkerRefunds")
+  adminRefunds  Refund[] @relation("AdminRefunds")
+
+  // ── Dispute relations ────────────────────────────────────────────────────
+  disputesRaised   Dispute[] @relation("DisputesRaisedBy")
+  disputesAgainst  Dispute[] @relation("DisputesAgainst")
+  disputesResolved Dispute[] @relation("DisputesResolvedBy")
+
+  // ── Worker debt relations ────────────────────────────────────────────────
+  workerDebts           WorkerDebt[] @relation("WorkerDebts")
+  forgivenDebts         WorkerDebt[] @relation("ForgivenDebts")
+  markedCollectionDebts WorkerDebt[] @relation("MarkedCollectionDebts")
+
+  // ── Google OAuth ────────────────────────────────────────
+  googleId     String? @unique
+  authProvider String  @default("LOCAL") // "LOCAL" | "GOOGLE"
+  avatarCustom Boolean @default(false) // true once user sets their own avatar
+  nameCustom   Boolean @default(false) // true once user sets their own name
+
+  // ── Account lifecycle ────────────────────────────────────────
+  isPaused            Boolean   @default(false) // "Take a break" state
+  pausedAt            DateTime?
+  deletionScheduledAt DateTime? // set when user requests permanent delete
+  deletionReason      String?
+  deletionRequestedAt DateTime?
+
+  // ── VERIFICATION RELATIONS ────────────────────────────────────────────────
+  workerVerificationsReviewed WorkerProfile[] @relation("WorkerVerifReviewedBy")
+  hirerVerificationsReviewed  HirerProfile[]  @relation("HirerVerifReviewedBy")
+  bgChecksPerformed           WorkerProfile[] @relation("BgCheckedBy")
+  certificationsVerified      Certification[] @relation("CertVerifiedBy")
+
+  // ── Analytics ────────────────────────────────────────────────────────────
+  userEvents         UserEvent[]
+  userSessions       UserSession[]
+  pageViews          PageView[]
+  interactionEvents  InteractionEvent[]
+  featureUsageDaily  FeatureUsageDaily[]
+  profileInsight     UserProfileInsight?
+  segmentMemberships UserSegmentMembership[]
+
+  voiceCallsInitiated VoiceCall[] @relation("VoiceCallsInitiated")
+  voiceCallsReceived  VoiceCall[] @relation("VoiceCallsReceived")
+
+  releasesMade PaymentRelease[] @relation("ReleasedBy")
+
+  // ── Retained Staff relations ────────────────────────────────────────
+  retainedStaffHired      RetainedStaffMember[]   @relation("HirerRetainedStaff")
+  retainedStaffEmployedBy RetainedStaffMember[]   @relation("WorkerRetainedBy")
+  retainedCyclesAsHirer   RetainedPayrollCycle[]  @relation("HirerRetainedCycles")
+  retainedCyclesAsWorker  RetainedPayrollCycle[]  @relation("WorkerRetainedCycles")
+  uploadedRetainedDocs    RetainedStaffDocument[] @relation("UploadedRetainedDocs")
+  retainedNotesAuthored   RetainedStaffNote[]     @relation("RetainedNotes")
+  retainedRevisionsMade   RetainedStaffRevision[] @relation("RetainedRevisions")
+
+  supportTickets          SupportTicket[]          @relation("UserSupportTickets")
+  assignedSupportTickets  SupportTicket[]          @relation("AssignedSupportTickets")
+  supportMessages         SupportMessage[]         @relation("SupportMessageAuthor")
+  supportTicketAudits     SupportTicketAudit[]     @relation("SupportTicketAuditActor")
+  supportChats            SupportConversation[]    @relation("UserSupportChats")
+  assignedSupportChats    SupportConversation[]    @relation("AssignedSupportChats")
+  endedSupportChats       SupportConversation[]    @relation("SupportChatEndedBy")
+  supportChatMessages     SupportChatMessage[]     @relation("SupportChatMessageSender")
+  supportChatParticipants SupportChatParticipant[] @relation("SupportChatParticipants")
+}
+
+model Referral {
+  id            String         @id @default(uuid())
+  referrerId    String
+  referrer      User           @relation("ReferrerReferrals", fields: [referrerId], references: [id])
+  referredId    String         @unique
+  referred      User           @relation("ReferredReferral", fields: [referredId], references: [id])
+  code          String
+  status        ReferralStatus @default(PENDING)
+  referredRole  Role
+  referrerBonus Float          @default(0)
+  refereePerk   String
+  currency      String         @default("NGN")
+  paidAt        DateTime?
+  qualifiedAt   DateTime?
+  convertedAt   DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model CampaignReferral {
+  id           String              @id @default(uuid())
+  referrerId   String
+  referrer     User                @relation("CampaignReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId   String              @unique
+  referred     User                @relation("CampaignReferred", fields: [referredId], references: [id], onDelete: Cascade)
+  code         String
+  submissionId String?
+  submission   CampaignSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  hasDownloadedApp Boolean @default(true)
+  hasSetupProfile  Boolean @default(false)
+  hasFollowedFb    Boolean @default(false)
+  hasFollowedIg    Boolean @default(false)
+  hasFollowedTt    Boolean @default(false)
+
+  fbScreenshotUrl String?
+  igScreenshotUrl String?
+  ttScreenshotUrl String?
+
+  status       CampaignReferralStatus @default(PENDING)
+  adminNote    String?
+  rewardAmount Float                  @default(100)
+  currency     String                 @default("NGN")
+
+  tasksCompletedAt DateTime?
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedById     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CampaignSubmission {
+  id             String             @id @default(uuid())
+  referrerId     String
+  referrer       User               @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+  submissionDate String
+  referrals      CampaignReferral[]
+
+  totalSubmitted Int   @default(0)
+  totalApproved  Int   @default(0)
+  totalRejected  Int   @default(0)
+  grossAmount    Float @default(0)
+  netAmount      Float @default(0)
+
+  status       CampaignSubmissionStatus @default(PENDING)
+  adminNote    String?
+  reviewedAt   DateTime?
+  reviewedById String?
+  creditedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([referrerId, submissionDate])
+}
+
+model CampaignTransaction {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         String
+  amount       Float
+  currency     String   @default("NGN")
+  description  String
+  referralId   String?
+  submissionId String?
+  meta         Json?
+  createdAt    DateTime @default(now())
+}
+
+model CampaignWithdrawal {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float
+  currency      String    @default("NGN")
+  bankName      String
+  accountNumber String
+  accountName   String
+  status        String    @default("PENDING")
+  adminNote     String?
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model WalletTransaction {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String // "REFERRAL_BONUS" | "WITHDRAWAL" | "ADJUSTMENT" | "EXPIRED"
+  amount      Float
+  currency    String   @default("NGN")
+  description String
+  referralId  String? // soft ref — no FK to avoid cascade issues
+  meta        Json?
+  createdAt   DateTime @default(now())
+}
+
+model Report {
+  id           String        @id @default(uuid())
+  reporterId   String
+  targetType   ReportType
+  targetId     String
+  reason       ReportReason
+  description  String?
+  evidence     String[]      @default([]) // screenshot / proof URLs
+  status       ReportStatus  @default(PENDING)
+  adminNote    String?
+  actionTaken  ReportAction?
+  reviewedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  reporter   User  @relation("ReportsGiven", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReportsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // One report per user per target — prevents spam-reporting the same thing
+  @@unique([reporterId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([reporterId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AuditLog {
+  id           String          @id @default(uuid())
+  adminId      String
+  action       AuditAction
+  targetType   AuditTargetType
+  targetId     String? // nullable — system actions have no target
+  description  String // plain-English summary e.g. "Banned user john@example.com"
+  before       Json? // snapshot of state before the action
+  after        Json? // snapshot of state after the action
+  meta         Json? // extra context (reason, amount, role, etc.)
+  result       AuditResult     @default(SUCCESS)
+  errorMessage String? // populated when result = FAILED
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime        @default(now())
+
+  admin User @relation("AuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt(sort: Desc)])
+  @@index([result])
+}
+
+model PromoCode {
+  id            String           @id @default(uuid())
+  code          String           @unique // enforced case-insensitive in DB index
+  description   String?
+  discountType  String           @default("PERCENT") // "PERCENT" | "FIXED"
+  discountValue Float
+  maxUses       Int?
+  usedCount     Int              @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean          @default(true)
+  applicableTo  String? // JSON array of plan IDs, null = all plans
+  minPlanAmount Float            @default(0)
+  createdById   String?
+  createdBy     User?            @relation("PromoCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  usages        PromoCodeUsage[] @relation("PromoCodeUsages")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model PromoCodeUsage {
+  id          String    @id @default(uuid())
+  promoCodeId String
+  promoCode   PromoCode @relation("PromoCodeUsages", fields: [promoCodeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PromoCodeUsages", fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  discountAmt Float
+  originalAmt Float
+  finalAmt    Float
+  reference   String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, promoCodeId]) // one use per user per code
+}
+
+model WorkerProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  hourlyRate         Float
+  currency           String             @default("USD")
+  yearsExperience    Int                @default(0)
+  serviceRadius      Int                @default(25)
+  isAvailable        Boolean            @default(true)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  idDocument         String?
+  videoIntroUrl      String?
+  backgroundCheck    Boolean            @default(false)
+  totalEarnings      Float              @default(0)
+  completedJobs      Int                @default(0)
+  responseRate       Float              @default(0)
+  avgRating          Float              @default(0)
+  totalReviews       Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  categories      WorkerCategory[]
+  portfolio       Portfolio[]
+  certifications  Certification[]
+  availability    Availability[]
+  weeklyRate      Float?
+  monthlyRate     Float?
+  yearlyRate      Float?
+  customRate      Float?
+  customRateLabel String?
+  pricingNote     String?
+  profileCurrency String?          @default("USD")
+
+  dailyRate Float?
+
+  // ── Worker debt (populated when a refund cannot be clawed back from balance) ──
+  debtBalance    Float     @default(0)
+  debtCreatedAt  DateTime?
+  debtForgivenAt DateTime?
+  debtReason     String?
+
+  // Relation to individual debt records
+  debts WorkerDebt[]
+
+  // ── VERIFICATION ──────────────────────────────────────────────────────────
+  idType                String? // "NATIONAL_ID" | "PASSPORT" | ...
+  idNumber              String?
+  idDateOfBirth         DateTime?
+  idNationality         String?
+  submittedAt           DateTime? // when worker submitted for review
+  reviewedAt            DateTime? // when admin approved/rejected
+  reviewedById          String?
+  reviewedBy            User?     @relation("WorkerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rejectionReason       String?
+  backgroundCheckAt     DateTime?
+  backgroundCheckedById String?
+  backgroundCheckedBy   User?     @relation("BgCheckedBy", fields: [backgroundCheckedById], references: [id], onDelete: SetNull)
+}
+
+// ─── Worker Debt Model ───────────────────────────────────────────────────────
+// Tracks amounts a worker owes the platform, created when a dispute refund
+// cannot be clawed back from the worker's available balance because the
+// money was already withdrawn.
+model WorkerDebt {
+  id              String        @id @default(uuid())
+  workerId        String
+  worker          User          @relation("WorkerDebts", fields: [workerId], references: [id], onDelete: Cascade)
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  amount         Float // original debt amount
+  amountPaid     Float  @default(0) // how much has been auto-deducted
+  amountForgiven Float  @default(0) // how much admin forgave
+  currency       String @default("NGN")
+
+  reason     String // "DISPUTE_REFUND" | "CHARGEBACK" | "FRAUD_REVERSAL" | "OTHER"
+  reasonNote String? // human-readable context
+
+  refundId String? // refund that created this debt
+  refund   Refund? @relation("RefundWorkerDebts", fields: [refundId], references: [id], onDelete: SetNull)
+
+  status String @default("OUTSTANDING") // OUTSTANDING | CLEARED | FORGIVEN | COLLECTION
+
+  clearedAt            DateTime?
+  forgivenAt           DateTime?
+  forgivenById         String?
+  forgivenBy           User?     @relation("ForgivenDebts", fields: [forgivenById], references: [id])
+  markedCollectionAt   DateTime?
+  markedCollectionById String?
+  markedCollectionBy   User?     @relation("MarkedCollectionDebts", fields: [markedCollectionById], references: [id])
+
+  meta Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workerId])
+  @@index([workerProfileId])
+  @@index([status])
+  @@index([reason])
+  @@index([createdAt(sort: Desc)])
+}
+
+model HirerProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String?
+  companySize String?
+  website     String?
+  totalSpent  Float    @default(0)
+  totalHires  Int      @default(0)
+  avgRating   Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // ── VERIFICATION ──────────────────────────────────────────────────────────
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verificationType   String? // "INDIVIDUAL" | "BUSINESS"
+  idType             String?
+  idNumber           String?
+  idDocument         String?
+  companyRegNumber   String?
+  companyCountry     String?
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  reviewedById       String?
+  reviewedBy         User?              @relation("HirerVerifReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  rejectionReason    String?
+}
+
+model Category {
+  id               String            @id @default(uuid())
+  name             String            @unique
+  slug             String            @unique
+  description      String?
+  icon             String?
+  parentId         String?
+  parent           Category?         @relation("SubCategories", fields: [parentId], references: [id])
+  children         Category[]        @relation("SubCategories")
+  workers          WorkerCategory[]
+  bookings         Booking[]
+  jobPosts         JobPost[]
+  createdAt        DateTime          @default(now())
+  featuredListings FeaturedListing[]
+  isUserSubmitted  Boolean           @default(false)
+  submittedBy      String?
+  jobCategories    JobCategory[]
+}
+
+model WorkerCategory {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id])
+  isPrimary       Boolean       @default(false)
+
+  @@unique([workerProfileId, categoryId])
+}
+
+model Portfolio {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  imageUrl        String
+  createdAt       DateTime      @default(now())
+}
+
+model Certification {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  name            String
+  issuedBy        String
+  issueDate       DateTime?
+  expiryDate      DateTime?
+  documentUrl     String?
+  verified        Boolean       @default(false)
+  verifiedAt      DateTime?
+  verifiedById    String?
+  verifiedBy      User?         @relation("CertVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
+}
+
+model Availability {
+  id              String        @id @default(uuid())
+  workerProfileId String
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  dayOfWeek       Int
+  startTime       String
+  endTime         String
+  isAvailable     Boolean       @default(true)
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  hirerId        String
+  hirer          User          @relation("HirerBookings", fields: [hirerId], references: [id])
+  workerId       String
+  worker         User          @relation("WorkerBookings", fields: [workerId], references: [id])
+  categoryId     String
+  category       Category      @relation(fields: [categoryId], references: [id])
+  title          String
+  description    String
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  scheduledAt    DateTime
+  estimatedHours Float?
+  agreedRate     Float
+  currency       String
+  status         BookingStatus @default(PENDING)
+  notes          String?
+  checkInAt      DateTime?
+  checkInLat     Float?
+  checkInLng     Float?
+  checkOutAt     DateTime?
+  checkOutLat    Float?
+  checkOutLng    Float?
+  completedAt    DateTime?
+  quantity       Int?          @default(1)
+  cancelReason   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  custom_label   String?
+
+  payments         Payment[] // one booking → many payment attempts
+  reviews          Review[]
+  conversation     Conversation?
+  emergencyContact String?
+  sosActivatedAt   DateTime?
+  sosLatitude      Float?
+  sosLongitude     Float?
+  sosResolvedAt    DateTime?
+  videoCall        VideoCall?
+  insuranceRef     String?
+  insurancePlan    String?
+  insurancePaidAt  DateTime?
+  estimatedUnit    String?       @default("hours")
+  estimatedValue   String?
+  isNegotiated     Boolean       @default(false)
+  negotiatedRate   Float?
+  negotiationNote  String?
+
+  jobType      String? // "FULL_TIME" | "PART_TIME" | "CONTRACT" | "TEMPORARY"
+  locationType String? // "REMOTE" | "ON_SITE" | "HYBRID"
+
+  requirements     String? // e.g., "Must have 3+ years of React experience"
+  responsibilities String? // e.g., "Design UI mockups, conduct user tests"
+
+  disputeReason      String? // LEGACY mirror of latest dispute — kept for backwards compat
+  disputeDescription String? // LEGACY mirror of latest dispute — kept for backwards compat
+  disputeEvidence    String[] @default([]) // LEGACY mirror — kept for backwards compat
+
+  // ── Refund counters ──────────────────────────────────────────────────────
+  refundCount   Int   @default(0)
+  totalRefunded Float @default(0)
+
+  // ── Relations ────────────────────────────────────────────────────────────
+  refunds  Refund[]
+  disputes Dispute[]
+
+  // ── Source & linkage ─────────────────────────────────────────────────────
+  source    BookingSource @default(DIRECT)
+  jobPostId String?
+  jobPost   JobPost?      @relation("JobPostBookings", fields: [jobPostId], references: [id], onDelete: SetNull)
+
+  // Snapshot of what the hirer selected from the job's price options
+  selectedRateOption String? // "budget" | "salaryAmount" | "salaryMin" | "salaryMax" | "salaryText"
+  jobRateSnapshot    Json? // optional: snapshot the job's price fields at booking time
+
+  // ── Job-post snapshot fields ─────────────────────────────────────────────
+  skills                String[] @default([])
+  qualifications        String[] @default([])
+  languageRequirement   String?
+  providesAccommodation Boolean  @default(false)
+  providesMeals         Boolean  @default(false)
+
+  // ── NEW snapshot fields (mirrors JobPost) ────────────────────────────────
+  snapshotCategoryName String?
+  snapshotCategoryIcon String?
+
+  durationType  DurationType?
+  durationValue String?
+
+  experienceLevel   String?
+  experienceLength  String?
+  minQualification  String?
+  educationLevel    EducationLevel?
+  workingHours      String?
+  applicantLocation String?
+
+  salaryText     String?
+  salaryAmount   Float?
+  salaryMin      Float?
+  salaryMax      Float?
+  salaryCurrency String?
+  salaryPeriod   SalaryPeriod?
+
+  companyName         String?
+  sourcePlatform      String?
+  applicationUrl      String?
+  applicationEmail    String?
+  applicationWhatsApp String?
+  applicationPhone    String?
+
+  jobPostExpiryDate  DateTime?
+  jobPostPostedAt    DateTime?
+  snapshotBudgetType BudgetType?
+
+  retainedCycle RetainedPayrollCycle? @relation("RetainedCycleBooking")
+
+  // ── Retained Staff Snapshot ──────────────────────────────────────────────
+  location        String?
+  workDays        String[] @default([])
+  workStart       String?
+  workEnd         String?
+  timezone        String?
+  employeeNumber  String?
+  managerName     String?
+  employmentType  String?
+  department      String?
+  bonusAmount     Float?
+  deductionAmount Float?
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  bookingId         String
+  booking           Booking       @relation(fields: [bookingId], references: [id])
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  amount            Float
+  currency          String        @default("USD")
+  platformFee       Float
+  workerPayout      Float
+  workerCurrency    String?
+  workerPayoutLocal Float?
+  exchangeRate      Float?        @default(1)
+  status            PaymentStatus @default(PENDING)
+  provider          String
+  providerRef       String?
+  escrowReleasedAt  DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  bankName          String?
+  accountName       String?
+  accountNumber     String?
+  bankTransferRef   String?
+  bankTransferProof String?
+
+  providerTxId   String?    // ← only ONE declaration
+
+  cryptoNetwork  String?
+  cryptoTxHash   String?
+  cryptoWallet   String?
+  cryptoAmount   Float?
+  cryptoCurrency String?
+
+  feePhase Int? @default(1)
+
+  notes String?
+
+  referralDeduct Float? @default(0)
+
+  walletTransactions HirerTransaction[]
+  walletPaymentId    String?
+
+  refunds        Refund[]
+  releasedAmount Float            @default(0)
+  releaseCount   Int              @default(0)
+  releases       PaymentRelease[]
+
+  @@index([providerTxId])   // ← index kept, still valid
+}
+
+model PaymentRelease {
+  id        String  @id @default(uuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  amount   Float // the released amount, in currency units
+  currency String  @default("NGN")
+  note     String? // optional reason from the hirer
+
+  releasedById String
+  releasedBy   User   @relation("ReleasedBy", fields: [releasedById], references: [id])
+
+  // Snapshot at time of release, so history stays intact even if the
+  // payment is later edited:
+  workerPayoutAtRelease Float
+  remainingBefore       Float
+  remainingAfter        Float
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([releasedById])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Withdrawal {
+  id          String           @id @default(uuid())
+  workerId    String
+  worker      User             @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  amount      Float
+  currency    String           @default("NGN")
+  method      String
+  destination String
+  details     Json
+  reference   String           @unique
+  status      WithdrawalStatus @default(PENDING)
+  completedAt DateTime?
+  failureNote String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  processedAt DateTime?
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  giverId    String
+  giver      User     @relation("ReviewsGiven", fields: [giverId], references: [id])
+  receiverId String
+  receiver   User     @relation("ReviewsReceived", fields: [receiverId], references: [id])
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([bookingId, giverId])
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     ConversationUser[]
+  messages  Message[]
+  voiceCall VoiceCall?
+
+  retainedMemberId String?              @unique
+  retainedMember   RetainedStaffMember? @relation("RetainedStaffConversation", fields: [retainedMemberId], references: [id], onDelete: SetNull)
+}
+
+model ConversationUser {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId     String
+  receiver       User         @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  content        String
+  fileUrl        String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String
+  data      Json?
+  icon      String? // ← NEW: React Icon name (e.g., "FaCalendarPlus")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model JobPost {
+  id             String        @id @default(uuid())
+  hirerId        String
+  categoryId     String
+  title          String
+  description    String
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  scheduledAt    DateTime
+  estimatedHours Float?
+  budget         Float
+  currency       String        @default("NGN")
+  notes          String?
+  status         JobPostStatus @default(OPEN)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  estimatedUnit  String?       @default("hours")
+  estimatedValue String?
+
+  hirer         User             @relation("HirerJobPosts", fields: [hirerId], references: [id], onDelete: Cascade)
+  category      Category         @relation(fields: [categoryId], references: [id])
+  applications  JobApplication[]
+  jobType       JobType          @default(FULL_TIME)
+  locationType  LocationType     @default(REMOTE)
+  budgetType    BudgetType       @default(FIXED)
+  durationType  DurationType     @default(HOURS)
+  durationValue String?
+  skills        String[]         @default([])
+
+  savedBy SavedJob[] @relation("JobSavedBy")
+
+  // New external job fields
+  applicationUrl      String? // external apply link
+  sourcePlatform      String? // e.g., "Indeed", "LinkedIn"
+  applicationEmail    String? // email address to apply via email
+  applicationWhatsApp String? // WhatsApp number (with country code)
+  applicationPhone    String? // phone number to call for application
+
+  minQualification  String?
+  experienceLevel   String? // "Entry level", "Mid level", "Senior level"
+  experienceLength  String? // e.g., "1 year" 
+  workingHours      String? // e.g., "Part Time - Flexible Hours"
+  applicantLocation String?
+  responsibilities  String? // rich text
+  requirements      String? // rich text
+  expiryDate        DateTime?
+  isExternal        Boolean   @default(false) // true for admin-created external jobs
+  postedByAdminId   String? // admin user ID who created it (optional)
+  postedByAdmin     User?     @relation("AdminJobPosts", fields: [postedByAdminId], references: [id], onDelete: SetNull)
+
+  // Many-to-many with Category (instead of single categoryId)
+  categories  JobCategory[]
+  // NEW fields for external job display
+  companyName String? // e.g., "Leading Edge Insperogel"
+  salaryText  String? // e.g., "₦350,000 a month"
+
+  // ... existing fields ...
+  salaryAmount   Float?
+  salaryMin      Float?
+  salaryMax      Float?
+  // salaryAmount remains for single-value cases (optional)
+  salaryCurrency String? // e.g., "USD", "NGN"
+  salaryPeriod   SalaryPeriod?
+  educationLevel EducationLevel?
+  // languageRequirement already exists (String)
+  // applicantLocation already exists (String)
+  // locationType already exists (LocationType enum)
+  // experienceLevel already exists (String) – could later change to enum
+
+  // ── NEW: Work conditions ────────────────────────────────────────────
+  providesAccommodation Boolean @default(false) // true = job comes with housing
+  providesMeals         Boolean @default(false) // true = job comes with meals
+
+  languageRequirement String?  @default("en")
+  qualifications      String[] @default([])
+
+  externalJobClicks ExternalJobClick[]
+  bookings          Booking[]          @relation("JobPostBookings")
+}
+
+model ExternalJobClick {
+  id        String   @id @default(uuid())
+  jobPostId String
+  jobPost   JobPost  @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // "APPLY_CLICK" or "PROCEED_CLICK"
+  createdAt DateTime @default(now())
+
+  @@unique([jobPostId, userId, type]) // one record per user per action per job
+  @@index([jobPostId])
+  @@index([userId])
+  @@index([type])
+}
+
+// Join table for Job ↔ Category
+model JobCategory {
+  id         String   @id @default(uuid())
+  jobId      String
+  job        JobPost  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([jobId, categoryId])
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionRole {
+  WORKER
+  HIRER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PENDING
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier                 SubscriptionTier   @default(FREE)
+  role                 SubscriptionRole
+  status               SubscriptionStatus @default(ACTIVE)
+  price                Float              @default(0)
+  currency             String             @default("NGN") // ← CHANGE from "USD" to "NGN"
+  startedAt            DateTime           @default(now())
+  expiresAt            DateTime?
+  autoRenew            Boolean            @default(false)
+  reference            String?
+  stripeSessionId      String?
+  stripeSubscriptionId String?
+
+  // ── Paystack fields — ADD ALL OF THESE ───────────────────────────────
+  paystackSubscriptionCode String?
+  paystackCustomerCode     String?
+  paystackPlanCode         String?
+  paystackEmailToken       String?
+  nextPaymentDate          DateTime?
+  paystackStatus           String?
+  // ─────────────────────────────────────────────────────────────────────
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FeaturedListing {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category? @relation(fields: [categoryId], references: [id])
+  type            String    @default("SEARCH_TOP")
+  price           Float
+  currency        String    @default("USD")
+  startsAt        DateTime  @default(now())
+  expiresAt       DateTime
+  isActive        Boolean   @default(true)
+  reference       String    @unique
+  stripeSessionId String?
+  createdAt       DateTime  @default(now())
+  isPaid          Boolean   @default(false)
+  source          String? // "PURCHASE" | "REFERRAL" | "ADMIN"
+}
+
+enum PostType {
+  GENERAL
+  JOB_UPDATE
+  ACHIEVEMENT
+  PORTFOLIO
+  ANNOUNCEMENT
+  HIRING
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  INSIGHTFUL
+  CELEBRATE
+  SUPPORT
+}
+
+model Post {
+  id         String         @id @default(uuid())
+  authorId   String
+  author     User           @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  content    String
+  images     String[]       @default([])
+  type       PostType       @default(GENERAL)
+  isPublic   Boolean        @default(true)
+  repostOfId String?
+  repostOf   Post?          @relation("Reposts", fields: [repostOfId], references: [id])
+  reposts    Post[]         @relation("Reposts")
+  reactions  PostReaction[]
+  comments   PostComment[]
+  viewCount  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model PostReaction {
+  id        String       @id @default(uuid())
+  postId    String
+  post      Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation("UserReactions", fields: [userId], references: [id], onDelete: Cascade)
+  type      ReactionType @default(LIKE)
+  createdAt DateTime     @default(now())
+
+  @@unique([postId, userId])
+}
+
+model PostComment {
+  id        String        @id @default(uuid())
+  postId    String
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User          @relation("UserComments", fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  parentId  String?
+  parent    PostComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   PostComment[] @relation("CommentReplies")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model JobApplication {
+  id        String            @id @default(uuid())
+  jobPostId String
+  workerId  String
+  message   String?
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  jobPost JobPost @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  worker  User    @relation("WorkerJobApplications", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobPostId, workerId])
+}
+
+model VideoCall {
+  id          String    @id @default(uuid())
+  bookingId   String    @unique
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  initiatorId String
+  initiator   User      @relation("CallsInitiated", fields: [initiatorId], references: [id])
+  receiverId  String
+  receiver    User      @relation("CallsReceived", fields: [receiverId], references: [id])
+  roomId      String    @unique
+  status      String    @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VoiceCall — audio-only calls initiated from the messages tab.
+//
+// Unlike VideoCall (which is anchored to a booking), VoiceCall is anchored to
+// a Conversation. Two users chatting in /messages can start a voice call
+// without needing a booking in common.
+//
+// Reuses the same MiroTalk instance on Hetzner (call.skilledproz.com).
+// Room IDs are prefixed `skp-voice-<uuid>` to distinguish from video calls.
+// ─────────────────────────────────────────────────────────────────────────────
+model VoiceCall {
+  id             String       @id @default(uuid())
+  conversationId String       @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  initiatorId String
+  initiator   User   @relation("VoiceCallsInitiated", fields: [initiatorId], references: [id])
+
+  receiverId String
+  receiver   User   @relation("VoiceCallsReceived", fields: [receiverId], references: [id])
+
+  status   String @default("PENDING") // PENDING | ACTIVE | ENDED | DECLINED
+  callType String @default("voice")   // "voice" | "video"
+
+  // ✅ NEW — echo these back to the receiver so their banner can
+  // navigate to the right screen after the call ends.
+  returnTo     String? // "BookingDetail" | "Chat" | "JobApplications" | ...
+  returnParams Json?   // { bookingId } | { jobId } | { conversationId }
+  bookingId    String? // optional — populated when the caller came from a booking
+
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([receiverId, status])
+  @@index([initiatorId])
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+}
+
+enum LocationType {
+  REMOTE
+  ON_SITE
+  HYBRID
+}
+
+enum BudgetType {
+  FIXED
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum DurationType {
+  HOURS
+  DAYS
+  WEEKS
+  MONTHS
+  YEARS
+  CUSTOM
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String // Expo push token: ExponentPushToken[...]
+  platform  String? // "ios" | "android" | "web"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("DeviceTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token]) // one token entry per user-device pair
+  @@index([userId])
+  @@index([token])
+  @@index([active])
+}
+
+// ─── Hirer bookmarks a worker profile ────────────────────────────────────────
+model SavedWorker {
+  id        String   @id @default(uuid())
+  hirerId   String
+  workerId  String
+  createdAt DateTime @default(now())
+
+  hirer  User @relation("HirerSavedWorkers", fields: [hirerId], references: [id], onDelete: Cascade)
+  worker User @relation("WorkerSavedByHirers", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([hirerId, workerId])
+  @@index([hirerId])
+  @@index([workerId])
+}
+
+// ─── Worker bookmarks a job post ─────────────────────────────────────────────
+model SavedJob {
+  id        String   @id @default(uuid())
+  workerId  String
+  jobPostId String
+  createdAt DateTime @default(now())
+
+  worker  User    @relation("WorkerSavedJobs", fields: [workerId], references: [id], onDelete: Cascade)
+  jobPost JobPost @relation("JobSavedBy", fields: [jobPostId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, jobPostId])
+  @@index([workerId])
+  @@index([jobPostId])
+}
+
+// prisma/schema.prisma
+
+model SurveyResponse {
+  id                 String   @id @default(cuid())
+  role               String?  @map("role")
+  industry           String?  @map("industry")
+  experience         String?  @map("experience_level")
+  problem            String?  @map("biggest_challenge")
+  feature            String?  @map("desired_feature")
+  concern            String?  @map("biggest_concern")
+  hearAbout          String?  @map("hear_about")
+  email              String?  @map("email")
+  name               String?  @map("full_name")
+  phone              String?  @map("phone_number")
+  location           String?  @map("location")
+  additionalFeedback String?  @map("additional_feedback")
+  rating             Int?     @default(0)
+  status             String   @default("PENDING") @map("status")
+  ipAddress          String?  @map("ip_address")
+  userAgent          String?  @map("user_agent")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([createdAt])
+  @@index([status])
+  @@map("survey_responses")
+}
+
+// ─── Waitlist Model ──────────────────────────────────────────────────────────
+
+// ─── Waitlist Models ──────────────────────────────────────────────────────────
+
+model WaitlistEntry {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String?   @map("full_name")
+  status            String    @default("PENDING")
+  ipAddress         String?   @map("ip_address")
+  country           String?   @map("country")
+  region            String?   @map("region")
+  city              String?   @map("city")
+  latitude          Float?    @map("latitude")
+  longitude         Float?    @map("longitude")
+  timezone          String?   @map("timezone")
+  postalCode        String?   @map("postal_code")
+  deviceType        String?   @map("device_type")
+  deviceBrand       String?   @map("device_brand")
+  deviceModel       String?   @map("device_model")
+  osName            String?   @map("os_name")
+  osVersion         String?   @map("os_version")
+  browserName       String?   @map("browser_name")
+  browserVersion    String?   @map("browser_version")
+  userAgent         String?   @map("user_agent")
+  referralCode      String?   @unique @map("referral_code")
+  referredBy        String?   @map("referred_by")
+  token             String?   @unique
+  tokenExpiresAt    DateTime? @map("token_expires_at")
+  confirmedAt       DateTime? @map("confirmed_at")
+  unlockedBenefits  String[]  @map("unlocked_benefits")
+  benefitUnlockedAt DateTime? @map("benefit_unlocked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([status])
+  @@index([country])
+  @@index([deviceType])
+  @@index([createdAt])
+  @@map("waitlist_entries")
+}
+
+model WaitlistCampaign {
+  id             String    @id @default(cuid())
+  title          String    @map("title")
+  subject        String    @map("subject")
+  content        String    @map("content")
+  previewText    String?   @map("preview_text")
+  status         String    @default("DRAFT")
+  sentAt         DateTime? @map("sent_at")
+  scheduledFor   DateTime? @map("scheduled_for")
+  recipientCount Int       @default(0) @map("recipient_count")
+  openedCount    Int       @default(0) @map("opened_count")
+  clickedCount   Int       @default(0) @map("clicked_count")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([sentAt])
+  @@map("waitlist_campaigns")
+}
+
+model WaitlistEmailLog {
+  id         String    @id @default(cuid())
+  waitlistId String    @map("waitlist_id")
+  campaignId String?   @map("campaign_id")
+  email      String    @map("email")
+  type       String    @map("type")
+  subject    String    @map("subject")
+  opened     Boolean   @default(false) @map("opened")
+  openedAt   DateTime? @map("opened_at")
+  clicked    Boolean   @default(false) @map("clicked")
+  clickedAt  DateTime? @map("clicked_at")
+  sentAt     DateTime  @default(now()) @map("sent_at")
+  error      String?   @map("error")
+
+  @@index([waitlistId])
+  @@index([campaignId])
+  @@index([type])
+  @@index([sentAt])
+  @@map("waitlist_email_logs")
+}
+
+// ─── Feedback Model ──────────────────────────────────────────────────────────
+model Feedback {
+  id          String    @id @default(cuid())
+  type        String // praise, suggestion, bug, feature, general
+  rating      Int // 1-5
+  title       String
+  description String
+  email       String?
+  name        String?
+  tags        String[]
+  screenUrl   String?
+  browserInfo String?
+  userId      String?
+  status      String    @default("PENDING") // PENDING, REVIEWED, RESOLVED, DISMISSED
+  adminNotes  String?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  ipAddress   String?
+  userAgent   String?
+  submittedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user     User? @relation("FeedbackUser", fields: [userId], references: [id], onDelete: SetNull)
+  reviewer User? @relation("FeedbackReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+}
+
+// ─── Hirer Wallet Model ──────────────────────────────────────────────────────
+model HirerWallet {
+  id                String    @id @default(uuid())
+  hirerId           String
+  currency          String    @default("NGN")
+  balance           Float     @default(0)
+  totalDeposited    Float     @default(0)
+  totalSpent        Float     @default(0)
+  totalWithdrawn    Float     @default(0)
+  totalRefunded     Float     @default(0)
+  isActive          Boolean   @default(true)
+  lastTransactionAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  hirer           User                  @relation(fields: [hirerId], references: [id])
+  transactions    HirerTransaction[]
+  withdrawals     HirerWithdrawal[]
+  fundingAttempts HirerFundingAttempt[]
+
+  @@unique([hirerId, currency])
+  @@index([hirerId])
+  @@index([currency])
+  @@index([createdAt])
+}
+
+// ─── Hirer Transaction Model ────────────────────────────────────────────────
+model HirerTransaction {
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  type          String // DEPOSIT, WITHDRAWAL, PAYMENT, SUBSCRIPTION, REFUND, BONUS, ADJUSTMENT
+  amount        Float
+  currency      String    @default("NGN")
+  fee           Float     @default(0)
+  netAmount     Float
+  reference     String    @unique
+  status        String // PENDING, PROCESSING, COMPLETED, FAILED, REVERSED
+  description   String?
+  balanceBefore Float?
+  balanceAfter  Float?
+  completedAt   DateTime?
+  meta          Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+
+  // Relations
+  wallet          HirerWallet           @relation(fields: [walletId], references: [id])
+  hirer           User                  @relation(fields: [hirerId], references: [id])
+  fundingAttempts HirerFundingAttempt[]
+
+  // Payment relation
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+  paymentId String?
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([reference])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─── Hirer Wallet Withdrawals ──────────────────────────────────────────────
+model HirerWithdrawal {
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  amount        Float
+  currency      String    @default("NGN")
+  fee           Float     @default(0)
+  netAmount     Float
+  bankName      String
+  accountNumber String
+  accountName   String
+  bankCode      String?
+  reference     String    @unique
+  status        String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  failureReason String?
+  processedAt   DateTime?
+  completedAt   DateTime?
+  meta          Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  wallet HirerWallet @relation(fields: [walletId], references: [id])
+  hirer  User        @relation(fields: [hirerId], references: [id])
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([reference])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── Hirer Wallet Funding Attempts ──────────────────────────────────────────
+model HirerFundingAttempt {
+  id            String    @id @default(uuid())
+  walletId      String
+  hirerId       String
+  amount        Float
+  currency      String    @default("NGN")
+  provider      String // FLUTTERWAVE, PAYSTACK, STRIPE
+  providerRef   String    @unique
+  status        String    @default("INITIATED") // INITIATED, PROCESSING, SUCCESS, FAILED, CANCELLED
+  redirectUrl   String?
+  callbackData  Json?
+  paymentLink   String?
+  transactionId String?
+  meta          Json?
+  expiresAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  wallet      HirerWallet       @relation(fields: [walletId], references: [id])
+  transaction HirerTransaction? @relation(fields: [transactionId], references: [id])
+
+  hirer User @relation(fields: [hirerId], references: [id])
+
+  @@index([walletId])
+  @@index([hirerId])
+  @@index([providerRef])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── Refund Enums ────────────────────────────────────────────────────────────
+enum RefundStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  FAILED
+  REVERSED
+  DISPUTED
+}
+
+enum RefundType {
+  FULL
+  PARTIAL
+  CUSTOM_AMOUNT
+  DISPUTE
+}
+
+// ─── Dispute Enums ───────────────────────────────────────────────────────────
+enum DisputeStatus {
+  PENDING_REVIEW
+  RESOLVED_REFUND
+  RESOLVED_RELEASE
+  CANCELLED
+}
+
+enum DisputeResolution {
+  REFUND
+  RELEASE
+}
+
+enum DisputeRaisedBy {
+  HIRER
+  WORKER
+}
+
+model Refund {
+  id        String  @id @default(uuid())
+  reference String  @unique
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  hirerId   String
+  hirer     User    @relation("HirerRefunds", fields: [hirerId], references: [id])
+  workerId  String?
+  worker    User?   @relation("WorkerRefunds", fields: [workerId], references: [id])
+  adminId   String?
+  admin     User?   @relation("AdminRefunds", fields: [adminId], references: [id])
+
+  amount               Float
+  currency             String       @default("NGN")
+  platformFeeRefunded  Float        @default(0)
+  workerAmountDeducted Float        @default(0)
+  refundType           RefundType   @default(FULL)
+  percentage           Float?
+  reason               String
+  adminNotes           String?
+  status               RefundStatus @default(PENDING)
+  processedAt          DateTime?
+  meta                 Json?
+
+  // ── NEW: link back to dispute if this refund came from one ──────────────
+  disputeId String?  @unique
+  dispute   Dispute? @relation("RefundFromDispute", fields: [disputeId], references: [id], onDelete: SetNull)
+
+  // ── NEW: debts created because of this refund ──────────────────────────
+  workerDebts WorkerDebt[] @relation("RefundWorkerDebts")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleRefunds", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([paymentId])
+  @@index([hirerId])
+  @@index([workerId])
+  @@index([adminId])
+  @@index([status])
+  @@index([reference])
+  @@index([createdAt(sort: Desc)])
+  @@index([retainedCycleId])
+}
+
+// ─── Dispute Model ───────────────────────────────────────────────────────────
+model Dispute {
+  id        String  @id @default(uuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  raisedById   String
+  raisedBy     User            @relation("DisputesRaisedBy", fields: [raisedById], references: [id])
+  raisedByRole DisputeRaisedBy
+
+  // The other party at time of raising — for quick lookups without joins
+  againstId String
+  against   User   @relation("DisputesAgainst", fields: [againstId], references: [id])
+
+  reason      String
+  description String
+  evidence    String[] @default([])
+
+  status DisputeStatus @default(PENDING_REVIEW)
+
+  // Store the booking status BEFORE the dispute was raised, so cancel
+  // can restore exactly where things were.
+  previousBookingStatus BookingStatus?
+
+  // Filled in when admin resolves
+  resolution   DisputeResolution?
+  resolvedById String?
+  resolvedBy   User?              @relation("DisputesResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime?
+  adminNotes   String?
+
+  // Back-reference: the Refund row (if any) that was created from this dispute.
+  // The FK lives on Refund.disputeId. This side is read-only.
+  refund Refund? @relation("RefundFromDispute")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  retainedCycleId String?
+  retainedCycle   RetainedPayrollCycle? @relation("RetainedCycleDisputes", fields: [retainedCycleId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([raisedById])
+  @@index([againstId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@index([retainedCycleId])
+}
+
+// ─── App Settings ────────────────────────────────────────────────────────────
+model AppSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}
+
+model UserEvent {
+  id           String   @id @default(uuid())
+  userId       String? // null for anonymous
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  anonymousId  String? // cookie-set ID, survives pre-login
+  sessionId    String
+  eventName    String // "page.view", "button.click", "booking.created", etc.
+  eventProps   Json? // event-specific payload
+  pagePath     String?
+  pageRef      String? // normalized route name, e.g. "/bookings/[id]"
+  referrer     String?
+  userAgent    String?
+  ipAddress    String?
+  deviceType   String? // "mobile" | "tablet" | "desktop"
+  os           String?
+  browser      String?
+  country      String?
+  city         String?
+  locale       String?
+  screenWidth  Int?
+  screenHeight Int?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([anonymousId])
+  @@index([sessionId])
+  @@index([eventName, createdAt])
+  @@index([pageRef, createdAt])
+}
+
+model UserSession {
+  id          String    @id @default(uuid())
+  sessionId   String    @unique // UUID from frontend
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  anonymousId String?
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  lastPingAt  DateTime  @default(now())
+  durationMs  Int?
+  pageViews   Int       @default(0)
+  eventsCount Int       @default(0)
+  entryPage   String?
+  exitPage    String?
+  referrer    String?
+  deviceType  String?
+  os          String?
+  browser     String?
+  country     String?
+  city        String?
+  locale      String?
+  ipAddress   String?
+  userAgent   String?
+  bounce      Boolean   @default(false) // true if < 10s and 1 page
+
+  @@index([userId, startedAt])
+  @@index([anonymousId])
+  @@index([startedAt])
+  @@index([lastPingAt])
+}
+
+model PageView {
+  id               String    @id @default(uuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId        String
+  pagePath         String // "/bookings/abc-123"
+  pageRef          String // "/bookings/[id]" — normalized for aggregation
+  title            String?
+  enteredAt        DateTime  @default(now())
+  leftAt           DateTime?
+  durationMs       Int?
+  scrollDepthPct   Int? // 0-100
+  interactionCount Int       @default(0)
+  referrer         String? // where they came from (previous page or external)
+  isExitPage       Boolean   @default(false)
+
+  @@index([userId, enteredAt])
+  @@index([sessionId])
+  @@index([pageRef, enteredAt])
+}
+
+model InteractionEvent {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId   String
+  pageViewId  String?
+  elementId   String
+  elementType String
+  action      String
+  value       String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([elementId, createdAt])
+  @@index([sessionId])
+}
+
+model FeatureUsageDaily {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  featureKey  String // "booking.create" | "chat.send" | "search.use"
+  usageCount  Int      @default(0)
+  totalTimeMs Int      @default(0)
+  lastUsedAt  DateTime @default(now())
+
+  @@unique([userId, date, featureKey])
+  @@index([userId, date])
+  @@index([featureKey, date])
+}
+
+model UserProfileInsight {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Activity
+  totalSessions       Int       @default(0)
+  totalPageViews      Int       @default(0)
+  totalEventsCount    Int       @default(0)
+  totalTimeOnPlatform Int       @default(0) // ms
+  lastActiveAt        DateTime?
+
+  // Feature adoption
+  featuresUsed       Json? // { "chat": 42, "booking": 12, "search": 118 }
+  topFeatures        Json? // ["search", "booking", "chat"]
+  featureAdoptionPct Float @default(0) // 0-100 of features they've used
+
+  // Domain signals
+  jobsAppliedCount Int @default(0)
+  jobsPostedCount  Int @default(0)
+  bookingsAsHirer  Int @default(0)
+  bookingsAsWorker Int @default(0)
+  messagesSent     Int @default(0)
+  reviewsGiven     Int @default(0)
+  reviewsReceived  Int @default(0)
+
+  // Preferences (inferred, not declared)
+  preferredCategories Json? // [{ categoryId, weight }, ...]
+  preferredCities     Json?
+  preferredPriceRange Json? // { min, max, currency }
+  preferredTimeOfDay  Json? // { morning: 42, afternoon: 30, ... }
+
+  // Engagement quality
+  avgSessionDurationMs Int   @default(0)
+  bounceRate           Float @default(0)
+  engagementScore      Int   @default(0) // 0-100 computed metric
+
+  // Targeting
+  segments  String[] // ["power_user", "job_seeker", "early_adopter"]
+  interests String[] // ["plumbing", "web_dev"]
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([engagementScore])
+  @@index([lastActiveAt])
+}
+
+model UserSegment {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  rule        Json
+  isActive    Boolean  @default(true)
+  memberCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships UserSegmentMembership[]
+
+  @@index([key])
+}
+
+model UserSegmentMembership {
+  id         String      @id @default(uuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  segmentId  String
+  segment    UserSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  assignedAt DateTime    @default(now())
+  expiresAt  DateTime?
+
+  @@unique([userId, segmentId])
+  @@index([userId])
+  @@index([segmentId])
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// RETAINED STAFF — HR employment module
+// ═════════════════════════════════════════════════════════════════════
+
+model RetainedStaffMember {
+  id       String @id @default(uuid())
+  hirerId  String
+  hirer    User   @relation("HirerRetainedStaff", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   User   @relation("WorkerRetainedBy", fields: [workerId], references: [id], onDelete: Restrict)
+
+  // ── Role / position
+  jobTitle       String
+  department     String?
+  employmentType String  @default("FULL_TIME") // FULL_TIME | PART_TIME | CONTRACT | CASUAL
+  locationType   String  @default("ON_SITE") // ON_SITE | REMOTE | HYBRID
+  location       String?
+  latitude       Float?
+  longitude      Float?
+  description    String?
+
+  // ── Compensation
+  payRate        Float
+  currency       String       @default("NGN")
+  payFrequency   PayFrequency @default(MONTHLY)
+  overtimeRate   Float?
+  bonusEnabled   Boolean      @default(true)
+  currencyLocked Boolean      @default(false)
+
+  // ── Schedule (informational)
+  workDays  String[] @default([])
+  workStart String?
+  workEnd   String?
+  timezone  String   @default("Africa/Lagos")
+
+  // ── Lifecycle
+  status      RetainedStaffStatus @default(ACTIVE)
+  startedAt   DateTime            @default(now())
+  pausedAt    DateTime?
+  endedAt     DateTime?
+  endReason   String?
+  nextCycleAt DateTime?
+
+  // ── Finance rollups (denormalized)
+  totalPaidLifetime Float     @default(0)
+  totalHeld         Float     @default(0)
+  cyclesCount       Int       @default(0)
+  lastPaidAt        DateTime?
+
+  // ── HR file
+  employeeNumber   String?
+  managerName      String?
+  emergencyContact String?
+  notes            String?
+
+  // ── Relations
+  cycles       RetainedPayrollCycle[]
+  documents    RetainedStaffDocument[]
+  staffNotes   RetainedStaffNote[]
+  revisions    RetainedStaffRevision[]
+  conversation Conversation?           @relation("RetainedStaffConversation")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hirerId, status])
+  @@index([workerId, status])
+  @@index([hirerId, workerId])
+  @@index([nextCycleAt])
+  @@index([createdAt(sort: Desc)])
+}
+
+model RetainedPayrollCycle {
+  id       String              @id @default(uuid())
+  memberId String
+  member   RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  hirerId  String
+  hirer    User                @relation("HirerRetainedCycles", fields: [hirerId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   User                @relation("WorkerRetainedCycles", fields: [workerId], references: [id], onDelete: Restrict)
+
+  // ── Cycle definition
+  type        RetainedCycleType @default(REGULAR)
+  periodStart DateTime
+  periodEnd   DateTime
+  payDate     DateTime
+  label       String?
+
+  // ── Amounts (snapshot)
+  baseAmount      Float
+  bonusAmount     Float   @default(0)
+  deductionAmount Float   @default(0)
+  grossAmount     Float
+  netAmount       Float
+  currency        String  @default("NGN")
+  platformFee     Float   @default(0)
+  workerPayout    Float
+  notes           String?
+
+  // ── Status
+  status        RetainedCycleStatus   @default(AWAITING_PAYMENT)
+  paymentMethod RetainedPaymentMethod @default(ESCROW)
+
+  // ── Financial shell
+  bookingId String?  @unique
+  booking   Booking? @relation("RetainedCycleBooking", fields: [bookingId], references: [id], onDelete: SetNull)
+
+  // ── Cron idempotency
+  autoGenerated Boolean @default(false)
+  cronLockKey   String? @unique
+
+  // ── Timing
+  paidAt        DateTime?
+  releasedAt    DateTime?
+  cancelledAt   DateTime?
+  failureReason String?
+
+  // ── Relations
+  disputes Dispute[] @relation("RetainedCycleDisputes")
+  refunds  Refund[]  @relation("RetainedCycleRefunds")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([memberId, status])
+  @@index([hirerId, status])
+  @@index([workerId, status])
+  @@index([payDate])
+  @@index([status, payDate])
+  @@index([periodStart, periodEnd])
+  @@index([createdAt(sort: Desc)])
+}
+
+model RetainedStaffDocument {
+  id            String                 @id @default(uuid())
+  memberId      String
+  member        RetainedStaffMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  type          RetainedDocumentType
+  title         String
+  fileUrl       String
+  mimeType      String?
+  sizeBytes     Int?
+  status        RetainedDocumentStatus @default(PENDING)
+  uploadedById  String
+  uploadedBy    User                   @relation("UploadedRetainedDocs", fields: [uploadedById], references: [id])
+  signedAt      DateTime?
+  expiresAt     DateTime?
+  rejectionNote String?
+  meta          Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([memberId])
+  @@index([type])
+  @@index([status])
+}
+
+model RetainedStaffNote {
+  id        String              @id @default(uuid())
+  memberId  String
+  member    RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User                @relation("RetainedNotes", fields: [authorId], references: [id])
+  title     String
+  body      String
+  category  String              @default("GENERAL") // PERFORMANCE | DISCIPLINE | PRAISE | GENERAL
+  isPrivate Boolean             @default(true)
+  createdAt DateTime            @default(now())
+
+  @@index([memberId, createdAt(sort: Desc)])
+}
+
+model RetainedStaffRevision {
+  id          String              @id @default(uuid())
+  memberId    String
+  member      RetainedStaffMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  changedById String
+  changedBy   User                @relation("RetainedRevisions", fields: [changedById], references: [id])
+  field       String
+  oldValue    Json?
+  newValue    Json?
+  reason      String?
+  createdAt   DateTime            @default(now())
+
+  @@index([memberId, createdAt(sort: Desc)])
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT SYSTEM — Tickets + threaded messages
+// ═════════════════════════════════════════════════════════════════════
+
+enum SupportTicketCategory {
+  ACCOUNT
+  PAYMENT
+  BOOKING
+  TECHNICAL
+  VERIFICATION
+  WITHDRAWAL
+  REFERRAL
+  RETAINED_STAFF
+  ABUSE_REPORT
+  FEATURE_REQUEST
+  OTHER
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  WAITING_ADMIN
+  RESOLVED
+  CLOSED
+}
+
+enum SupportAuthorType {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+enum SupportChatStatus {
+  ACTIVE
+  WAITING_AGENT
+  AGENT_ASSIGNED
+  ENDED
+  ESCALATED
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT TICKETS
+// ═════════════════════════════════════════════════════════════════════
+
+model SupportTicket {
+  id           String @id @default(uuid())
+  ticketNumber String @unique // "SKP-000123"
+  userId       String
+  user         User   @relation("UserSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+
+  category    SupportTicketCategory
+  priority    SupportTicketPriority @default(NORMAL)
+  status      SupportTicketStatus   @default(OPEN)
+  subject     String
+  description String
+  attachments Json? // [{ url, name, mime, size, type, thumbnailUrl?, duration?, publicId }]
+
+  // Assignment
+  assignedAdminId String?
+  assignedAdmin   User?     @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
+
+  // Optional linkage to a domain object (booking, payment, withdrawal, etc.)
+  relatedType String?
+  relatedId   String?
+
+  // Lifecycle timestamps
+  firstResponseAt DateTime?
+  lastReplyAt     DateTime?
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  reopenedCount   Int       @default(0)
+  autoCloseAt     DateTime?
+
+  // ── Escalation link (OWNING side — FK column lives here) ─────────────
+  chatConversationId String?              @unique
+  chatConversation   SupportConversation? @relation("ChatEscalatedToTicket", fields: [chatConversationId], references: [id], onDelete: SetNull)
+
+  // CSAT
+  csatRating      Int?
+  csatComment     String?
+  csatSubmittedAt DateTime?
+
+  messages  SupportMessage[]
+  auditLogs SupportTicketAudit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([assignedAdminId, status])
+  @@index([category, status])
+  @@index([priority, status])
+  @@index([lastReplyAt(sort: Desc)])
+}
+
+model SupportMessage {
+  id          String            @id @default(uuid())
+  ticketId    String
+  ticket      SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User              @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorType  SupportAuthorType
+  body        String
+  attachments Json?
+  isInternal  Boolean           @default(false) // internal admin notes — hidden from user
+
+  // ── NEW FIELDS for Reply & Optimistic UI ──
+  tempId    String? // Tracks optimistic UI to prevent duplicates
+  replyToId String?
+  replyTo   SupportMessage?  @relation("SupportMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   SupportMessage[] @relation("SupportMessageReplies")
+
+  readByUserAt  DateTime?
+  readByAdminAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+  @@index([tempId])
+}
+
+model SupportTicketAudit {
+  id       String        @id @default(uuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId  String
+  actor    User          @relation("SupportTicketAuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  action    String
+  fromValue String?
+  toValue   String?
+  note      String?
+  meta      Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// SUPPORT LIVE CHAT
+// ═════════════════════════════════════════════════════════════════════
+
+model SupportConversation {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation("UserSupportChats", fields: [userId], references: [id], onDelete: Cascade)
+
+  status  SupportChatStatus @default(ACTIVE)
+  subject String?
+
+  // Agent assignment
+  assignedAdminId String?
+  assignedAdmin   User?     @relation("AssignedSupportChats", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
+
+  // Pre-chat context
+  preChatCategory SupportTicketCategory?
+  preChatMessage  String?
+  source          String                 @default("WEB")
+
+  // Read receipts & denormalized preview
+  userLastReadAt     DateTime?
+  adminLastReadAt    DateTime?
+  lastMessageAt      DateTime?
+  lastMessagePreview String?
+
+  // ── Escalation link (BACK-REFERENCE side) ──
+  escalatedTicket SupportTicket? @relation("ChatEscalatedToTicket")
+
+  // CSAT
+  csatRating      Int?
+  csatComment     String?
+  csatSubmittedAt DateTime?
+
+  endedAt   DateTime?
+  endedById String?
+  endedBy   User?     @relation("SupportChatEndedBy", fields: [endedById], references: [id], onDelete: SetNull)
+
+  messages     SupportChatMessage[]
+  participants SupportChatParticipant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, lastMessageAt(sort: Desc)])
+  @@index([assignedAdminId, status])
+}
+
+model SupportChatMessage {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User                @relation("SupportChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderType     SupportAuthorType
+
+  body        String?
+  attachments Json?
+  systemEvent String? // "AGENT_JOINED" | "AGENT_LEFT" | "ESCALATED" | "ENDED"
+
+  // ── NEW FIELDS for Reply & Optimistic UI ──
+  tempId    String? // Tracks optimistic UI to prevent duplicates
+  replyToId String?
+  replyTo   SupportChatMessage?  @relation("SupportChatMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   SupportChatMessage[] @relation("SupportChatMessageReplies")
+
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([tempId])
+}
+
+model SupportChatParticipant {
+  id             String              @id @default(uuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation("SupportChatParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+  role       String    @default("AGENT") // "USER" | "AGENT" | "SUPERVISOR"
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  lastReadAt DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  subject   String?
+  message   String
+  status    String   @default("PENDING") // PENDING | REVIEWED | RESOLVED
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}

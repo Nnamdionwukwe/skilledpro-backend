@@ -18,6 +18,11 @@ import {
   timeAgo,
   safeUser,
 } from "../utils/helpers.js";
+import { asyncHandler } from "../middleware/error.middleware.js"; // ✅ NEW
+import {
+  buildCallUrl,
+  emitIncomingCall,
+} from "../services/videoCall.service.js";
 
 export const createJobPost = async (req, res) => {
   try {
@@ -1824,3 +1829,96 @@ export const reconsiderApplication = async (req, res) => {
     return sendError(res, "Failed to reconsider application");
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// startInterviewCall
+// Creates (or reuses) a VideoCall row for a job-application interview and
+// returns the room URL. Emits "video-call:incoming" to the other party so
+// their open tab / device shows the incoming-call banner.
+// ─────────────────────────────────────────────────────────────────────────────
+export const startInterviewCall = asyncHandler(async (req, res) => {
+  const { applicationId } = req.params;
+  const userId = req.user.id;
+
+  const application = await prisma.jobApplication.findUnique({
+    where: { id: applicationId },
+    include: {
+      jobPost: { select: { id: true, title: true, hirerId: true } },
+      worker: {
+        select: { id: true, firstName: true, lastName: true, avatar: true },
+      },
+    },
+  });
+
+  if (!application) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Application not found" });
+  }
+
+  const isHirer = application.jobPost.hirerId === userId;
+  const isWorker = application.workerId === userId;
+  if (!isHirer && !isWorker) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Not authorised for this call" });
+  }
+
+  const calleeId = isHirer ? application.workerId : application.jobPost.hirerId;
+
+  // Reuse an existing active call for this application if one is still open.
+  let call = await prisma.videoCall.findFirst({
+    where: {
+      jobApplicationId: applicationId,
+      status: { in: ["PENDING", "RINGING", "ACTIVE"] },
+    },
+  });
+
+  if (!call) {
+    call = await prisma.videoCall.create({
+      data: {
+        jobApplicationId: applicationId,
+        roomId: `interview-${applicationId}-${Date.now()}`,
+        callType: "JOB_INTERVIEW",
+        status: "RINGING",
+        initiatorId: userId,
+        receiverId: calleeId,
+        startedAt: new Date(),
+      },
+    });
+  }
+
+  // Notify the callee over the socket.
+  const io = req.app.get("io");
+  if (io) {
+    const caller = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, firstName: true, lastName: true, avatar: true },
+    });
+    emitIncomingCall(io, {
+      calleeId,
+      call: {
+        id: call.id,
+        roomId: call.roomId,
+        callType: "JOB_INTERVIEW",
+        contextId: application.id,
+        callerId: userId,
+        callerName:
+          `${caller?.firstName ?? ""} ${caller?.lastName ?? ""}`.trim() ||
+          "Hirer",
+        callerAvatar: caller?.avatar ?? null,
+        title: `Interview — ${application.jobPost.title}`,
+        createdAt: call.createdAt,
+      },
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      callId: call.id,
+      roomId: call.roomId,
+      callUrl: buildCallUrl(call.roomId),
+    },
+  });
+});
