@@ -105,19 +105,34 @@ export const initiateCall = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Helper: Find a call by EITHER its callId OR its bookingId.
+// Interview calls are addressed by callId; booking calls by bookingId.
+// ─────────────────────────────────────────────────────────────────────────────
+async function findCallByParam(id) {
+  // Try by primary key first (works for interview calls where the frontend
+  // passes the VideoCall.id, and also for booking calls that pass the callId)
+  let call = await prisma.videoCall.findUnique({ where: { id } });
+
+  // Fallback: legacy booking flow — the URL param is the bookingId
+  if (!call) {
+    call = await prisma.videoCall.findUnique({ where: { bookingId: id } });
+  }
+
+  return call;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/video-calls/:bookingId/accept
 // ─────────────────────────────────────────────────────────────────────────────
 export const acceptCall = async (req, res) => {
   try {
-    const call = await prisma.videoCall.findUnique({
-      where: { bookingId: req.params.bookingId },
-    });
+    const call = await findCallByParam(req.params.bookingId);
     if (!call) return sendError(res, "Call not found", 404);
     if (call.receiverId !== req.user.id)
       return sendError(res, "Forbidden", 403);
 
     const updated = await prisma.videoCall.update({
-      where: { bookingId: req.params.bookingId },
+      where: { id: call.id },
       data: { status: "ACTIVE", startedAt: new Date() },
     });
 
@@ -130,7 +145,7 @@ export const acceptCall = async (req, res) => {
         body: "The other party accepted your video call.",
         type: "VIDEO_CALL_ACCEPTED",
         data: {
-          bookingId: req.params.bookingId,
+          bookingId: call.bookingId,
           roomId: call.roomId,
           callUrl,
         },
@@ -151,13 +166,11 @@ export const acceptCall = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const declineCall = async (req, res) => {
   try {
-    const call = await prisma.videoCall.findUnique({
-      where: { bookingId: req.params.bookingId },
-    });
+    const call = await findCallByParam(req.params.bookingId);
     if (!call) return sendError(res, "Call not found", 404);
 
     await prisma.videoCall.update({
-      where: { bookingId: req.params.bookingId },
+      where: { id: call.id },
       data: { status: "DECLINED" },
     });
 
@@ -167,7 +180,7 @@ export const declineCall = async (req, res) => {
         title: "📹 Call Declined",
         body: "The other party declined your video call.",
         type: "VIDEO_CALL_DECLINED",
-        data: { bookingId: req.params.bookingId },
+        data: { bookingId: call.bookingId },
       },
     });
 
@@ -182,13 +195,11 @@ export const declineCall = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const endCall = async (req, res) => {
   try {
-    const call = await prisma.videoCall.findUnique({
-      where: { bookingId: req.params.bookingId },
-    });
+    const call = await findCallByParam(req.params.bookingId);
     if (!call) return sendError(res, "Call not found", 404);
 
     const updated = await prisma.videoCall.update({
-      where: { bookingId: req.params.bookingId },
+      where: { id: call.id },
       data: { status: "ENDED", endedAt: new Date() },
     });
 
@@ -207,9 +218,7 @@ export const endCall = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getCallStatus = async (req, res) => {
   try {
-    const call = await prisma.videoCall.findUnique({
-      where: { bookingId: req.params.bookingId },
-    });
+    const call = await findCallByParam(req.params.bookingId);
 
     if (!call) {
       return sendResponse(res, { data: { call: null, callUrl: null } });
@@ -233,9 +242,7 @@ export const getCallStatus = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getCallUrl = async (req, res) => {
   try {
-    const call = await prisma.videoCall.findUnique({
-      where: { bookingId: req.params.bookingId },
-    });
+    const call = await findCallByParam(req.params.bookingId);
     if (!call) return sendError(res, "Call not found", 404);
 
     return sendResponse(res, {
@@ -249,6 +256,7 @@ export const getCallUrl = async (req, res) => {
     return sendError(res, "Failed to fetch call URL");
   }
 };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/video-calls/incoming
 //
