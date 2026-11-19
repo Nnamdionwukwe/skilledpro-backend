@@ -155,7 +155,7 @@ const r = {
     .withMessage("page must be a positive integer"),
   limit: query("limit")
     .optional()
-    .isInt({ min: 1, max: 100 })
+    .isInt({ min: 1, max: 1000 })
     .withMessage("limit must be between 1 and 100"),
 };
 
