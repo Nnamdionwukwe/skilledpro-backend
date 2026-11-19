@@ -431,7 +431,7 @@ export const getTrending = async (req, res) => {
       prisma.category.findMany({
         include: { _count: { select: { bookings: true, workers: true } } },
         orderBy: { bookings: { _count: "desc" } },
-        take: 12,
+        take: 1000,
       }),
       prisma.workerProfile.findMany({
         where: {
