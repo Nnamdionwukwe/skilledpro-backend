@@ -485,7 +485,6 @@ export const getTrending = async (req, res) => {
           },
         },
         orderBy: { createdAt: "desc" },
-        take: 8,
       }),
     ]);
 
