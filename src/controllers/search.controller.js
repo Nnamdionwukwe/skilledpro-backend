@@ -108,8 +108,6 @@ export const globalSearch = async (req, res) => {
       let [workers, workerTotal] = await Promise.all([
         prisma.workerProfile.findMany({
           where: workerWhere,
-          skip,
-          take,
           include: {
             user: {
               select: {
