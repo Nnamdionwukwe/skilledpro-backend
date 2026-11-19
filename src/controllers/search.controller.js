@@ -130,6 +130,8 @@ export const globalSearch = async (req, res) => {
             },
           },
           orderBy: [{ avgRating: "desc" }, { completedJobs: "desc" }],
+          take,
+          skip,
         }),
         prisma.workerProfile.count({ where: workerWhere }),
       ]);
@@ -298,7 +300,7 @@ export const nearbyWorkers = async (req, res) => {
       language,
       gender,
       verification,
-      limit = 20,
+      limit = 1000,
     } = req.query;
 
     if (!lat || !lng)
