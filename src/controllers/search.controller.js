@@ -45,6 +45,7 @@ export const globalSearch = async (req, res) => {
       lng,
       radius,
       page = 1,
+      limit = 1000,
     } = req.query;
 
     if (!q || q.trim().length < 2) {
